@@ -244,12 +244,20 @@ export const RENEWAL_STAGES: RenewalStageDefinition[] = [
   { stage: 'renewed', label: 'Renewed', startsAtDays: 0, description: 'Contract renewed.' },
 ];
 
+/**
+ * Map days remaining onto the renewal timeline.
+ *
+ * A stage BEGINS when the countdown reaches its threshold and runs until the
+ * next stage begins, so 58 days out sits in Negotiate (30 < 58 ≤ 60), not in
+ * Finalize. The correct stage is therefore the last one whose threshold still
+ * covers the countdown.
+ */
 export function stageForDaysRemaining(daysRemaining: number): RenewalStage {
-  if (daysRemaining > 180) return 'analyze';
+  let current: RenewalStage = 'analyze';
   for (const definition of RENEWAL_STAGES) {
-    if (daysRemaining > definition.startsAtDays) return definition.stage;
+    if (daysRemaining <= definition.startsAtDays) current = definition.stage;
   }
-  return 'renewed';
+  return current;
 }
 
 export function buildRenewals(
