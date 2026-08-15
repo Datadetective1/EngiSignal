@@ -83,6 +83,24 @@ export const supabaseIngestionStore: IngestionStore = {
         throw new Error('Refusing to commit records belonging to another organization.');
       }
     }
+    // Checked BEFORE inserting anything. The unique index is partial on
+    // status='complete', so without this the collision only surfaces on the
+    // final status update — after every canonical row has been written and
+    // then rolled back. Correct, but wasteful and it surfaced a raw database
+    // message to the caller instead of a clean duplicate response.
+    if (contentFingerprint !== undefined) {
+      const { data: prior } = await (await db())
+        .from('imports')
+        .select('id')
+        .eq('organization_id', organizationId)
+        .eq('content_fingerprint', contentFingerprint)
+        .eq('status', 'complete')
+        .maybeSingle();
+      if (prior !== null) {
+        throw new DuplicateImportError((prior.id as string | undefined) ?? null);
+      }
+    }
+
     const uploadedAt = new Date().toISOString();
     const { error: importError } = await (await db()).from('imports').insert({
       id: importId,
@@ -222,6 +240,11 @@ export const supabaseIngestionStore: IngestionStore = {
       .eq('organization_id', organizationId);
     if (finalizeError !== null) {
       await (await db()).from('imports').delete().eq('id', importId).eq('organization_id', organizationId);
+      // Two commits of the same content racing: the loser lands here. It is a
+      // duplicate, not a server error, and the rows it wrote are already gone.
+      if (isDuplicateImportError(finalizeError)) {
+        throw new DuplicateImportError(null);
+      }
       throw new Error(`Could not finalize the import: ${finalizeError.message}`);
     }
     return {
