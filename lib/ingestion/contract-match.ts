@@ -35,7 +35,7 @@
  * Guessing is neither.
  */
 
-import type { CanonicalContractRecord } from './canonical/types';
+import type { CanonicalContractRecord, LicenseModel } from './canonical/types';
 import type { FeatureIdentity } from './identity';
 import { normalizeFeatureKey } from './identity';
 
@@ -262,6 +262,14 @@ export interface MergedPosition {
   hasUnannualizedTotal: boolean;
   /** Distinct currencies seen. More than one means the figures are not summable. */
   currencies: string[];
+  /**
+   * Distinct licence models the contract lines stated, excluding 'unknown'.
+   *
+   * Exactly one is evidence of how the feature is licensed. Two is a conflict
+   * the customer has to settle — the position spans a named-user block and a
+   * concurrent block, and analysing the whole thing as either would be wrong.
+   */
+  licenseModels: LicenseModel[];
 }
 
 export function mergePositions(links: readonly ContractLink[]): Map<string, MergedPosition> {
@@ -290,6 +298,7 @@ export function mergePositions(links: readonly ContractLink[]): Map<string, Merg
         lineCount: 0,
         hasUnannualizedTotal: false,
         currencies: [],
+        licenseModels: [],
       };
     positions.set(key, position);
 
@@ -316,6 +325,13 @@ export function mergePositions(links: readonly ContractLink[]): Map<string, Merg
     }
     if (record.currency !== null && !position.currencies.includes(record.currency)) {
       position.currencies.push(record.currency);
+    }
+    if (
+      record.licenseModel !== null &&
+      record.licenseModel !== 'unknown' &&
+      !position.licenseModels.includes(record.licenseModel)
+    ) {
+      position.licenseModels.push(record.licenseModel);
     }
     if (record.contractNumber !== null && !position.contractNumbers.includes(record.contractNumber)) {
       position.contractNumbers.push(record.contractNumber);

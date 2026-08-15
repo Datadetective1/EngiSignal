@@ -17,6 +17,7 @@ function employee(id: string, department: string, program = 'Program Halo'): Emp
     email: null,
     organization: null,
     managerName: 'M. Okafor',
+    managerKey: 'mgr-1',
     department,
     businessUnit: 'Aerostructures',
     program,

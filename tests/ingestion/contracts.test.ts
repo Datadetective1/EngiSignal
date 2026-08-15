@@ -1005,3 +1005,106 @@ describe('commercial files are not attributed to a license manager', () => {
     expect(analysis.detection.source).toBe('flexnet');
   });
 });
+
+/**
+ * THE LICENCE MODEL THE CONTRACT STATED.
+ *
+ * Found in Phase 2C while building a named-user reclaim fixture: a contract
+ * line reading "License Type: Named User" was discarded, and the feature was
+ * analysed as concurrent because no entitlement export existed to say
+ * otherwise. Concurrent analysis right-sizes to peak simultaneous demand, which
+ * for named-user software is always well below the number of people holding a
+ * seat — so the recommendation was to surrender seats real named people were
+ * using, stated with full confidence.
+ */
+describe('reading the licence model from the contract', () => {
+  const organization: Organization = {
+    id: ORG,
+    name: 'Test Manufacturing',
+    slug: 'test-manufacturing',
+    industry: null,
+    technicalHeadcount: 100,
+    headcountGrowthRate: null,
+    currency: 'USD',
+    isDemo: false,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  };
+
+  function build(contracts: CanonicalContractRecord[], entitlements: Parameters<typeof buildDatasetFromCanonical>[0]['entitlements'] = []) {
+    return buildDatasetFromCanonical({
+      organization,
+      usage: [usage('matlab', '2026-06-01', 4)],
+      entitlements,
+      people: [],
+      contracts,
+      asOf: '2026-08-15',
+    });
+  }
+
+  it('uses the model the contract stated when no entitlement file exists', () => {
+    const dataset = build([contract({ feature: 'matlab', quantity: 40, licenseModel: 'named_user' })]);
+    expect(dataset.features[0]!.licenseModel).toBe('named_user');
+  });
+
+  it('still lets the entitlement win, because it describes what is served', () => {
+    const dataset = build(
+      [contract({ feature: 'matlab', quantity: 40, licenseModel: 'named_user' })],
+      [
+        {
+          feature: 'matlab', product: null, vendor: null, entitledQuantity: 30,
+          licenseModel: 'concurrent', licenseServer: null, pool: null,
+          expiresOn: null, provenance: provenance(2),
+        },
+      ],
+    );
+    expect(dataset.features[0]!.licenseModel).toBe('concurrent');
+  });
+
+  it('does not choose between two contract lines that disagree', () => {
+    const dataset = build([
+      contract({ feature: 'matlab', quantity: 20, licenseModel: 'named_user' }),
+      contract({ feature: 'matlab', quantity: 20, licenseModel: 'concurrent', provenance: provenance(3) }),
+    ]);
+    // Neither line is picked. The default stands and the split stays visible.
+    expect(dataset.features[0]!.licenseModel).toBe('concurrent');
+  });
+
+  it('leaves the default alone when the contract says nothing', () => {
+    const dataset = build([contract({ feature: 'matlab', quantity: 40 })]);
+    expect(dataset.features[0]!.licenseModel).toBe('concurrent');
+  });
+
+  it('maps a node-locked contract to custom rather than analysing it as concurrent', () => {
+    const dataset = build([contract({ feature: 'matlab', quantity: 40, licenseModel: 'node_locked' })]);
+    expect(dataset.features[0]!.licenseModel).toBe('custom');
+  });
+
+  it('does not right-size a named-user feature against peak concurrency', () => {
+    // 40 seats bought, 4 concurrent at peak. Concurrent analysis would call 36
+    // of them surplus. Named-user analysis has no per-person evidence here, so
+    // it must not produce that number.
+    const dataset = build([
+      contract({ feature: 'matlab', quantity: 40, unitPrice: 900, currency: 'USD', licenseModel: 'named_user' }),
+    ]);
+    const rows = buildPortfolio({ ...dataset, asOf: '2026-08-15' }, DEFAULT_ANALYSIS_OPTIONS);
+    const row = rows.find((entry) => entry.featureId === 'feature:matlab')!;
+
+    expect(row.licenseModel).toBe('named_user');
+    expect(row.rightSizing?.surplus ?? 0).toBeLessThan(36);
+  });
+
+  it('records the distinct models a position carried', () => {
+    const links = linkContracts({
+      contracts: [
+        contract({ feature: 'matlab', quantity: 20, licenseModel: 'named_user' }),
+        contract({ feature: 'matlab', quantity: 20, licenseModel: 'named_user', provenance: provenance(3) }),
+        contract({ feature: 'matlab', quantity: 5, licenseModel: 'unknown', provenance: provenance(4) }),
+      ],
+      features: resolveFeatures([usage('matlab', '2026-06-01', 4)]),
+    });
+    const position = mergePositions(links.links).get('matlab')!;
+
+    // 'unknown' is not a model, so it does not create a disagreement.
+    expect(position.licenseModels).toEqual(['named_user']);
+  });
+});

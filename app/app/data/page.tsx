@@ -89,7 +89,8 @@ export default async function DataPage() {
           label="Employee mapping"
           value={formatPercent(dataset.employeeMappingRate * 100, 0)}
           detail={`${openUnmatched} usernames unresolved`}
-          href="/app/data/unmatched-users"
+          // The page where the customer can decide, not just the inventory.
+          href="/app/data/users"
         />
         <Kpi
           label="Feature mapping"

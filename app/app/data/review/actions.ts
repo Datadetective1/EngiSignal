@@ -69,14 +69,22 @@ export async function decideIdentityAction(formData: FormData): Promise<ActionRe
   // Every analytical surface reads the alias map, so all of them change.
   revalidatePath('/app', 'layout');
 
+  // The two queues merge different things, and a message written for one reads
+  // as nonsense on the other — a person does not have a demand curve.
+  const person = parsed.data.kind === 'user';
+
   return {
     ok: true,
     message:
       parsed.data.decision === 'confirmed'
-        ? 'Confirmed. This position now shares a demand curve with the feature you chose.'
+        ? person
+          ? 'Confirmed. This usage is now attributed to that person, and to their department, manager and cost centre.'
+          : 'Confirmed. This position now shares a demand curve with the feature you chose.'
         : parsed.data.decision === 'rejected'
           ? 'Rejected. That suggestion will not be offered again.'
-          : 'Kept separate. This remains its own position.',
+          : person
+            ? 'Kept separate. This account stays unattributed, and its share of spend stays in the unallocated total.'
+            : 'Kept separate. This remains its own position.',
   };
 }
 

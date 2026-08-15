@@ -120,7 +120,16 @@ export interface Employee {
   username: string;
   fullName: string;
   email: string | null;
+  /** The manager's name, for display. Never used to build a relationship. */
   managerName: string | null;
+  /**
+   * The manager's employee id or email.
+   *
+   * The only field a reporting line may be built from. Grouping by name would
+   * merge every J. Smith in the company into one manager and route other
+   * people's reclaim decisions to them.
+   */
+  managerKey: string | null;
   department: string | null;
   /** Top-level organization or legal entity, when the HR export carries one. */
   organization: string | null;

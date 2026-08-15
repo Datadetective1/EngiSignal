@@ -47,6 +47,7 @@ import type {
   Organization,
   Product,
   ProductFamily,
+  LicenseModel,
   SoftwareFeature,
   UnmappedFeature,
   UnmatchedUser,
@@ -231,6 +232,41 @@ export function buildDatasetFromCanonical(input: BuildDatasetInput): AnalyticsDa
     }
   }
 
+  // ── Contract positions ─────────────────────────────────────────────────────
+  //
+  // Merged here, before features, because the licence model below reads them.
+  const contractLinks = linkContracts({
+    contracts: contractRecords,
+    features: observedIdentities,
+    aliases: featureAliases,
+  });
+  const positions = mergePositions(contractLinks.links);
+
+  // ── How each feature is licensed ───────────────────────────────────────────
+  //
+  // The entitlement file is the first authority: it describes how the licence
+  // server actually issues the licence. But plenty of estates have no
+  // entitlement export at all, and their contract file plainly states "Named
+  // User" in a licence-type column. Reading that column is not inference — it
+  // is the customer telling us what they bought.
+  //
+  // It matters far more than it looks. A named-user product analysed as
+  // concurrent gets peak-concurrency right-sizing, and peak concurrency is
+  // always below headcount because people do not all open the software at
+  // once. That would recommend surrendering seats individual named people
+  // hold — a confident recommendation, and financially wrong.
+  //
+  // Two contract lines that disagree are not resolved here. A position spanning
+  // a named-user block and a concurrent block is a real split the customer has
+  // to settle, and picking a side would fabricate the answer.
+  const contractModelByKey = new Map<string, LicenseModel>();
+  for (const [key, position] of positions) {
+    if (position.licenseModels.length !== 1) continue;
+    const model = position.licenseModels[0]!;
+    if (model === 'unknown') continue;
+    contractModelByKey.set(key, model === 'node_locked' ? 'custom' : model);
+  }
+
   const features: SoftwareFeature[] = featureIdentities.map((identity) => {
     const entitlement = entitlementByKey.get(identity.key);
     const vendor = identity.vendor ?? UNKNOWN_VENDOR;
@@ -241,11 +277,12 @@ export function buildDatasetFromCanonical(input: BuildDatasetInput): AnalyticsDa
       name: identity.displayName,
       code: identity.displayName,
       licenseModel:
-        entitlement === undefined || entitlement.licenseModel === 'unknown'
-          ? 'concurrent'
-          : entitlement.licenseModel === 'node_locked'
+        entitlement !== undefined && entitlement.licenseModel !== 'unknown'
+          ? entitlement.licenseModel === 'node_locked'
             ? 'custom'
-            : entitlement.licenseModel,
+            : entitlement.licenseModel
+          : // No served model. The contract may still have stated one.
+            contractModelByKey.get(identity.key) ?? 'concurrent',
       // Never inferred. A token weight the file did not state cannot be
       // guessed, and a wrong weight misprices the whole feature.
       tokenWeight: null,
@@ -269,12 +306,6 @@ export function buildDatasetFromCanonical(input: BuildDatasetInput): AnalyticsDa
   // purchased number the server never honoured would compute headroom against
   // capacity that does not exist. Price and dates come from the contract, which
   // is the only source that carries them.
-  const contractLinks = linkContracts({
-    contracts: contractRecords,
-    features: observedIdentities,
-    aliases: featureAliases,
-  });
-  const positions = mergePositions(contractLinks.links);
 
   const contracts: Contract[] = [];
   const contractItems: ContractItem[] = [];
@@ -364,6 +395,7 @@ export function buildDatasetFromCanonical(input: BuildDatasetInput): AnalyticsDa
       // conversation to the wrong director, and "Unknown" as a real group tells
       // them their team uses nothing.
       managerName: identity.org.managerName,
+      managerKey: identity.org.managerKey,
       department: identity.org.department,
       organization: identity.org.organization,
       businessUnit: identity.org.businessUnit,

@@ -58,12 +58,16 @@ export default async function UnmatchedUsersPage() {
         </Link>
         <span>/</span>
         <span>Unmatched users</span>
+        <span className="flex-1" />
+        <Link href="/app/data/users" className="hover:text-fg">
+          Resolve these →
+        </Link>
       </nav>
 
       <SectionHeading
         eyebrow="Identity resolution"
         title="Usernames with no employee record"
-        description="Until these are resolved, their usage cannot be attributed to a department, program or manager — which limits cost allocation and reclaim accuracy."
+        description="Until these are resolved, their usage cannot be attributed to a department, program or manager — which limits cost allocation and reclaim accuracy. This page is the inventory; identity review is where you decide."
       />
 
       <div className="grid gap-3 sm:grid-cols-3">

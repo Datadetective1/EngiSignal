@@ -28,6 +28,7 @@ function employee(id: string, department: string | null, overrides: Partial<Empl
     fullName: `Person ${id}`,
     email: `${id}@example.com`,
     managerName: 'M. Okafor',
+    managerKey: 'mgr-1',
     department,
     organization: 'Aero Division',
     businessUnit: 'Engineering',

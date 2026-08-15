@@ -357,9 +357,20 @@ export function resolveUsers(
     if (identity.status === 'matched' || identity.status === 'confirmed') continue;
 
     // 1. A human already answered this. Beats every inference.
+    //
+    // The target is looked up across all three identifiers, not username
+    // alone. A people export whose username column is blank still identifies
+    // its people by employee code, and the review queue will happily offer one
+    // of them as a candidate — so a username-only lookup made Confirm a silent
+    // no-op: the decision was recorded, the screen said "Confirmed", and the
+    // usage stayed unattributed with nothing on any page saying why.
     const confirmedTarget = confirmed.get(key);
     if (confirmedTarget !== undefined) {
-      const target = byUsername.get(normalizeUserKey(confirmedTarget))?.[0];
+      const targetKey = normalizeUserKey(confirmedTarget);
+      const target =
+        byUsername.get(targetKey)?.[0] ??
+        byCode.get(targetKey)?.[0] ??
+        byEmail.get(targetKey)?.[0];
       if (target !== undefined) {
         attach(identity, target, 'confirmed');
         continue;
