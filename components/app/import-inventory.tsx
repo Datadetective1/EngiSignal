@@ -56,10 +56,12 @@ export function ImportInventory({
   imports,
   coverage,
   ephemeral,
+  serverless = false,
 }: {
   imports: ImportRow[];
   coverage: CoverageRow;
   ephemeral: boolean;
+  serverless?: boolean;
 }) {
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -102,8 +104,22 @@ export function ImportInventory({
       <div className="space-y-5 px-5 py-5">
         {ephemeral && (
           <p className="rounded-md border border-warning/40 bg-warning-soft px-3.5 py-2.5 text-[12px] leading-relaxed text-warning">
-            This environment stores imports in memory for the life of the server process. They are not
-            durable and will reset on restart. Configure Supabase for persistent storage.
+            {serverless ? (
+              <>
+                <span className="font-medium">
+                  This demo runs on serverless functions with in-memory storage, so an import will
+                  usually not appear in this list.
+                </span>{' '}
+                Each request can be handled by a different instance, and an import written by one is
+                invisible to the next. Detection, mapping, validation and the normalized preview are
+                fully functional; durable storage and import history require Supabase.
+              </>
+            ) : (
+              <>
+                This environment stores imports in memory for the life of the server process. They are
+                not durable and will reset on restart. Configure Supabase for persistent storage.
+              </>
+            )}
           </p>
         )}
 

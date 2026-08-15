@@ -17,7 +17,7 @@ import { formatDate } from '@/lib/analytics/dates';
 import { formatNumber, formatPercent } from '@/lib/analytics/financial';
 import { CONNECTORS } from '@/lib/connectors';
 import { IMPORT_KINDS, IMPORT_SCHEMAS } from '@/lib/import/schema';
-import { getIngestionStore, isEphemeralStore } from '@/lib/ingestion/store';
+import { getIngestionStore, isEphemeralStore, isServerlessEphemeral } from '@/lib/ingestion/store';
 import { loadWorkspace } from '@/lib/workspace';
 
 export const metadata: Metadata = { title: 'Data' };
@@ -55,6 +55,7 @@ export default async function DataPage() {
         imports={ingestedImports}
         coverage={ingestedCoverage}
         ephemeral={isEphemeralStore()}
+        serverless={isServerlessEphemeral()}
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
