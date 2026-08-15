@@ -10,12 +10,11 @@
 import 'server-only';
 import type { DataProvider } from './provider';
 import { mockProvider } from './mock-provider';
-import { hasSupabaseEnv, supabaseProvider } from './supabase-provider';
+import { supabaseEnabled } from '@/config/env';
+import { supabaseProvider } from './supabase-provider';
 
 export function getDataProvider(): DataProvider {
-  if (process.env.ENGISIGNAL_DATA_PROVIDER === 'supabase' && hasSupabaseEnv()) {
-    return supabaseProvider;
-  }
+  if (supabaseEnabled()) return supabaseProvider;
   return mockProvider;
 }
 

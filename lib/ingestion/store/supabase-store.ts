@@ -1,455 +1,448 @@
-/**
- * The Supabase ingestion store.
- *
- * Isolation is enforced at three layers, matching the rest of the product: RLS
- * in the database, an explicit organization_id filter on every statement here,
- * and the required orgId argument in the IngestionStore signature.
- *
- * COMMIT SEMANTICS
- *
- * The JS client has no multi-statement transaction, so commit is ordered to be
- * safe without one:
- *
- *   1. Insert the import row as `importing`.
- *   2. Insert canonical rows in chunks.
- *   3. On any failure, delete the import row — which cascades to every row it
- *      wrote — and surface the error. Nothing half-imported survives.
- *   4. Only then mark the import `complete`.
- *
- * A reader therefore never sees a `complete` import whose records are missing,
- * and a failed import leaves no partial data behind.
- */
-
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import type {
-  CanonicalEntitlementRecord,
-  CanonicalPersonRecord,
-  CanonicalUsageRecord,
-  IngestionWarning,
-  QualityReport,
-  SourceSystem,
-} from '../canonical/types';
-import type {
-  CommitInput,
-  CoverageSummary,
-  ImportDetail,
-  ImportLifecycle,
-  ImportSummary,
-  IngestionStore,
-} from './types';
-import { summarizeCoverage } from './types';
-
-export function hasSupabaseEnv(): boolean {
-  return (
-    typeof process.env.NEXT_PUBLIC_SUPABASE_URL === 'string' &&
-    process.env.NEXT_PUBLIC_SUPABASE_URL.length > 0 &&
-    typeof process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY === 'string' &&
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY.length > 0
-  );
-}
-
-let client: SupabaseClient | null = null;
-
-function db(): SupabaseClient {
-  if (client === null) {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (url === undefined || key === undefined) {
-      throw new Error('Supabase ingestion store selected but URL / ANON KEY are not set.');
-    }
-    client = createClient(url, key, { auth: { persistSession: false } });
-  }
-  return client;
-}
-
-/** Chunked so a large import does not exceed request limits. */
-const INSERT_CHUNK = 500;
-
-async function insertChunked(table: string, rows: Record<string, unknown>[]): Promise<void> {
-  for (let index = 0; index < rows.length; index += INSERT_CHUNK) {
-    const chunk = rows.slice(index, index + INSERT_CHUNK);
-    const { error } = await db().from(table).insert(chunk);
-    if (error !== null) throw new Error(`${table}: ${error.message}`);
-  }
-}
-
-export const supabaseIngestionStore: IngestionStore = {
-  kind: 'supabase',
-
-  async commitImport(input: CommitInput): Promise<ImportSummary> {
-    const {
-      organizationId,
-      importId,
-      fileName,
-      fileBytes,
-      dataset,
-      result,
-      detectionConfidence,
-      detectionEvidence,
-      detectionFellBack,
-      sourceSheets,
-      mappingUsed,
-    } = input;
-
-    for (const record of [...result.usage, ...result.entitlements, ...result.people]) {
-      if (record.provenance.organizationId !== organizationId) {
-        throw new Error('Refusing to commit records belonging to another organization.');
-      }
-    }
-
-    const uploadedAt = new Date().toISOString();
-
-    const { error: importError } = await db().from('imports').insert({
-      id: importId,
-      organization_id: organizationId,
-      // The legacy template enum still constrains this column; canonical
-      // datasets are recorded in `dataset` alongside it.
-      kind: dataset === 'people' ? 'employees' : dataset === 'entitlements' ? 'contracts' : 'usage',
-      dataset,
-      source_system: result.sourceSystem,
-      file_name: fileName,
-      file_bytes: fileBytes,
-      row_count: result.totalRows,
-      accepted_rows: result.acceptedRows,
-      rejected_rows: result.rejectedRows,
-      duplicate_rows: result.duplicateRows,
-      status: 'importing',
-      detection_confidence: detectionConfidence,
-      detection_evidence: detectionEvidence,
-      detection_fell_back: detectionFellBack,
-      source_sheets: sourceSheets,
-      mapping_used: mappingUsed,
-      warnings: result.warnings,
-      quality: result.quality,
-      usage_records: result.usage.length,
-      entitlement_records: result.entitlements.length,
-      people_records: result.people.length,
-      uploaded_at: uploadedAt,
-    });
-
-    if (importError !== null) {
-      throw new Error(`Could not record the import: ${importError.message}`);
-    }
-
-    try {
-      await insertChunked(
-        'ingestion_usage',
-        result.usage.map((record) => ({
-          organization_id: organizationId,
-          import_id: importId,
-          usage_date: record.date,
-          hour: record.hour,
-          observed_at: record.observedAt,
-          raw_user: record.user,
-          employee_code: record.employeeCode,
-          raw_feature: record.feature,
-          raw_product: record.product,
-          raw_vendor: record.vendor,
-          quantity: record.quantity,
-          concurrent: record.concurrent,
-          peak: record.peak,
-          available: record.available,
-          duration_hours: record.durationHours,
-          checkout_at: record.checkoutAt,
-          checkin_at: record.checkinAt,
-          denied: record.denied,
-          denial_count: record.denialCount,
-          license_server: record.licenseServer,
-          pool: record.pool,
-          tokens: record.tokens,
-          source_system: record.provenance.sourceSystem,
-          source_file: record.provenance.sourceFile,
-          source_sheet: record.provenance.sourceSheet,
-          source_row: record.provenance.sourceRow,
-        })),
-      );
-
-      await insertChunked(
-        'ingestion_entitlements',
-        result.entitlements.map((record) => ({
-          organization_id: organizationId,
-          import_id: importId,
-          raw_feature: record.feature,
-          raw_product: record.product,
-          raw_vendor: record.vendor,
-          entitled_quantity: record.entitledQuantity,
-          license_model: record.licenseModel,
-          license_server: record.licenseServer,
-          pool: record.pool,
-          expires_on: record.expiresOn,
-          source_system: record.provenance.sourceSystem,
-          source_file: record.provenance.sourceFile,
-          source_sheet: record.provenance.sourceSheet,
-          source_row: record.provenance.sourceRow,
-        })),
-      );
-
-      await insertChunked(
-        'ingestion_people',
-        result.people.map((record) => ({
-          organization_id: organizationId,
-          import_id: importId,
-          raw_user: record.user,
-          employee_code: record.employeeCode,
-          display_name: record.displayName,
-          email: record.email,
-          source_system: record.provenance.sourceSystem,
-          source_file: record.provenance.sourceFile,
-          source_sheet: record.provenance.sourceSheet,
-          source_row: record.provenance.sourceRow,
-        })),
-      );
-
-      // Rejections are audit records, never analytical ones.
-      await insertChunked(
-        'ingestion_rejections',
-        result.rejections.slice(0, 5000).map((rejection) => ({
-          organization_id: organizationId,
-          import_id: importId,
-          source_sheet: rejection.sourceSheet,
-          source_row: rejection.sourceRow,
-          rule: rejection.rule,
-          field: rejection.field,
-          value: rejection.value,
-          message: rejection.message,
-        })),
-      );
-    } catch (error) {
-      // Cascade removes every row this import wrote.
-      await db().from('imports').delete().eq('id', importId).eq('organization_id', organizationId);
-      throw error instanceof Error ? error : new Error('The import could not be stored.');
-    }
-
-    const importedAt = new Date().toISOString();
-    const { error: finalizeError } = await db()
-      .from('imports')
-      .update({ status: 'complete', imported_at: importedAt })
-      .eq('id', importId)
-      .eq('organization_id', organizationId);
-
-    if (finalizeError !== null) {
-      await db().from('imports').delete().eq('id', importId).eq('organization_id', organizationId);
-      throw new Error(`Could not finalize the import: ${finalizeError.message}`);
-    }
-
-    return {
-      id: importId,
-      organizationId,
-      fileName,
-      fileBytes,
-      dataset,
-      sourceSystem: result.sourceSystem,
-      detectionConfidence,
-      detectionFellBack,
-      status: 'complete',
-      uploadedAt,
-      importedAt,
-      totalRows: result.totalRows,
-      acceptedRows: result.acceptedRows,
-      rejectedRows: result.rejectedRows,
-      duplicateRows: result.duplicateRows,
-      usageRecords: result.usage.length,
-      entitlementRecords: result.entitlements.length,
-      peopleRecords: result.people.length,
-      failureReason: null,
-    };
-  },
-
-  async listImports(orgId: string): Promise<ImportSummary[]> {
-    const { data, error } = await db()
-      .from('imports')
-      .select('*')
-      .eq('organization_id', orgId)
-      .order('uploaded_at', { ascending: false });
-
-    if (error !== null) throw new Error(error.message);
-    return (data ?? []).map(rowToSummary);
-  },
-
-  async getImport(orgId: string, importId: string): Promise<ImportDetail | null> {
-    const { data, error } = await db()
-      .from('imports')
-      .select('*')
-      .eq('organization_id', orgId)
-      .eq('id', importId)
-      .maybeSingle();
-
-    if (error !== null) throw new Error(error.message);
-    if (data === null) return null;
-
-    const { data: rejections } = await db()
-      .from('ingestion_rejections')
-      .select('source_sheet, source_row, rule, field, value, message')
-      .eq('organization_id', orgId)
-      .eq('import_id', importId)
-      .order('source_row', { ascending: true })
-      .limit(200);
-
-    return {
-      ...rowToSummary(data),
-      detectionEvidence: asStringArray(data.detection_evidence),
-      sourceSheets: asStringArray(data.source_sheets),
-      mappingUsed: (data.mapping_used ?? {}) as Record<string, string>,
-      warnings: (data.warnings ?? []) as IngestionWarning[],
-      quality: (data.quality ?? null) as QualityReport | null,
-      rejections: (rejections ?? []).map((row) => ({
-        sourceSheet: row.source_sheet as string | null,
-        sourceRow: row.source_row as number,
-        rule: row.rule as string,
-        field: row.field as string | null,
-        value: row.value as string | null,
-        message: row.message as string,
-      })),
-    };
-  },
-
-  async deleteImport(orgId: string, importId: string): Promise<boolean> {
-    // Scoped by organization as well as id: an id alone must never be enough
-    // to reach another tenant's import.
-    const { data, error } = await db()
-      .from('imports')
-      .delete()
-      .eq('organization_id', orgId)
-      .eq('id', importId)
-      .select('id');
-
-    if (error !== null) throw new Error(error.message);
-    return (data ?? []).length > 0;
-  },
-
-  async listUsage(orgId, options): Promise<CanonicalUsageRecord[]> {
-    let query = db().from('ingestion_usage').select('*').eq('organization_id', orgId);
-    if (options?.importId !== undefined) query = query.eq('import_id', options.importId);
-    if (options?.limit !== undefined) query = query.limit(options.limit);
-
-    const { data, error } = await query;
-    if (error !== null) throw new Error(error.message);
-
-    return (data ?? []).map((row) => ({
-      date: row.usage_date as string,
-      hour: row.hour as number | null,
-      observedAt: row.observed_at as string | null,
-      user: row.raw_user as string | null,
-      employeeCode: row.employee_code as string | null,
-      feature: row.raw_feature as string,
-      product: row.raw_product as string | null,
-      vendor: row.raw_vendor as string | null,
-      quantity: row.quantity as number | null,
-      concurrent: row.concurrent as number | null,
-      peak: row.peak as number | null,
-      available: row.available as number | null,
-      durationHours: numberOrNull(row.duration_hours),
-      checkoutAt: row.checkout_at as string | null,
-      checkinAt: row.checkin_at as string | null,
-      denied: row.denied as boolean | null,
-      denialCount: row.denial_count as number | null,
-      licenseServer: row.license_server as string | null,
-      pool: row.pool as string | null,
-      tokens: numberOrNull(row.tokens),
-      provenance: {
-        organizationId: row.organization_id as string,
-        importId: row.import_id as string,
-        importedAt: row.created_at as string,
-        sourceFile: row.source_file as string,
-        sourceSystem: row.source_system as SourceSystem,
-        sourceSheet: row.source_sheet as string | null,
-        sourceRow: row.source_row as number,
-      },
-    }));
-  },
-
-  async listEntitlements(orgId, options): Promise<CanonicalEntitlementRecord[]> {
-    let query = db().from('ingestion_entitlements').select('*').eq('organization_id', orgId);
-    if (options?.importId !== undefined) query = query.eq('import_id', options.importId);
-
-    const { data, error } = await query;
-    if (error !== null) throw new Error(error.message);
-
-    return (data ?? []).map((row) => ({
-      feature: row.raw_feature as string,
-      product: row.raw_product as string | null,
-      vendor: row.raw_vendor as string | null,
-      entitledQuantity: row.entitled_quantity as number | null,
-      licenseModel: row.license_model as CanonicalEntitlementRecord['licenseModel'],
-      licenseServer: row.license_server as string | null,
-      pool: row.pool as string | null,
-      expiresOn: row.expires_on as string | null,
-      provenance: {
-        organizationId: row.organization_id as string,
-        importId: row.import_id as string,
-        importedAt: row.created_at as string,
-        sourceFile: row.source_file as string,
-        sourceSystem: row.source_system as SourceSystem,
-        sourceSheet: row.source_sheet as string | null,
-        sourceRow: row.source_row as number,
-      },
-    }));
-  },
-
-  async listPeople(orgId, options): Promise<CanonicalPersonRecord[]> {
-    let query = db().from('ingestion_people').select('*').eq('organization_id', orgId);
-    if (options?.importId !== undefined) query = query.eq('import_id', options.importId);
-
-    const { data, error } = await query;
-    if (error !== null) throw new Error(error.message);
-
-    return (data ?? []).map((row) => ({
-      user: row.raw_user as string,
-      employeeCode: row.employee_code as string | null,
-      displayName: row.display_name as string | null,
-      email: row.email as string | null,
-      provenance: {
-        organizationId: row.organization_id as string,
-        importId: row.import_id as string,
-        importedAt: row.created_at as string,
-        sourceFile: row.source_file as string,
-        sourceSystem: row.source_system as SourceSystem,
-        sourceSheet: row.source_sheet as string | null,
-        sourceRow: row.source_row as number,
-      },
-    }));
-  },
-
-  async getCoverage(orgId: string): Promise<CoverageSummary> {
-    const [usage, entitlements, people] = await Promise.all([
-      this.listUsage(orgId),
-      this.listEntitlements(orgId),
-      this.listPeople(orgId),
-    ]);
-    return summarizeCoverage(usage, entitlements, people);
-  },
-};
-
-function numberOrNull(value: unknown): number | null {
-  if (value === null || value === undefined) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function asStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.map(String) : [];
-}
-
-function rowToSummary(row: Record<string, unknown>): ImportSummary {
-  return {
-    id: row.id as string,
-    organizationId: row.organization_id as string,
-    fileName: row.file_name as string,
-    fileBytes: Number(row.file_bytes ?? 0),
-    dataset: (row.dataset ?? 'usage') as ImportSummary['dataset'],
-    sourceSystem: (row.source_system ?? 'generic') as SourceSystem,
-    detectionConfidence: Number(row.detection_confidence ?? 0),
-    detectionFellBack: Boolean(row.detection_fell_back),
-    status: (row.status ?? 'complete') as ImportLifecycle,
-    uploadedAt: (row.uploaded_at ?? row.created_at) as string,
-    importedAt: (row.imported_at ?? null) as string | null,
-    totalRows: Number(row.row_count ?? 0),
-    acceptedRows: Number(row.accepted_rows ?? 0),
-    rejectedRows: Number(row.rejected_rows ?? 0),
-    duplicateRows: Number(row.duplicate_rows ?? 0),
-    usageRecords: Number(row.usage_records ?? 0),
-    entitlementRecords: Number(row.entitlement_records ?? 0),
-    peopleRecords: Number(row.people_records ?? 0),
-    failureReason: (row.failure_reason ?? null) as string | null,
-  };
-}
+/**
+ * The Supabase ingestion store.
+ *
+ * Isolation is enforced at three layers, matching the rest of the product: RLS
+ * in the database, an explicit organization_id filter on every statement here,
+ * and the required orgId argument in the IngestionStore signature.
+ *
+ * COMMIT SEMANTICS
+ *
+ * The JS client has no multi-statement transaction, so commit is ordered to be
+ * safe without one:
+ *
+ *   1. Insert the import row as `importing`.
+ *   2. Insert canonical rows in chunks.
+ *   3. On any failure, delete the import row — which cascades to every row it
+ *      wrote — and surface the error. Nothing half-imported survives.
+ *   4. Only then mark the import `complete`.
+ *
+ * A reader therefore never sees a `complete` import whose records are missing,
+ * and a failed import leaves no partial data behind.
+ */
+
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { userClient } from '@/lib/supabase/server';
+import type {
+  CanonicalEntitlementRecord,
+  CanonicalPersonRecord,
+  CanonicalUsageRecord,
+  IngestionWarning,
+  QualityReport,
+  SourceSystem,
+} from '../canonical/types';
+import type {
+  CommitInput,
+  CoverageSummary,
+  ImportDetail,
+  ImportLifecycle,
+  ImportSummary,
+  IngestionStore,
+} from './types';
+import { summarizeCoverage } from './types';
+
+export { hasSupabaseEnv } from '@/lib/supabase/server';
+
+/**
+ * The request-scoped client.
+ *
+ * Carries the signed-in user's JWT, so every statement below is additionally
+ * governed by Row Level Security. The previous implementation used a bare anon
+ * client with no session: `auth.uid()` was null, every policy evaluated false,
+ * and nothing was readable at all. Isolation is therefore enforced twice - by
+ * the explicit organization_id filter here, and by the database itself.
+ */
+async function db(): Promise<SupabaseClient> {
+  return userClient();
+}
+
+/** Chunked so a large import does not exceed request limits. */
+const INSERT_CHUNK = 500;
+
+async function insertChunked(table: string, rows: Record<string, unknown>[]): Promise<void> {
+  for (let index = 0; index < rows.length; index += INSERT_CHUNK) {
+    const chunk = rows.slice(index, index + INSERT_CHUNK);
+    const { error } = await (await db()).from(table).insert(chunk);
+    if (error !== null) throw new Error(`${table}: ${error.message}`);
+  }
+}
+
+export const supabaseIngestionStore: IngestionStore = {
+  kind: 'supabase',
+
+  async commitImport(input: CommitInput): Promise<ImportSummary> {
+    const {
+      organizationId,
+      importId,
+      fileName,
+      fileBytes,
+      dataset,
+      result,
+      detectionConfidence,
+      detectionEvidence,
+      detectionFellBack,
+      sourceSheets,
+      mappingUsed,
+    } = input;
+
+    for (const record of [...result.usage, ...result.entitlements, ...result.people]) {
+      if (record.provenance.organizationId !== organizationId) {
+        throw new Error('Refusing to commit records belonging to another organization.');
+      }
+    }
+
+    const uploadedAt = new Date().toISOString();
+
+    const { error: importError } = await (await db()).from('imports').insert({
+      id: importId,
+      organization_id: organizationId,
+      // The legacy template enum still constrains this column; canonical
+      // datasets are recorded in `dataset` alongside it.
+      kind: dataset === 'people' ? 'employees' : dataset === 'entitlements' ? 'contracts' : 'usage',
+      dataset,
+      source_system: result.sourceSystem,
+      file_name: fileName,
+      file_bytes: fileBytes,
+      row_count: result.totalRows,
+      accepted_rows: result.acceptedRows,
+      rejected_rows: result.rejectedRows,
+      duplicate_rows: result.duplicateRows,
+      status: 'importing',
+      detection_confidence: detectionConfidence,
+      detection_evidence: detectionEvidence,
+      detection_fell_back: detectionFellBack,
+      source_sheets: sourceSheets,
+      mapping_used: mappingUsed,
+      warnings: result.warnings,
+      quality: result.quality,
+      usage_records: result.usage.length,
+      entitlement_records: result.entitlements.length,
+      people_records: result.people.length,
+      uploaded_at: uploadedAt,
+    });
+
+    if (importError !== null) {
+      throw new Error(`Could not record the import: ${importError.message}`);
+    }
+
+    try {
+      await insertChunked(
+        'ingestion_usage',
+        result.usage.map((record) => ({
+          organization_id: organizationId,
+          import_id: importId,
+          usage_date: record.date,
+          hour: record.hour,
+          observed_at: record.observedAt,
+          raw_user: record.user,
+          employee_code: record.employeeCode,
+          raw_feature: record.feature,
+          raw_product: record.product,
+          raw_vendor: record.vendor,
+          quantity: record.quantity,
+          concurrent: record.concurrent,
+          peak: record.peak,
+          available: record.available,
+          duration_hours: record.durationHours,
+          checkout_at: record.checkoutAt,
+          checkin_at: record.checkinAt,
+          denied: record.denied,
+          denial_count: record.denialCount,
+          license_server: record.licenseServer,
+          pool: record.pool,
+          tokens: record.tokens,
+          source_system: record.provenance.sourceSystem,
+          source_file: record.provenance.sourceFile,
+          source_sheet: record.provenance.sourceSheet,
+          source_row: record.provenance.sourceRow,
+        })),
+      );
+
+      await insertChunked(
+        'ingestion_entitlements',
+        result.entitlements.map((record) => ({
+          organization_id: organizationId,
+          import_id: importId,
+          raw_feature: record.feature,
+          raw_product: record.product,
+          raw_vendor: record.vendor,
+          entitled_quantity: record.entitledQuantity,
+          license_model: record.licenseModel,
+          license_server: record.licenseServer,
+          pool: record.pool,
+          expires_on: record.expiresOn,
+          source_system: record.provenance.sourceSystem,
+          source_file: record.provenance.sourceFile,
+          source_sheet: record.provenance.sourceSheet,
+          source_row: record.provenance.sourceRow,
+        })),
+      );
+
+      await insertChunked(
+        'ingestion_people',
+        result.people.map((record) => ({
+          organization_id: organizationId,
+          import_id: importId,
+          raw_user: record.user,
+          employee_code: record.employeeCode,
+          display_name: record.displayName,
+          email: record.email,
+          source_system: record.provenance.sourceSystem,
+          source_file: record.provenance.sourceFile,
+          source_sheet: record.provenance.sourceSheet,
+          source_row: record.provenance.sourceRow,
+        })),
+      );
+
+      // Rejections are audit records, never analytical ones.
+      await insertChunked(
+        'ingestion_rejections',
+        result.rejections.slice(0, 5000).map((rejection) => ({
+          organization_id: organizationId,
+          import_id: importId,
+          source_sheet: rejection.sourceSheet,
+          source_row: rejection.sourceRow,
+          rule: rejection.rule,
+          field: rejection.field,
+          value: rejection.value,
+          message: rejection.message,
+        })),
+      );
+    } catch (error) {
+      // Cascade removes every row this import wrote.
+      await (await db()).from('imports').delete().eq('id', importId).eq('organization_id', organizationId);
+      throw error instanceof Error ? error : new Error('The import could not be stored.');
+    }
+
+    const importedAt = new Date().toISOString();
+    const { error: finalizeError } = await (await db())
+      .from('imports')
+      .update({ status: 'complete', imported_at: importedAt })
+      .eq('id', importId)
+      .eq('organization_id', organizationId);
+
+    if (finalizeError !== null) {
+      await (await db()).from('imports').delete().eq('id', importId).eq('organization_id', organizationId);
+      throw new Error(`Could not finalize the import: ${finalizeError.message}`);
+    }
+
+    return {
+      id: importId,
+      organizationId,
+      fileName,
+      fileBytes,
+      dataset,
+      sourceSystem: result.sourceSystem,
+      detectionConfidence,
+      detectionFellBack,
+      status: 'complete',
+      uploadedAt,
+      importedAt,
+      totalRows: result.totalRows,
+      acceptedRows: result.acceptedRows,
+      rejectedRows: result.rejectedRows,
+      duplicateRows: result.duplicateRows,
+      usageRecords: result.usage.length,
+      entitlementRecords: result.entitlements.length,
+      peopleRecords: result.people.length,
+      failureReason: null,
+    };
+  },
+
+  async listImports(orgId: string): Promise<ImportSummary[]> {
+    const { data, error } = await (await db())
+      .from('imports')
+      .select('*')
+      .eq('organization_id', orgId)
+      .order('uploaded_at', { ascending: false });
+
+    if (error !== null) throw new Error(error.message);
+    return (data ?? []).map(rowToSummary);
+  },
+
+  async getImport(orgId: string, importId: string): Promise<ImportDetail | null> {
+    const { data, error } = await (await db())
+      .from('imports')
+      .select('*')
+      .eq('organization_id', orgId)
+      .eq('id', importId)
+      .maybeSingle();
+
+    if (error !== null) throw new Error(error.message);
+    if (data === null) return null;
+
+    const { data: rejections } = await (await db())
+      .from('ingestion_rejections')
+      .select('source_sheet, source_row, rule, field, value, message')
+      .eq('organization_id', orgId)
+      .eq('import_id', importId)
+      .order('source_row', { ascending: true })
+      .limit(200);
+
+    return {
+      ...rowToSummary(data),
+      detectionEvidence: asStringArray(data.detection_evidence),
+      sourceSheets: asStringArray(data.source_sheets),
+      mappingUsed: (data.mapping_used ?? {}) as Record<string, string>,
+      warnings: (data.warnings ?? []) as IngestionWarning[],
+      quality: (data.quality ?? null) as QualityReport | null,
+      rejections: (rejections ?? []).map((row) => ({
+        sourceSheet: row.source_sheet as string | null,
+        sourceRow: row.source_row as number,
+        rule: row.rule as string,
+        field: row.field as string | null,
+        value: row.value as string | null,
+        message: row.message as string,
+      })),
+    };
+  },
+
+  async deleteImport(orgId: string, importId: string): Promise<boolean> {
+    // Scoped by organization as well as id: an id alone must never be enough
+    // to reach another tenant's import.
+    const { data, error } = await (await db())
+      .from('imports')
+      .delete()
+      .eq('organization_id', orgId)
+      .eq('id', importId)
+      .select('id');
+
+    if (error !== null) throw new Error(error.message);
+    return (data ?? []).length > 0;
+  },
+
+  async listUsage(orgId, options): Promise<CanonicalUsageRecord[]> {
+    let query = (await db()).from('ingestion_usage').select('*').eq('organization_id', orgId);
+    if (options?.importId !== undefined) query = query.eq('import_id', options.importId);
+    if (options?.limit !== undefined) query = query.limit(options.limit);
+
+    const { data, error } = await query;
+    if (error !== null) throw new Error(error.message);
+
+    return (data ?? []).map((row) => ({
+      date: row.usage_date as string,
+      hour: row.hour as number | null,
+      observedAt: row.observed_at as string | null,
+      user: row.raw_user as string | null,
+      employeeCode: row.employee_code as string | null,
+      feature: row.raw_feature as string,
+      product: row.raw_product as string | null,
+      vendor: row.raw_vendor as string | null,
+      quantity: row.quantity as number | null,
+      concurrent: row.concurrent as number | null,
+      peak: row.peak as number | null,
+      available: row.available as number | null,
+      durationHours: numberOrNull(row.duration_hours),
+      checkoutAt: row.checkout_at as string | null,
+      checkinAt: row.checkin_at as string | null,
+      denied: row.denied as boolean | null,
+      denialCount: row.denial_count as number | null,
+      licenseServer: row.license_server as string | null,
+      pool: row.pool as string | null,
+      tokens: numberOrNull(row.tokens),
+      provenance: {
+        organizationId: row.organization_id as string,
+        importId: row.import_id as string,
+        importedAt: row.created_at as string,
+        sourceFile: row.source_file as string,
+        sourceSystem: row.source_system as SourceSystem,
+        sourceSheet: row.source_sheet as string | null,
+        sourceRow: row.source_row as number,
+      },
+    }));
+  },
+
+  async listEntitlements(orgId, options): Promise<CanonicalEntitlementRecord[]> {
+    let query = (await db()).from('ingestion_entitlements').select('*').eq('organization_id', orgId);
+    if (options?.importId !== undefined) query = query.eq('import_id', options.importId);
+
+    const { data, error } = await query;
+    if (error !== null) throw new Error(error.message);
+
+    return (data ?? []).map((row) => ({
+      feature: row.raw_feature as string,
+      product: row.raw_product as string | null,
+      vendor: row.raw_vendor as string | null,
+      entitledQuantity: row.entitled_quantity as number | null,
+      licenseModel: row.license_model as CanonicalEntitlementRecord['licenseModel'],
+      licenseServer: row.license_server as string | null,
+      pool: row.pool as string | null,
+      expiresOn: row.expires_on as string | null,
+      provenance: {
+        organizationId: row.organization_id as string,
+        importId: row.import_id as string,
+        importedAt: row.created_at as string,
+        sourceFile: row.source_file as string,
+        sourceSystem: row.source_system as SourceSystem,
+        sourceSheet: row.source_sheet as string | null,
+        sourceRow: row.source_row as number,
+      },
+    }));
+  },
+
+  async listPeople(orgId, options): Promise<CanonicalPersonRecord[]> {
+    let query = (await db()).from('ingestion_people').select('*').eq('organization_id', orgId);
+    if (options?.importId !== undefined) query = query.eq('import_id', options.importId);
+
+    const { data, error } = await query;
+    if (error !== null) throw new Error(error.message);
+
+    return (data ?? []).map((row) => ({
+      user: row.raw_user as string,
+      employeeCode: row.employee_code as string | null,
+      displayName: row.display_name as string | null,
+      email: row.email as string | null,
+      provenance: {
+        organizationId: row.organization_id as string,
+        importId: row.import_id as string,
+        importedAt: row.created_at as string,
+        sourceFile: row.source_file as string,
+        sourceSystem: row.source_system as SourceSystem,
+        sourceSheet: row.source_sheet as string | null,
+        sourceRow: row.source_row as number,
+      },
+    }));
+  },
+
+  async getCoverage(orgId: string): Promise<CoverageSummary> {
+    const [usage, entitlements, people] = await Promise.all([
+      this.listUsage(orgId),
+      this.listEntitlements(orgId),
+      this.listPeople(orgId),
+    ]);
+    return summarizeCoverage(usage, entitlements, people);
+  },
+};
+
+function numberOrNull(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String) : [];
+}
+
+function rowToSummary(row: Record<string, unknown>): ImportSummary {
+  return {
+    id: row.id as string,
+    organizationId: row.organization_id as string,
+    fileName: row.file_name as string,
+    fileBytes: Number(row.file_bytes ?? 0),
+    dataset: (row.dataset ?? 'usage') as ImportSummary['dataset'],
+    sourceSystem: (row.source_system ?? 'generic') as SourceSystem,
+    detectionConfidence: Number(row.detection_confidence ?? 0),
+    detectionFellBack: Boolean(row.detection_fell_back),
+    status: (row.status ?? 'complete') as ImportLifecycle,
+    uploadedAt: (row.uploaded_at ?? row.created_at) as string,
+    importedAt: (row.imported_at ?? null) as string | null,
+    totalRows: Number(row.row_count ?? 0),
+    acceptedRows: Number(row.accepted_rows ?? 0),
+    rejectedRows: Number(row.rejected_rows ?? 0),
+    duplicateRows: Number(row.duplicate_rows ?? 0),
+    usageRecords: Number(row.usage_records ?? 0),
+    entitlementRecords: Number(row.entitlement_records ?? 0),
+    peopleRecords: Number(row.people_records ?? 0),
+    failureReason: (row.failure_reason ?? null) as string | null,
+  };
+}

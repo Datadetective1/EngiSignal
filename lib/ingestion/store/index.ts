@@ -8,14 +8,13 @@
  */
 
 import 'server-only';
+import { supabaseEnabled } from '@/config/env';
 import { memoryIngestionStore } from './memory-store';
-import { hasSupabaseEnv, supabaseIngestionStore } from './supabase-store';
+import { supabaseIngestionStore } from './supabase-store';
 import type { IngestionStore } from './types';
 
 export function getIngestionStore(): IngestionStore {
-  if (process.env.ENGISIGNAL_DATA_PROVIDER === 'supabase' && hasSupabaseEnv()) {
-    return supabaseIngestionStore;
-  }
+  if (supabaseEnabled()) return supabaseIngestionStore;
   return memoryIngestionStore;
 }
 

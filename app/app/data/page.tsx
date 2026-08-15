@@ -18,6 +18,7 @@ import { formatNumber, formatPercent } from '@/lib/analytics/financial';
 import { CONNECTORS } from '@/lib/connectors';
 import { IMPORT_KINDS, IMPORT_SCHEMAS } from '@/lib/import/schema';
 import { getIngestionStore, isEphemeralStore, isServerlessEphemeral } from '@/lib/ingestion/store';
+import { capabilityLines, coverageLines, qualityBand } from '@/lib/ingestion/capabilities';
 import { loadWorkspace } from '@/lib/workspace';
 
 export const metadata: Metadata = { title: 'Data' };
@@ -28,10 +29,21 @@ export default async function DataPage() {
   // Read directly rather than through the HTTP endpoint: this is a server
   // component, and the store is already tenant-scoped by argument.
   const store = getIngestionStore();
-  const [ingestedImports, ingestedCoverage] = await Promise.all([
+  const [ingestedImports, ingestedCoverage, ingestedUsage] = await Promise.all([
     store.listImports(organization.id),
     store.getCoverage(organization.id),
+    store.listUsage(organization.id),
   ]);
+
+  // Capability gating runs against what is actually stored, never a fixed list.
+  const capabilityInput = {
+    coverage: ingestedCoverage,
+    distinctDates: new Set(ingestedUsage.map((row) => row.date)).size,
+    // A licence export never carries price, so cost is only present once a
+    // contract import supplies it.
+    hasCost: dataset.contractItems.some((item) => item.unitPrice !== null),
+    resolvedPeople: ingestedCoverage.peopleRecords,
+  };
 
   const totalRows = dataset.imports.reduce((acc, record) => acc + record.rowCount, 0);
   const rejectedRows = dataset.imports.reduce((acc, record) => acc + record.rejectedRows, 0);
@@ -54,6 +66,9 @@ export default async function DataPage() {
       <ImportInventory
         imports={ingestedImports}
         coverage={ingestedCoverage}
+        coverageLines={coverageLines(capabilityInput)}
+        capabilityLines={capabilityLines(capabilityInput)}
+        quality={qualityBand(capabilityInput)}
         ephemeral={isEphemeralStore()}
         serverless={isServerlessEphemeral()}
       />

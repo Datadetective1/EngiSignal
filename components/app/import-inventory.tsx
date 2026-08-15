@@ -52,14 +52,32 @@ const SOURCE_LABEL: Record<string, string> = {
   generic: 'Generic',
 };
 
+export interface CoverageLineRow {
+  label: string;
+  state: 'complete' | 'partial' | 'missing' | 'not_supplied';
+  detail: string;
+}
+
+export interface CapabilityLineRow {
+  label: string;
+  available: boolean;
+  requires: string | null;
+}
+
 export function ImportInventory({
   imports,
   coverage,
+  coverageLines,
+  capabilityLines,
+  quality,
   ephemeral,
   serverless = false,
 }: {
   imports: ImportRow[];
   coverage: CoverageRow;
+  coverageLines: CoverageLineRow[];
+  capabilityLines: CapabilityLineRow[];
+  quality: string;
   ephemeral: boolean;
   serverless?: boolean;
 }) {
@@ -84,15 +102,6 @@ export function ImportInventory({
       setBusyId(null);
     }
   };
-
-  const coverageRows = [
-    { label: 'Usage', ok: coverage.usageRecords > 0, detail: coverage.usageRecords > 0 ? `${coverage.usageRecords.toLocaleString('en-US')} records` : 'Missing' },
-    { label: 'Concurrent demand', ok: coverage.hasConcurrency, detail: coverage.hasConcurrency ? 'Available' : 'Missing' },
-    { label: 'Entitlements', ok: coverage.entitlementRecords > 0, detail: coverage.entitlementRecords > 0 ? `${coverage.entitlementRecords.toLocaleString('en-US')} records` : 'Missing' },
-    { label: 'People', ok: coverage.peopleRecords > 0, detail: coverage.peopleRecords > 0 ? `${coverage.peopleRecords.toLocaleString('en-US')} records` : 'Missing' },
-    { label: 'Denials', ok: coverage.hasDenials, detail: coverage.hasDenials ? 'Available' : 'Not supplied' },
-    { label: 'Cost', ok: false, detail: 'Missing' },
-  ];
 
   return (
     <Card>
@@ -146,6 +155,7 @@ export function ImportInventory({
                     <Th>Records</Th>
                     <Th>Accepted</Th>
                     <Th>Imported</Th>
+                    <Th>Quality</Th>
                     <Th>Status</Th>
                     <Th>Action</Th>
                   </tr>
@@ -169,6 +179,11 @@ export function ImportInventory({
                       </Td>
                       <Td className="text-fg-muted">{record.uploadedAt.slice(0, 10)}</Td>
                       <Td>
+                        <Badge tone={quality === 'High' ? 'positive' : quality === 'Medium' ? 'warning' : 'neutral'}>
+                          {quality}
+                        </Badge>
+                      </Td>
+                      <Td>
                         <Badge tone={record.status === 'complete' ? 'positive' : 'warning'}>
                           {record.status === 'complete' ? 'Active' : record.status}
                         </Badge>
@@ -188,14 +203,46 @@ export function ImportInventory({
               </TableShell>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-3">
               <div>
-                <p className="mb-2 text-[12px] font-medium text-fg">Coverage</p>
+                <p className="mb-2 text-[12px] font-medium text-fg">Data coverage</p>
                 <ul className="space-y-1.5">
-                  {coverageRows.map((row) => (
+                  {coverageLines.map((row) => (
                     <li key={row.label} className="flex items-center justify-between gap-3 text-[12.5px]">
                       <span className="text-fg-muted">{row.label}</span>
-                      <Badge tone={row.ok ? 'positive' : 'neutral'}>{row.detail}</Badge>
+                      <Badge
+                        tone={
+                          row.state === 'complete'
+                            ? 'positive'
+                            : row.state === 'partial'
+                              ? 'warning'
+                              : 'neutral'
+                        }
+                      >
+                        {row.detail}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div>
+                <p className="mb-2 text-[12px] font-medium text-fg">Supported analysis</p>
+                <ul className="space-y-1.5">
+                  {capabilityLines.map((row) => (
+                    <li key={row.label} className="flex items-start gap-2 text-[12.5px]">
+                      <span
+                        className={row.available ? 'text-positive' : 'text-fg-subtle'}
+                        aria-hidden="true"
+                      >
+                        {row.available ? '✓' : '○'}
+                      </span>
+                      <span className={row.available ? 'text-fg' : 'text-fg-subtle'}>
+                        {row.label}
+                        {row.requires !== null && (
+                          <span className="text-fg-subtle"> — {row.requires}</span>
+                        )}
+                      </span>
                     </li>
                   ))}
                 </ul>

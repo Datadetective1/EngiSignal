@@ -77,7 +77,27 @@ export const BASE_ALIASES: Record<CanonicalDataset, AliasTable> = {
     product: ['product', 'product_name', 'application', 'app', 'app_name', 'software', 'title'],
     vendor: ['vendor', 'publisher', 'supplier', 'manufacturer', 'vendor_name'],
     quantity: ['quantity', 'qty', 'count', 'num_licenses', 'licenses', 'requested', 'checkouts', 'checkout_count', 'usage_count', 'sessions', 'session_count'],
-    concurrent: ['concurrent', 'in_use', 'inuse', 'used', 'licenses_used', 'checked_out', 'current_usage', 'active'],
+    // `licenses_in_use` and friends are listed EXPLICITLY so they win by exact
+    // match. Without them, the generic alias `licenses` on quantity (8 chars)
+    // outscored `in_use` on concurrent (6) by pure length, and a column that
+    // plainly means concurrency was read as a checkout count. Because checkout
+    // counts are deliberately excluded from concurrency, the result was a
+    // feature with zero measured demand and therefore a P95 of zero — a
+    // silently catastrophic under-recommendation.
+    concurrent: [
+      'licenses_in_use',
+      'licences_in_use',
+      'licenses_checked_out',
+      'in_use_count',
+      'concurrent',
+      'in_use',
+      'inuse',
+      'used',
+      'licenses_used',
+      'checked_out',
+      'current_usage',
+      'active',
+    ],
     peak: ['peak', 'peak_usage', 'max_concurrent', 'max_used', 'high_water', 'maximum_used', 'peak_concurrent'],
     available: ['available', 'total', 'capacity', 'issued', 'total_licenses', 'licenses_available', 'free'],
     durationHours: ['duration', 'duration_hours', 'hours', 'usage_hours', 'license_hours', 'elapsed', 'elapsed_hours', 'runtime'],
