@@ -1,0 +1,9 @@
+date,feature,user,licenses used,hour
+2026-06-01,MECH_ENT,agarcia,12,9
+not-a-date,MECH_ENT,bthompson,14,10
+2026-06-01,,cwilliams,11,11
+2026-06-02,MECH_ENT,dnguyen,-5,12
+2026-06-02,MECH_ENT,ekovacs,abc,13
+2026-06-02,MECH_ENT,fmurray,9,42
+2026-06-03,MECH_ENT,gpatel,17,8
+2026-06-03,MECH_ENT,gpatel,17,8

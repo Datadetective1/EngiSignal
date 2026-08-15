@@ -1,0 +1,6 @@
+Sample Time,Feature Name,Feature Version,Client User,Client Host,License Server,Total Licenses,Licenses In Use,Peak Usage,Sublicense,Denied Requests
+2026-03-02 08:00:00,SOLIDCAM_PRO,2026.1,wanderson,ws-3301,lserv-prod-01,180,112,126,SL-A,0
+2026-03-02 09:00:00,SOLIDCAM_PRO,2026.1,cmartinez,ws-3390,lserv-prod-01,180,124,131,SL-A,0
+2026-03-02 10:00:00,SOLIDCAM_PRO,2026.1,ebernard,ws-2214,lserv-prod-01,180,139,144,SL-A,2
+2026-03-03 08:00:00,SOLIDCAM_SIM,2026.1,wanderson,ws-3301,lserv-prod-01,45,31,34,SL-B,0
+2026-03-03 11:00:00,SOLIDCAM_PRO,2026.1,ndiallo,ws-7742,lserv-prod-01,180,151,158,SL-A,4

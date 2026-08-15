@@ -1,0 +1,6 @@
+Usage Date,Hour of Day,Feature Name,Vendor Daemon,Network User,Client Host,Display,License Server,Issued,In Use,Denials
+02/03/2026,8,STRUCT_ADV,mscmarc,pvasquez,ws-7781,ws-7781:0,flex-emea-01,150,88,0
+02/03/2026,9,STRUCT_ADV,mscmarc,hschneider,ws-9902,ws-9902:0,flex-emea-01,150,101,0
+02/03/2026,10,STRUCT_ADV,mscmarc,aokonkwo,ws-4419,ws-4419:0,flex-emea-01,150,119,2
+03/03/2026,8,THERM_SIM,mscmarc,pvasquez,ws-7781,ws-7781:0,flex-emea-01,60,41,0
+03/03/2026,15,THERM_SIM,mscmarc,ykobayashi,ws-5528,ws-5528:0,flex-emea-01,60,55,1

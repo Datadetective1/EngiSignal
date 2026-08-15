@@ -1,0 +1,6 @@
+date,isv,product,user,rlm_server,pool,count,count_in_use,checkout_time,checkin_time,denials
+2026-03-02,altair,hwsolver,dmoreau,rlm-prod-01,GLOBAL,500,312,2026-03-02T07:45:00,2026-03-02T12:10:00,0
+2026-03-02,altair,hwsolver,kfitzgerald,rlm-prod-01,GLOBAL,500,318,2026-03-02T08:02:00,2026-03-02T16:40:00,0
+2026-03-02,altair,hwmesh,nbrennan,rlm-prod-01,GLOBAL,200,144,2026-03-02T09:30:00,2026-03-02T13:15:00,0
+2026-03-03,altair,hwsolver,dmoreau,rlm-prod-01,GLOBAL,500,341,2026-03-03T07:50:00,2026-03-03T15:05:00,3
+2026-03-03,altair,optistruct,rgallagher,rlm-prod-02,EMEA,80,72,2026-03-03T10:12:00,2026-03-03T18:22:00,1

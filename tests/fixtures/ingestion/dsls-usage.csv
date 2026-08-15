@@ -1,0 +1,6 @@
+Date,License Name,Product Line,User ID,Server ID,Max Count,In Use,Token,License Type,Acquire Time,Release Time
+2026-03-02,CAT_MECH_DES,CATIA,mlefebvre,dsls-prod-01,300,188,4,Token,2026-03-02 08:15:00,2026-03-02 12:45:00
+2026-03-02,CAT_MECH_DES,CATIA,gtorres,dsls-prod-01,300,192,4,Token,2026-03-02 08:40:00,2026-03-02 17:20:00
+2026-03-02,SIM_STRUCT,SIMULIA,rvandenberg,dsls-prod-01,120,88,6,Token,2026-03-02 09:05:00,2026-03-02 14:30:00
+2026-03-03,CAT_MECH_DES,CATIA,mlefebvre,dsls-prod-01,300,205,4,Token,2026-03-03 08:10:00,2026-03-03 16:55:00
+2026-03-03,ENOVIA_VPM,ENOVIA,achaudhary,dsls-prod-02,60,44,2,Concurrent,2026-03-03 10:25:00,2026-03-03 15:10:00
