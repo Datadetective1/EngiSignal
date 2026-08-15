@@ -107,8 +107,25 @@ export function buildReviewQueue(input: BuildReviewQueueInput): ReviewQueue {
   const decisions = input.decisions ?? new Map();
   const minScore = input.minScore ?? DEFAULT_MIN_SCORE;
 
+  /**
+   * Only features with observed usage can be merge targets.
+   *
+   * Commercial lines feed feature discovery — a customer who imports a renewal
+   * schedule before any usage still gets a portfolio — which means every
+   * unmatched line ALSO appears as a portfolio row. Without this filter the
+   * queue offered "ANSYS Mechanical Enterprise" as a 100% match for itself,
+   * ahead of the genuine candidate, and confirming it would have merged a line
+   * with its own shadow.
+   *
+   * The filter is not merely cosmetic. The question this screen exists to ask
+   * is "does this line correspond to something we actually see?", so a target
+   * with no demand behind it cannot answer it: merging into one still leaves
+   * the position uncomparable.
+   */
+  const observed = input.portfolio.filter((row) => row.usageEvidence === 'observed');
+
   const positions: ReviewPosition[] = input.review.map((item) => {
-    const candidates: MatchCandidate[] = input.portfolio
+    const candidates: MatchCandidate[] = observed
       .map((row) => {
         // Compare against both the feature code and the product name: a
         // contract says "Ansys Mechanical Enterprise" where the licence server

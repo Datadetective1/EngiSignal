@@ -177,10 +177,13 @@ describe('reconciliation signal', () => {
 });
 
 describe('the review queue', () => {
+  const observedRow = (overrides: Partial<PortfolioRow> & { featureId: string }) =>
+    row({ ...overrides, usageEvidence: 'observed' });
+
   const portfolio = [
-    row({ featureId: 'f:mech', featureCode: 'MECH_ENT', featureName: 'MECH_ENT', productName: 'Ansys Mechanical' }),
-    row({ featureId: 'f:fluent', featureCode: 'FLUENT', featureName: 'FLUENT', productName: 'Ansys Fluent' }),
-    row({ featureId: 'f:matlab', featureCode: 'MATLAB', featureName: 'MATLAB', productName: 'MATLAB', vendorName: 'MathWorks' }),
+    observedRow({ featureId: 'f:mech', featureCode: 'MECH_ENT', featureName: 'MECH_ENT', productName: 'Ansys Mechanical' }),
+    observedRow({ featureId: 'f:fluent', featureCode: 'FLUENT', featureName: 'FLUENT', productName: 'Ansys Fluent' }),
+    observedRow({ featureId: 'f:matlab', featureCode: 'MATLAB', featureName: 'MATLAB', productName: 'MATLAB', vendorName: 'MathWorks' }),
   ];
 
   const review: ContractReviewItem[] = [
@@ -239,14 +242,37 @@ describe('the review queue', () => {
     expect(effects).toContain('undone');
   });
 
-  it('says plainly when the merge target has no demand either', () => {
-    const queue = buildReviewQueue({ review, portfolio });
-    const effects = describeConfirmationEffect(
-      queue.positions[0]!,
-      queue.positions[0]!.candidates[0]!,
-    ).join(' ');
-    // Every portfolio row here has usageEvidence 'not_supplied'.
-    expect(effects).toContain('still not support a right-sizing recommendation');
+  it('never offers an unmatched line its own shadow as a match', () => {
+    // Commercial lines feed feature discovery, so an unmatched line also
+    // appears as a portfolio row. Before this was filtered, the queue ranked
+    // "ANSYS Mechanical Enterprise" as a 100% match for itself, ahead of the
+    // real candidate.
+    const withShadow = [
+      ...portfolio,
+      row({
+        featureId: 'f:shadow',
+        featureCode: 'ANSYS Mechanical Enterprise',
+        featureName: 'ANSYS Mechanical Enterprise',
+        productName: 'Ansys Mechanical Enterprise Suite',
+        usageEvidence: 'not_supplied',
+      }),
+    ];
+
+    const queue = buildReviewQueue({ review, portfolio: withShadow });
+    const names = queue.positions[0]!.candidates.map((entry) => entry.featureName);
+
+    expect(names).not.toContain('ANSYS Mechanical Enterprise');
+    expect(names[0]).toBe('MECH_ENT');
+  });
+
+  it('offers only features with demand behind them', () => {
+    const queue = buildReviewQueue({
+      review,
+      portfolio: portfolio.map((entry) => ({ ...entry, usageEvidence: 'not_supplied' as const })),
+    });
+    // Merging into a target with no demand still leaves the position
+    // uncomparable, so there is nothing useful to offer.
+    expect(queue.positions[0]!.candidates).toHaveLength(0);
   });
 
   it('scores similarity only on meaningful shared words', () => {
