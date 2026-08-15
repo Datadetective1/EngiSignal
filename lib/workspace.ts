@@ -19,6 +19,7 @@ import {
   portfolioConfidence,
 } from '@/lib/analytics/portfolio';
 import { generateSignals } from '@/lib/analytics/signals';
+import { reconcile, type ReconciliationSummary } from '@/lib/analytics/reconciliation';
 import { requireSession, type AppSession } from '@/lib/auth';
 import { getDataProvider } from '@/lib/data';
 import { DEFAULT_ANALYSIS_OPTIONS, type AnalysisOptions, type AnalyticsDataset } from '@/lib/domain/dataset';
@@ -39,6 +40,8 @@ export interface Workspace {
   portfolio: PortfolioRow[];
   renewals: RenewalSummary[];
   dataQuality: DataQualityIssue[];
+  /** Entitlement versus contract, computed once per request. */
+  reconciliation: ReconciliationSummary;
   signals: Signal[];
   totals: ReturnType<typeof computePortfolioTotals>;
   unusedCapacity: ReturnType<typeof unusedCapacitySpend>;
@@ -61,7 +64,34 @@ export const loadWorkspace = cache(async (): Promise<Workspace> => {
   const portfolio = buildPortfolio(dataset, options);
   const renewals = buildRenewals(dataset, portfolio);
   const dataQuality = buildDataQualityIssues(dataset, portfolio);
-  const signals = generateSignals({ portfolio, renewals, dataQuality });
+
+  // Both quantity sources, compared rather than collapsed.
+  const entitlementByFeature = new Map<string, number>();
+  const contractByFeature = new Map<string, number>();
+  for (const source of dataset.quantitySources) {
+    if (source.entitlementQuantity !== null) {
+      entitlementByFeature.set(source.featureId, source.entitlementQuantity);
+    }
+    if (source.contractQuantity !== null) {
+      contractByFeature.set(source.featureId, source.contractQuantity);
+    }
+  }
+  const reconciliation = reconcile({ portfolio, entitlementByFeature, contractByFeature });
+
+  const unmatchedPositions = {
+    count: dataset.contractReview.length,
+    // Priced lines only. An unpriced position is still worth reviewing, but it
+    // must not be added to a dollar figure as if it were zero.
+    value: dataset.contractReview.reduce((total, item) => total + (item.annualCost ?? 0), 0),
+  };
+
+  const signals = generateSignals({
+    portfolio,
+    renewals,
+    dataQuality,
+    reconciliation,
+    unmatchedPositions,
+  });
 
   return {
     session,
@@ -71,6 +101,7 @@ export const loadWorkspace = cache(async (): Promise<Workspace> => {
     portfolio,
     renewals,
     dataQuality,
+    reconciliation,
     signals,
     totals: computePortfolioTotals(portfolio),
     unusedCapacity: unusedCapacitySpend(portfolio),

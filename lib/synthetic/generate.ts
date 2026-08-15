@@ -251,6 +251,16 @@ export function generateDemoDataset(): AnalyticsDataset {
 
   return {
     organization,
+    // The synthetic estate has one source of truth for quantity, so entitlement
+    // and contract agree by construction. Recording both keeps the demo
+    // consistent with the reconciliation view rather than leaving it empty.
+    contractReview: [],
+    quantitySources: contractItems.map((item) => ({
+      featureId: item.featureId,
+      entitlementQuantity: item.quantity,
+      contractQuantity: item.quantity,
+      unresolvedIdentity: false,
+    })),
     vendors,
     productFamilies,
     products,

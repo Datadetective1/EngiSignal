@@ -14,6 +14,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { userClient } from '@/lib/supabase/server';
 import { buildDatasetFromCanonical } from '@/lib/ingestion/dataset';
+import { confirmedAliasMaps } from '@/lib/ingestion/confirmations';
 import { supabaseIngestionStore } from '@/lib/ingestion/store/supabase-store';
 import type { AnalyticsDataset } from '@/lib/domain/dataset';
 import type {
@@ -114,12 +115,15 @@ export const supabaseProvider: DataProvider = {
     const organization = await this.getOrganization(orgId);
     if (organization === null) throw new Error(`Unknown organization: ${orgId}`);
 
-    const [usage, entitlements, people, contracts, imports] = await Promise.all([
+    const [usage, entitlements, people, contracts, imports, aliases] = await Promise.all([
       supabaseIngestionStore.listUsage(orgId),
       supabaseIngestionStore.listEntitlements(orgId),
       supabaseIngestionStore.listPeople(orgId),
       supabaseIngestionStore.listContracts(orgId),
       supabaseIngestionStore.listImports(orgId),
+      // Customer-confirmed merges. The only thing that combines two strings the
+      // matching rules would refuse to combine, and scoped to this tenant.
+      confirmedAliasMaps(orgId),
     ]);
 
     const dataset = buildDatasetFromCanonical({
@@ -128,6 +132,8 @@ export const supabaseProvider: DataProvider = {
       entitlements,
       people,
       contracts,
+      featureAliases: aliases.features,
+      userAliases: aliases.users,
     });
 
     return {

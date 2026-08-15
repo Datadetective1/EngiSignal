@@ -38,7 +38,7 @@
  * silently acquire invented precision.
  */
 
-import type { AnalyticsDataset } from '@/lib/domain/dataset';
+import type { AnalyticsDataset, FeatureQuantitySources } from '@/lib/domain/dataset';
 import type {
   Contract,
   ContractItem,
@@ -81,6 +81,8 @@ export interface BuildDatasetInput {
   contracts?: readonly CanonicalContractRecord[];
   /** Customer-confirmed raw value → canonical feature key. */
   featureAliases?: ReadonlyMap<string, string>;
+  /** Customer-confirmed raw username → people-record username. */
+  userAliases?: ReadonlyMap<string, string>;
   /** Reference date for relative calculations. Defaults to the latest observation. */
   asOf?: string;
 }
@@ -93,6 +95,7 @@ export function buildDatasetFromCanonical(input: BuildDatasetInput): AnalyticsDa
     people,
     contracts: contractRecords = [],
     featureAliases = new Map(),
+    userAliases = new Map(),
   } = input;
   const orgId = organization.id;
 
@@ -173,7 +176,7 @@ export function buildDatasetFromCanonical(input: BuildDatasetInput): AnalyticsDa
   // and a list built from the line cannot answer it.
   const observedIdentities = resolveFeatures([...usage, ...entitlementAsUsage], featureAliases);
 
-  const userIdentities = resolveUsers(usage, people);
+  const userIdentities = resolveUsers(usage, people, userAliases);
 
   // ── Vendors and products ───────────────────────────────────────────────────
   const vendorNames = new Set<string>();
@@ -275,6 +278,7 @@ export function buildDatasetFromCanonical(input: BuildDatasetInput): AnalyticsDa
 
   const contracts: Contract[] = [];
   const contractItems: ContractItem[] = [];
+  const quantitySources: FeatureQuantitySources[] = [];
 
   const contractKeys = new Set<string>([...entitlementByKey.keys(), ...positions.keys()]);
 
@@ -314,6 +318,16 @@ export function buildDatasetFromCanonical(input: BuildDatasetInput): AnalyticsDa
     // Quantity: entitlement first, contract quantity only when no entitlement
     // exists. Zero remains the honest answer when neither source stated one.
     const quantity = entitlement?.entitledQuantity ?? position?.quantity ?? 0;
+
+    // Both numbers are still in hand here and nowhere else, so record them
+    // before the collapse. Reconciliation reads these to report a disagreement
+    // rather than inheriting whichever side won above.
+    quantitySources.push({
+      featureId: identity.featureId,
+      entitlementQuantity: entitlement?.entitledQuantity ?? null,
+      contractQuantity: position?.quantity ?? null,
+      unresolvedIdentity: false,
+    });
 
     contractItems.push({
       id: `item:${orgId}:${key}`,
@@ -478,6 +492,8 @@ export function buildDatasetFromCanonical(input: BuildDatasetInput): AnalyticsDa
     unmappedFeatures,
     imports: [],
     importMappings: [],
+    quantitySources,
+    contractReview: contractLinks.review,
     asOf,
     // Honest ratios, not aspirational ones.
     employeeMappingRate: userIdentities.length === 0 ? 0 : resolvedUserCount / userIdentities.length,

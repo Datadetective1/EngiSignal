@@ -22,6 +22,7 @@ import type {
 } from '@/lib/domain/types';
 import { confidenceWeight } from './confidence';
 import { formatCurrency, formatNumber, formatPercent } from './financial';
+import type { ReconciliationSummary } from './reconciliation';
 import { clamp, round } from './stats';
 
 const RISK_WEIGHT: Record<RiskLevel, number> = {
@@ -88,6 +89,10 @@ export interface SignalGenerationInput {
   dataQuality: readonly DataQualityIssue[];
   /** Minimum annual opportunity worth raising as a cost signal. */
   costThreshold?: number;
+  /** Entitlement-versus-contract comparison, when both sources exist. */
+  reconciliation?: ReconciliationSummary;
+  /** Commercial lines that could not be tied to demand. */
+  unmatchedPositions?: { count: number; value: number };
 }
 
 export function generateSignals(input: SignalGenerationInput): Signal[] {
@@ -98,6 +103,8 @@ export function generateSignals(input: SignalGenerationInput): Signal[] {
     ...reclaimSignals(input.portfolio),
     ...usageSignals(input.portfolio),
     ...forecastSignals(input.portfolio),
+    ...reconciliationSignals(input.reconciliation),
+    ...unmatchedPositionSignals(input.unmatchedPositions),
     ...dataSignals(input.dataQuality),
   ];
 
@@ -338,6 +345,103 @@ export function dataSignals(issues: readonly DataQualityIssue[]): Signal[] {
     );
 }
 
+/**
+ * Disagreement between the licence server and procurement.
+ *
+ * Raised as something to RESOLVE, never as savings. The difference could be
+ * shelfware, a staged rollout, a missing export or a bad mapping, and only the
+ * first is money. Attaching a savings figure to the others would send someone
+ * to a vendor with a claim their own records disprove — so the financial impact
+ * carried here is "value at stake", which is what is uncertain rather than what
+ * is recoverable.
+ */
+export function reconciliationSignals(summary: ReconciliationSummary | undefined): Signal[] {
+  if (summary === undefined || summary.disagreeing === 0) return [];
+
+  const worst = summary.rows
+    .filter(
+      (row) =>
+        row.state === 'contract_exceeds_entitlement' || row.state === 'entitlement_exceeds_contract',
+    )
+    .sort((a, b) => (b.differenceValue ?? 0) - (a.differenceValue ?? 0))[0];
+
+  const overDeployed = summary.rows.filter(
+    (row) => row.state === 'entitlement_exceeds_contract',
+  ).length;
+
+  const facts = [
+    { label: 'Features disagreeing', value: formatNumber(summary.disagreeing) },
+    {
+      label: 'Value at stake',
+      value: summary.valueAtStake > 0 ? formatCurrency(summary.valueAtStake) : 'Not priced',
+    },
+  ];
+  if (overDeployed > 0) {
+    facts.push({ label: 'Serving more than purchased', value: formatNumber(overDeployed) });
+  }
+  if (worst !== undefined) {
+    facts.push({ label: 'Largest gap', value: `${worst.productName} · ${worst.featureName}` });
+  }
+
+  return [
+    makeSignal({
+      id: 'reconciliation:sources',
+      kind: 'reconciliation',
+      title: 'Licensing and procurement records disagree',
+      subtitle:
+        overDeployed > 0
+          ? `${formatNumber(summary.disagreeing)} features differ between the licence server and the contract, and ${formatNumber(overDeployed)} serve more than was purchased.`
+          : `${formatNumber(summary.disagreeing)} features differ between what the licence server serves and what the contract records as purchased.`,
+      facts,
+      // Value at stake, NOT a saving. Nothing here has been established as waste.
+      financialImpact: summary.valueAtStake > 0 ? summary.valueAtStake : null,
+      urgencyDays: null,
+      risk: overDeployed > 0 ? 'High' : 'Moderate',
+      confidence: 'Medium',
+      href: '/app/data/reconciliation',
+      cta: 'Reconcile',
+    }),
+  ];
+}
+
+/**
+ * Commercial lines that cannot yet be compared with demand.
+ *
+ * Worth surfacing because the customer is paying for them and cannot make a
+ * decision about them — and because resolving one is a two-minute action with
+ * an immediate effect on the portfolio.
+ */
+export function unmatchedPositionSignals(
+  unmatched: { count: number; value: number } | undefined,
+): Signal[] {
+  if (unmatched === undefined || unmatched.count === 0) return [];
+
+  return [
+    makeSignal({
+      id: 'reconciliation:unmatched',
+      kind: 'reconciliation',
+      title: `${formatNumber(unmatched.count)} contract positions cannot be compared with usage`,
+      subtitle:
+        unmatched.value > 0
+          ? `${formatCurrency(unmatched.value)} of annual cost is outside demand comparison until these are confirmed.`
+          : 'These lines carry no price, so confirming them adds renewal and quantity context rather than cost.',
+      facts: [
+        { label: 'Positions', value: formatNumber(unmatched.count) },
+        {
+          label: 'Annual value',
+          value: unmatched.value > 0 ? formatCurrency(unmatched.value) : 'Not priced',
+        },
+      ],
+      financialImpact: unmatched.value > 0 ? unmatched.value : null,
+      urgencyDays: null,
+      risk: 'Moderate',
+      confidence: 'High',
+      href: '/app/data/review',
+      cta: 'Review',
+    }),
+  ];
+}
+
 export const SIGNAL_LABELS: Record<SignalKind, string> = {
   renewal: 'Renewal Signal',
   cost: 'Cost Signal',
@@ -345,5 +449,6 @@ export const SIGNAL_LABELS: Record<SignalKind, string> = {
   usage: 'Usage Signal',
   forecast: 'Forecast Signal',
   reclaim: 'Reclaim Signal',
+  reconciliation: 'Reconciliation Signal',
   data: 'Data Signal',
 };

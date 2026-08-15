@@ -17,6 +17,7 @@ const TYPE_FOR_KIND: Record<SignalKind, DecisionType> = {
   usage: 'forecast',
   forecast: 'forecast',
   reclaim: 'reclaim',
+  reconciliation: 'data_quality',
   data: 'data_quality',
 };
 
@@ -27,6 +28,7 @@ const ACTION_FOR_KIND: Record<SignalKind, string> = {
   usage: 'Confirm whether the demand shift is structural before the next renewal.',
   forecast: 'Plan capacity for forecast demand ahead of the renewal date.',
   reclaim: 'Run a reclaim campaign with the responsible managers.',
+  reconciliation: 'Establish which record is correct before the renewal conversation.',
   data: 'Resolve the data condition to raise recommendation confidence.',
 };
 

@@ -102,6 +102,19 @@ export default async function DataPage() {
           value={formatNumber(totalRows)}
           detail={`${formatNumber(rejectedRows)} rejected on validation`}
         />
+        <Kpi
+          label="Positions to review"
+          value={formatNumber(dataset.contractReview.length)}
+          tone={dataset.contractReview.length > 0 ? 'warning' : 'neutral'}
+          detail="Commercial lines not yet tied to demand"
+          href="/app/data/review"
+        />
+        <Kpi
+          label="Source reconciliation"
+          value={formatNumber(dataset.quantitySources.filter((source) => source.entitlementQuantity !== null && source.contractQuantity !== null && source.entitlementQuantity !== source.contractQuantity).length)}
+          detail="Features where the two records disagree"
+          href="/app/data/reconciliation"
+        />
       </div>
 
       {/* ── Data quality ────────────────────────────────────────────────── */}

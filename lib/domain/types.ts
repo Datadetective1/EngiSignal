@@ -467,6 +467,7 @@ export type SignalKind =
   | 'usage'
   | 'forecast'
   | 'reclaim'
+  | 'reconciliation'
   | 'data';
 
 export interface Signal {

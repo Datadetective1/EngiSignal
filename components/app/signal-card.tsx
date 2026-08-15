@@ -12,6 +12,7 @@ const KIND_ACCENT: Record<SignalKind, string> = {
   usage: 'var(--es-violet)',
   forecast: 'var(--es-violet)',
   reclaim: 'var(--es-aqua)',
+  reconciliation: 'var(--es-warning)',
   data: 'var(--es-warning)',
 };
 

@@ -13,6 +13,8 @@ import { getDataProvider } from '@/lib/data';
 export interface IngestionContext {
   userId: string;
   organizationId: string;
+  /** Who is acting, recorded on decisions that change future numbers. */
+  email: string | null;
 }
 
 export type IngestionAuth =
@@ -31,5 +33,12 @@ export async function resolveIngestionContext(): Promise<IngestionAuth> {
     return { ok: false, status: 403, error: 'No organization is available for this account.' };
   }
 
-  return { ok: true, context: { userId: session.userId, organizationId: organization.id } };
+  return {
+    ok: true,
+    context: {
+      userId: session.userId,
+      organizationId: organization.id,
+      email: session.email ?? null,
+    },
+  };
 }

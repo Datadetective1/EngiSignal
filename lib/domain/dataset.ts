@@ -25,6 +25,18 @@ import type {
   UserFeatureActivity,
   Vendor,
 } from './types';
+import type { ContractReviewItem } from '@/lib/ingestion/contract-match';
+
+/** What each source said a feature's quantity was. Null means "did not say". */
+export interface FeatureQuantitySources {
+  featureId: string;
+  /** As reported by the licence-server entitlement export. */
+  entitlementQuantity: number | null;
+  /** As reported by the contract or purchase-order export. */
+  contractQuantity: number | null;
+  /** True when the contract line could not be tied to an observed feature. */
+  unresolvedIdentity: boolean;
+}
 
 export interface AnalyticsDataset {
   organization: Organization;
@@ -44,6 +56,28 @@ export interface AnalyticsDataset {
   unmappedFeatures: UnmappedFeature[];
   imports: ImportRecord[];
   importMappings: ImportMapping[];
+
+  /**
+   * Both quantity sources, kept side by side.
+   *
+   * `contractItems[].quantity` necessarily collapses to ONE number, because
+   * utilization has to be measured against a single denominator. That choice —
+   * the entitlement, since demand was measured against what the server would
+   * actually issue — is correct arithmetic and an incomplete answer: the
+   * difference between what was bought and what is served is one of the most
+   * valuable findings a licence review produces, and collapsing it throws it
+   * away. Both survive here so reconciliation can report the disagreement
+   * instead of inheriting a resolution.
+   */
+  quantitySources: FeatureQuantitySources[];
+
+  /**
+   * Commercial lines the matcher refused to place, with the lookalikes it
+   * noticed. Carried on the dataset so the review surface reads the same
+   * matcher output the analytics did, rather than recomputing suggestions from
+   * a second implementation that could disagree with the first.
+   */
+  contractReview: ContractReviewItem[];
 
   /**
    * Reference date for every relative calculation.

@@ -9,6 +9,7 @@ import {
   portfolioConfidence,
 } from '@/lib/analytics/portfolio';
 import { generateSignals } from '@/lib/analytics/signals';
+import { reconcile } from '@/lib/analytics/reconciliation';
 import { DEFAULT_ANALYSIS_OPTIONS } from '@/lib/domain/dataset';
 import { generateDemoDataset } from '@/lib/synthetic/generate';
 import type { Workspace } from '@/lib/workspace';
@@ -26,6 +27,11 @@ const workspace = {
   portfolio,
   renewals,
   dataQuality,
+  reconciliation: reconcile({
+    portfolio,
+    entitlementByFeature: new Map(),
+    contractByFeature: new Map(),
+  }),
   signals: generateSignals({ portfolio, renewals, dataQuality }),
   totals: computePortfolioTotals(portfolio),
   unusedCapacity: unusedCapacitySpend(portfolio),
