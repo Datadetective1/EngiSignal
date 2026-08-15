@@ -61,6 +61,8 @@ export interface ImportSummary {
 }
 
 export interface ImportDetail extends ImportSummary {
+  /** Null for imports committed before fingerprinting existed. */
+  contentFingerprint: string | null;
   detectionEvidence: string[];
   sourceSheets: string[];
   mappingUsed: Record<string, string>;
@@ -96,6 +98,14 @@ export interface CoverageSummary {
   sources: SourceSystem[];
 }
 
+/** Raised when the same content has already been committed for this tenant. */
+export class DuplicateImportError extends Error {
+  constructor(public readonly existingImportId: string | null = null) {
+    super('This file has already been imported with the same mapping.');
+    this.name = 'DuplicateImportError';
+  }
+}
+
 export interface CommitInput {
   organizationId: string;
   importId: string;
@@ -108,6 +118,8 @@ export interface CommitInput {
   result: IngestionResult;
   detectionConfidence: number;
   detectionFellBack: boolean;
+  /** SHA-256 over content + dataset + mapping. Enables duplicate detection. */
+  contentFingerprint?: string;
 }
 
 export interface IngestionStore {

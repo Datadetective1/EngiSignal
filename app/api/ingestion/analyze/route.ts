@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { resolveIngestionContext } from '@/lib/ingestion/session';
-import { assessCapabilities, projectUsage } from '@/lib/ingestion/project';
+import { capabilityLines, unlockSuggestions } from '@/lib/ingestion/capabilities';
 import { summarizeCoverage } from '@/lib/ingestion/store';
 import {
   EmptyFileError,
@@ -132,14 +132,16 @@ export async function POST(request: Request) {
   // actually be written, so the customer sees the consequences of the mapping
   // they are about to confirm rather than a generic promise.
   const coverage = summarizeCoverage(result.usage, result.entitlements, result.people);
-  const projection = projectUsage(result.usage, result.entitlements);
-  const capabilities = assessCapabilities({
-    projection,
-    entitlementCount: result.entitlements.length,
-    peopleCount: result.people.length,
-    hasDenials: coverage.hasDenials,
+  // The same matrix the Data page and the analytics layer use.
+  const capabilityInput = {
+    coverage,
     distinctDates: new Set(result.usage.map((record) => record.date)).size,
-  });
+    // Licence exports never carry price.
+    hasCost: false,
+    resolvedPeople: result.people.length,
+  };
+  const capabilities = capabilityLines(capabilityInput);
+  const unlocks = unlockSuggestions(capabilityInput);
 
   /** Normalized records, not the source spreadsheet. */
   const normalizedPreview =
@@ -186,6 +188,7 @@ export async function POST(request: Request) {
     normalizedPreview,
     coverage,
     capabilities,
+    unlocks,
     /** Every canonical field, so a reviewer can reassign any column. */
     fields: FIELDS_BY_DATASET[result.dataset].map((spec) => ({
       key: spec.key,

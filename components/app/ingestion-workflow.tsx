@@ -73,15 +73,12 @@ interface FieldCoverage {
   note: string | null;
 }
 
-interface Capabilities {
-  usageTrends: boolean;
-  dailyDemand: boolean;
-  percentileDemand: boolean;
-  capacityUtilization: boolean;
-  financialOpportunity: boolean;
-  organizationalBreakdown: boolean;
-  denialAnalysis: boolean;
-  missing: { capability: string; needs: string }[];
+/** One row of the shared capability matrix (lib/ingestion/capabilities.ts). */
+interface CapabilityLine {
+  key: string;
+  label: string;
+  available: boolean;
+  requires: string | null;
 }
 
 interface AnalyzeResponse {
@@ -113,7 +110,8 @@ interface AnalyzeResponse {
     hasConcurrency: boolean;
     hasDenials: boolean;
   };
-  capabilities: Capabilities;
+  capabilities: CapabilityLine[];
+  unlocks: { capability: string; needs: string }[];
 }
 
 interface CommitResponse {
@@ -317,6 +315,7 @@ export function IngestionWorkflow() {
           committed={committed}
           coverage={analysis.coverage}
           capabilities={analysis.capabilities}
+          unlocks={analysis.unlocks}
           onReset={reset}
         />
       )}
@@ -895,21 +894,18 @@ function VerifyCard({
   committed,
   coverage,
   capabilities,
+  unlocks,
   onReset,
 }: {
   committed: CommitResponse;
   coverage: AnalyzeResponse['coverage'];
-  capabilities: Capabilities;
+  capabilities: CapabilityLine[];
+  unlocks: { capability: string; needs: string }[];
   onReset: () => void;
 }) {
-  const unlocked = [
-    { label: 'Usage trends', ok: capabilities.usageTrends },
-    { label: 'Daily demand', ok: capabilities.dailyDemand },
-    { label: 'P95 demand', ok: capabilities.percentileDemand },
-    { label: 'Capacity utilization', ok: capabilities.capacityUtilization },
-    { label: 'Usage by organization', ok: capabilities.organizationalBreakdown },
-    { label: 'Unmet demand', ok: capabilities.denialAnalysis },
-  ].filter((entry) => entry.ok);
+  // Straight from the shared matrix — this screen invents no capability of
+  // its own, so it cannot disagree with the Data page.
+  const unlocked = capabilities.filter((entry) => entry.available);
 
   return (
     <Card>
@@ -940,7 +936,7 @@ function VerifyCard({
             </p>
             <ul className="grid gap-1.5 sm:grid-cols-2">
               {unlocked.map((entry) => (
-                <li key={entry.label} className="flex items-center gap-2 text-[13px] text-fg">
+                <li key={entry.key} className="flex items-center gap-2 text-[13px] text-fg">
                   <span className="text-positive" aria-hidden="true">
                     ✓
                   </span>
@@ -951,13 +947,13 @@ function VerifyCard({
           </div>
         )}
 
-        {capabilities.missing.length > 0 && (
+        {unlocks.length > 0 && (
           <div>
             <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.11em] text-fg-subtle">
               Add more context to unlock
             </p>
             <ul className="space-y-2">
-              {capabilities.missing.map((entry) => (
+              {unlocks.map((entry) => (
                 <li
                   key={entry.capability}
                   className="flex flex-wrap items-baseline gap-x-2 rounded-md border border-border bg-surface-2 px-3 py-2 text-[12.5px]"

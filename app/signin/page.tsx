@@ -5,7 +5,7 @@ import { Logo } from '@/components/brand/logo';
 import { brand } from '@/config/brand';
 import { getSession, isSupabaseAuth } from '@/lib/auth';
 import { DEMO_ORG } from '@/lib/synthetic/organization';
-import { signInAction, signUpAction } from './actions';
+import { requestPasswordResetAction, signInAction, signUpAction } from './actions';
 
 export const metadata: Metadata = { title: 'Sign in' };
 
@@ -14,6 +14,7 @@ const ERRORS: Record<string, string> = {
   password: 'Enter your password.',
   weak: 'Choose a password of at least 8 characters.',
   invalid: 'That email and password do not match an account.',
+  linkexpired: 'That link has expired or was already used. Request a new one.',
   exists: 'An account already exists for that email. Sign in instead.',
   // Never reported as a problem with what the user typed.
   ratelimited: 'Too many attempts right now. Wait a minute and try again.',
@@ -32,6 +33,7 @@ export default async function SignInPage({
   const params = await searchParams;
   const supabaseAuth = isSupabaseAuth();
   const signup = params.mode === 'signup';
+  const resetting = params.mode === 'reset';
 
   return (
     <div className="theme-dark min-h-dvh bg-bg text-fg">
@@ -55,6 +57,13 @@ export default async function SignInPage({
                 : 'This deployment runs in evaluation mode against a synthetic demo organization. Enter any work email to open the workspace — no account is created and no password is stored.'}
             </p>
 
+            {params.notice === 'resetsent' && (
+              <p className="mt-5 max-w-sm rounded-md border border-accent/40 bg-accent-soft px-3.5 py-2.5 text-[12.5px] leading-relaxed text-accent">
+                If that address has an account, a reset link is on its way. The link expires after a
+                short time.
+              </p>
+            )}
+
             {params.notice === 'confirm' && (
               <p className="mt-5 max-w-sm rounded-md border border-accent/40 bg-accent-soft px-3.5 py-2.5 text-[12.5px] leading-relaxed text-accent">
                 Check your email to confirm the address, then sign in. Your workspace is created on
@@ -62,7 +71,10 @@ export default async function SignInPage({
               </p>
             )}
 
-            <form action={signup ? signUpAction : signInAction} className="mt-8 max-w-sm">
+            <form
+              action={resetting ? requestPasswordResetAction : signup ? signUpAction : signInAction}
+              className="mt-8 max-w-sm"
+            >
               <label htmlFor="email" className="block text-[12.5px] font-medium text-fg-muted">
                 Work email
               </label>
@@ -76,7 +88,7 @@ export default async function SignInPage({
                 className="mt-1.5 h-11 w-full rounded-md border border-border bg-surface px-3.5 text-[14px] text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none"
               />
 
-              {supabaseAuth && (
+              {supabaseAuth && !resetting && (
                 <>
                   <label
                     htmlFor="password"
@@ -125,13 +137,34 @@ export default async function SignInPage({
                 type="submit"
                 className="mt-4 h-11 w-full rounded-md bg-accent text-[14px] font-medium text-accent-fg transition-[filter] hover:brightness-110"
               >
-                {supabaseAuth ? (signup ? 'Create workspace' : 'Sign in') : 'Open workspace'}
+                {!supabaseAuth
+                  ? 'Open workspace'
+                  : resetting
+                    ? 'Send reset link'
+                    : signup
+                      ? 'Create workspace'
+                      : 'Sign in'}
               </button>
             </form>
 
+            {supabaseAuth && !signup && !resetting && (
+              <p className="mt-2 max-w-sm text-[12.5px]">
+                <Link href="/signin?mode=reset" className="text-fg-muted underline underline-offset-2 hover:text-fg">
+                  Forgot your password?
+                </Link>
+              </p>
+            )}
+
             {supabaseAuth && (
               <p className="mt-4 max-w-sm text-[12.5px] text-fg-muted">
-                {signup ? (
+                {resetting ? (
+                  <>
+                    Remembered it?{' '}
+                    <Link href="/signin" className="text-accent underline underline-offset-2">
+                      Sign in
+                    </Link>
+                  </>
+                ) : signup ? (
                   <>
                     Already have an account?{' '}
                     <Link href="/signin" className="text-accent underline underline-offset-2">

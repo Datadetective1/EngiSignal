@@ -23,7 +23,7 @@ import type {
   ImportSummary,
   IngestionStore,
 } from './types';
-import { summarizeCoverage } from './types';
+import { DuplicateImportError, summarizeCoverage } from './types';
 
 interface TenantBucket {
   imports: Map<string, ImportDetail>;
@@ -63,9 +63,21 @@ export const memoryIngestionStore: IngestionStore = {
       detectionFellBack,
       sourceSheets,
       mappingUsed,
+      contentFingerprint,
     } = input;
 
     const store = bucket(organizationId);
+
+    // Same rule as the database: identical content, dataset and mapping cannot
+    // be committed twice. Re-committing the SAME import id is still a retry
+    // and is handled below.
+    if (contentFingerprint !== undefined) {
+      for (const existing of store.imports.values()) {
+        if (existing.contentFingerprint === contentFingerprint && existing.id !== importId) {
+          throw new DuplicateImportError(existing.id);
+        }
+      }
+    }
 
     // Re-committing the same import replaces it rather than duplicating, so a
     // retry after a network failure cannot double-count demand.
@@ -110,6 +122,7 @@ export const memoryIngestionStore: IngestionStore = {
       entitlementRecords: result.entitlements.length,
       peopleRecords: result.people.length,
       failureReason: null,
+      contentFingerprint: contentFingerprint ?? null,
       detectionEvidence,
       sourceSheets,
       mappingUsed,

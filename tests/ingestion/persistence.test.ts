@@ -5,7 +5,8 @@ import { ingestParsedFile } from '@/lib/ingestion';
 import { parseDelimited } from '@/lib/ingestion/parse';
 import { __resetMemoryStore, memoryIngestionStore as store } from '@/lib/ingestion/store/memory-store';
 import { summarizeCoverage } from '@/lib/ingestion/store/types';
-import { assessCapabilities, projectUsage, projectedFeatureId } from '@/lib/ingestion/project';
+import { projectUsage, projectedFeatureId } from '@/lib/ingestion/project';
+import { capabilityLines, unlockSuggestions } from '@/lib/ingestion/capabilities';
 
 const FIXTURES = path.resolve(__dirname, '../fixtures/ingestion');
 
@@ -402,84 +403,61 @@ describe('analysis capabilities', () => {
     await commit('flexnet-usage.csv');
     const usage = await store.listUsage('org-alpha');
     const coverage = await store.getCoverage('org-alpha');
-    const projection = projectUsage(usage);
 
-    const capabilities = assessCapabilities({
-      projection,
-      entitlementCount: 0,
-      peopleCount: 0,
-      hasDenials: coverage.hasDenials,
+    const lines = capabilityLines({
+      coverage,
       distinctDates: new Set(usage.map((row) => row.date)).size,
+      hasCost: false,
+      resolvedPeople: 0,
     });
+    const by = (key: string) => lines.find((line) => line.key === key)!;
 
-    expect(capabilities.usageTrends).toBe(true);
-    expect(capabilities.dailyDemand).toBe(true);
+    expect(by('usageTrends').available).toBe(true);
+    expect(by('dailyDemand').available).toBe(true);
     // Two days is not enough history for a percentile to mean anything.
-    expect(capabilities.percentileDemand).toBe(false);
-    expect(capabilities.capacityUtilization).toBe(false);
-    expect(capabilities.organizationalBreakdown).toBe(false);
-    expect(capabilities.missing.some((entry) => entry.needs.includes('entitlement'))).toBe(true);
+    expect(by('percentileDemand').available).toBe(false);
+    expect(by('capacityHeadroom').available).toBe(false);
+    expect(by('organizationAllocation').available).toBe(false);
+
+    const unlocks = unlockSuggestions({
+      coverage,
+      distinctDates: 2,
+      hasCost: false,
+      resolvedPeople: 0,
+    });
+    expect(unlocks.some((entry) => entry.needs.includes('entitlements'))).toBe(true);
   });
 
   it('never claims financial opportunity from a license export alone', async () => {
     await commit('flexnet-usage.csv');
-    const usage = await store.listUsage('org-alpha');
-    const capabilities = assessCapabilities({
-      projection: projectUsage(usage),
-      entitlementCount: 4,
-      peopleCount: 10,
-      hasDenials: true,
+    const coverage = await store.getCoverage('org-alpha');
+
+    const lines = capabilityLines({
+      coverage: { ...coverage, entitlementRecords: 4, hasDenials: true },
       distinctDates: 400,
+      hasCost: false,
+      resolvedPeople: 10,
     });
 
     // Cost never arrives through a license manager.
-    expect(capabilities.financialOpportunity).toBe(false);
-    expect(capabilities.missing.some((entry) => entry.needs.includes('cost'))).toBe(true);
+    const financial = lines.find((line) => line.key === 'financialOpportunity')!;
+    expect(financial.available).toBe(false);
+    expect(financial.requires).toContain('cost');
   });
 
-  it('unlocks percentile demand once there is enough history', () => {
-    const records = Array.from({ length: 40 }, (_, index) => ({
-      date: `2026-03-${String((index % 28) + 1).padStart(2, '0')}`,
-      hour: 9,
-      observedAt: null,
-      user: 'a',
-      employeeCode: null,
-      feature: 'F',
-      product: null,
-      vendor: null,
-      quantity: null,
-      concurrent: 10 + index,
-      peak: null,
-      available: null,
-      durationHours: null,
-      checkoutAt: null,
-      checkinAt: null,
-      denied: null,
-      denialCount: null,
-      licenseServer: null,
-      pool: null,
-      tokens: null,
-      provenance: {
-        organizationId: 'o',
-        importId: 'i',
-        importedAt: '2026-08-15T00:00:00.000Z',
-        sourceFile: 'f.csv',
-        sourceSystem: 'flexnet' as const,
-        sourceSheet: null,
-        sourceRow: index + 2,
-      },
-    }));
+  it('unlocks percentile demand once there is enough history', async () => {
+    await commit('flexnet-usage.csv');
+    const coverage = await store.getCoverage('org-alpha');
 
-    const capabilities = assessCapabilities({
-      projection: projectUsage(records),
-      entitlementCount: 1,
-      peopleCount: 0,
-      hasDenials: false,
-      distinctDates: new Set(records.map((row) => row.date)).size,
+    const lines = capabilityLines({
+      coverage: { ...coverage, entitlementRecords: 1 },
+      distinctDates: 40,
+      hasCost: false,
+      resolvedPeople: 0,
     });
 
-    expect(capabilities.percentileDemand).toBe(true);
-    expect(capabilities.capacityUtilization).toBe(true);
+    expect(lines.find((line) => line.key === 'percentileDemand')!.available).toBe(true);
+    expect(lines.find((line) => line.key === 'capacityHeadroom')!.available).toBe(true);
   });
 });
 

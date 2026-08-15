@@ -1,15 +1,20 @@
 /**
- * What the imported data can actually support.
+ * THE capability matrix.
  *
- * Every entry is computed from persisted records. None is a hard-coded label.
+ * ONE definition of what EngiSignal can answer, used by the analytics layer,
+ * the import workflow and the Data page alike. There were briefly two — one
+ * here and one in project.ts — which is precisely the drift risk this file now
+ * exists to remove: two answers to "can we compute P95" would eventually
+ * disagree, and the customer would see a capability offered on one screen and
+ * withheld on another.
  *
  * THE DISTINCTION THAT MATTERS MOST
  *
  * "Not supplied" and "zero" are different answers and must never be conflated.
- * A file with no denial column does not prove demand was met — it proves
- * nobody logged denials. Rendering that as "0 denials" would tell a customer
- * their capacity is comfortable on the strength of data that does not exist,
- * which is the single most expensive lie this product could tell.
+ * A file with no denial column does not prove demand was met — it proves nobody
+ * logged denials. Rendering that as "0 denials" would tell a customer their
+ * capacity is comfortable on the strength of data that does not exist, which is
+ * the most expensive lie this product could tell.
  *
  * The same applies to cost: a licence-manager export never carries price, so
  * financial opportunity is withheld rather than computed from an assumed zero.
@@ -25,12 +30,26 @@ export interface CoverageLine {
   detail: string;
 }
 
+/** Every input family EngiSignal can consume. */
+export type DataInput = 'usage' | 'concurrency' | 'entitlements' | 'denials' | 'cost' | 'people';
+
 export interface CapabilityLine {
+  key: CapabilityKey;
   label: string;
   available: boolean;
-  /** Why it is unavailable. Null when it is available. */
+  /** Why it is unavailable. Null when available. */
   requires: string | null;
 }
+
+export type CapabilityKey =
+  | 'usageTrends'
+  | 'dailyDemand'
+  | 'percentileDemand'
+  | 'capacityHeadroom'
+  | 'utilization'
+  | 'denialAnalysis'
+  | 'financialOpportunity'
+  | 'organizationAllocation';
 
 /** Days of history below which a percentile is arithmetic rather than evidence. */
 export const MIN_DAYS_FOR_PERCENTILE = 14;
@@ -41,8 +60,90 @@ export interface CapabilityInput {
   distinctDates: number;
   /** True when at least one contract line carries a price. */
   hasCost: boolean;
-  /** People records that resolved to a usage identity. */
+  /** Usernames that resolved to a person record. */
   resolvedPeople: number;
+}
+
+/**
+ * The declarative matrix.
+ *
+ * `needs` is the honest requirement list. Nothing is granted by a flag set
+ * elsewhere; availability is derived from these requirements alone, so the
+ * matrix published in documentation and the behaviour in the product cannot
+ * drift apart.
+ */
+export const CAPABILITY_MATRIX: {
+  key: CapabilityKey;
+  label: string;
+  needs: DataInput[];
+  /** Extra condition beyond the presence of the inputs. */
+  note?: string;
+}[] = [
+  { key: 'usageTrends', label: 'Usage trends', needs: ['usage'] },
+  { key: 'dailyDemand', label: 'Daily demand', needs: ['usage'] },
+  {
+    key: 'percentileDemand',
+    label: 'P90 / P95 / P99 demand',
+    needs: ['usage', 'concurrency'],
+    note: `at least ${MIN_DAYS_FOR_PERCENTILE} days of history`,
+  },
+  { key: 'capacityHeadroom', label: 'Capacity headroom', needs: ['usage', 'concurrency', 'entitlements'] },
+  { key: 'utilization', label: 'Utilization', needs: ['usage', 'concurrency', 'entitlements'] },
+  { key: 'denialAnalysis', label: 'Unmet demand', needs: ['usage', 'denials'] },
+  { key: 'financialOpportunity', label: 'Financial opportunity', needs: ['usage', 'entitlements', 'cost'] },
+  { key: 'organizationAllocation', label: 'Organization allocation', needs: ['usage', 'people'] },
+];
+
+const INPUT_LABEL: Record<DataInput, string> = {
+  usage: 'usage data',
+  concurrency: 'concurrent demand',
+  entitlements: 'entitlements',
+  denials: 'denial data',
+  cost: 'contract or cost data',
+  people: 'employee context',
+};
+
+/** Which input families the tenant currently has. */
+export function availableInputs(input: CapabilityInput): Set<DataInput> {
+  const { coverage, hasCost, resolvedPeople } = input;
+  const present = new Set<DataInput>();
+
+  if (coverage.usageRecords > 0) present.add('usage');
+  if (coverage.hasConcurrency) present.add('concurrency');
+  if (coverage.entitlementRecords > 0) present.add('entitlements');
+  if (coverage.hasDenials) present.add('denials');
+  if (hasCost) present.add('cost');
+  if (resolvedPeople > 0) present.add('people');
+
+  return present;
+}
+
+/** Evaluate the matrix against what the tenant actually has. */
+export function capabilityLines(input: CapabilityInput): CapabilityLine[] {
+  const present = availableInputs(input);
+  const enoughHistory = input.distinctDates >= MIN_DAYS_FOR_PERCENTILE;
+
+  return CAPABILITY_MATRIX.map((entry) => {
+    const missing = entry.needs.filter((need) => !present.has(need));
+
+    // History is a property of the data, not an input family, so it is checked
+    // separately — a year of one-day-a-week sampling is still thin evidence.
+    const historyShort = entry.key === 'percentileDemand' && missing.length === 0 && !enoughHistory;
+
+    const available = missing.length === 0 && !historyShort;
+    const requires = available
+      ? null
+      : historyShort
+        ? `requires ${MIN_DAYS_FOR_PERCENTILE} days of history`
+        : `requires ${missing.map((need) => INPUT_LABEL[need]).join(' and ')}`;
+
+    return { key: entry.key, label: entry.label, available, requires };
+  });
+}
+
+/** Convenience lookup for a single capability. */
+export function hasCapability(input: CapabilityInput, key: CapabilityKey): boolean {
+  return capabilityLines(input).find((line) => line.key === key)?.available ?? false;
 }
 
 export function coverageLines(input: CapabilityInput): CoverageLine[] {
@@ -51,11 +152,9 @@ export function coverageLines(input: CapabilityInput): CoverageLine[] {
   const peopleState: CoverageState =
     coverage.peopleRecords === 0
       ? 'missing'
-      : resolvedPeople === 0
+      : resolvedPeople === 0 || resolvedPeople < coverage.distinctUsers
         ? 'partial'
-        : resolvedPeople < coverage.distinctUsers
-          ? 'partial'
-          : 'complete';
+        : 'complete';
 
   return [
     {
@@ -106,64 +205,30 @@ export function coverageLines(input: CapabilityInput): CoverageLine[] {
   ];
 }
 
-export function capabilityLines(input: CapabilityInput): CapabilityLine[] {
-  const { coverage, distinctDates, hasCost, resolvedPeople } = input;
-
-  const hasUsage = coverage.usageRecords > 0;
-  const hasConcurrency = hasUsage && coverage.hasConcurrency;
-  const enoughHistory = distinctDates >= MIN_DAYS_FOR_PERCENTILE;
-  const hasEntitlements = coverage.entitlementRecords > 0;
-
-  return [
-    { label: 'Usage trends', available: hasUsage, requires: hasUsage ? null : 'requires usage data' },
-    { label: 'Daily demand', available: hasUsage, requires: hasUsage ? null : 'requires usage data' },
-    {
-      label: 'P95 demand',
-      available: hasConcurrency && enoughHistory,
-      requires: !hasConcurrency
-        ? 'requires concurrent demand'
-        : !enoughHistory
-          ? `requires at least ${MIN_DAYS_FOR_PERCENTILE} days of history`
-          : null,
-    },
-    {
-      label: 'Capacity headroom',
-      available: hasConcurrency && hasEntitlements,
-      requires: !hasEntitlements ? 'requires entitlements' : !hasConcurrency ? 'requires concurrent demand' : null,
-    },
-    {
-      label: 'Utilization',
-      available: hasConcurrency && hasEntitlements,
-      requires: !hasEntitlements ? 'requires entitlements' : !hasConcurrency ? 'requires concurrent demand' : null,
-    },
-    {
-      label: 'Unmet demand',
-      available: coverage.hasDenials,
-      requires: coverage.hasDenials ? null : 'requires denial data',
-    },
-    {
-      label: 'Financial opportunity',
-      available: hasCost,
-      // Licence exports never carry price, so this stays unavailable until
-      // contract or cost data is imported. It is not computed from zero.
-      requires: hasCost ? null : 'requires contract or cost data',
-    },
-    {
-      label: 'Organization allocation',
-      available: resolvedPeople > 0,
-      requires: resolvedPeople > 0 ? null : 'requires employee context',
-    },
-  ];
-}
-
 /** Overall data-quality banding, from what is actually present. */
 export function qualityBand(input: CapabilityInput): 'High' | 'Medium' | 'Low' {
-  const capabilities = capabilityLines(input);
-  const core = capabilities.filter((entry) =>
-    ['Usage trends', 'Daily demand', 'P95 demand'].includes(entry.label),
-  );
-  const met = core.filter((entry) => entry.available).length;
+  const lines = capabilityLines(input);
+  const core: CapabilityKey[] = ['usageTrends', 'dailyDemand', 'percentileDemand'];
+  const met = lines.filter((line) => core.includes(line.key) && line.available).length;
+
   if (met === core.length) return 'High';
   if (met > 0) return 'Medium';
   return 'Low';
+}
+
+/** What is still missing, phrased as the next thing to import. */
+export function unlockSuggestions(input: CapabilityInput): { capability: string; needs: string }[] {
+  const present = availableInputs(input);
+  const suggestions: { capability: string; needs: string }[] = [];
+
+  for (const entry of CAPABILITY_MATRIX) {
+    const missing = entry.needs.filter((need) => !present.has(need));
+    if (missing.length === 0) continue;
+    suggestions.push({
+      capability: entry.label,
+      needs: `Add ${missing.map((need) => INPUT_LABEL[need]).join(' and ')}`,
+    });
+  }
+
+  return suggestions;
 }

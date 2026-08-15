@@ -9,23 +9,22 @@
  * needs the caller's own JWT attached to every request, which is what these
  * clients do.
  *
- * Two clients, deliberately distinct:
+ * There is exactly ONE client, and it carries the signed-in user's session, so
+ * RLS applies to every statement and the database enforces isolation even if
+ * application code has a bug.
  *
- *  - `userClient()` carries the signed-in user's session. RLS applies. This is
- *    what every request path uses, so the database enforces isolation even if
- *    application code has a bug.
- *
- *  - `adminClient()` uses the service role and BYPASSES RLS. It exists only for
- *    operations that genuinely cannot be done as a user. It is server-only, is
- *    never constructed unless the key is present, and must never be reachable
- *    from a request whose tenant came from user input.
+ * A service-role helper previously lived here and was never called. It has been
+ * removed rather than left available: an unused function that bypasses Row
+ * Level Security is a capability waiting to be picked up by a future change
+ * under time pressure, and nothing in Phase 1 needs it. If an operation ever
+ * genuinely requires it, reintroduce it deliberately with its own review.
  */
 
 import 'server-only';
 import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { envOptional, supabaseAnonKey, supabaseUrl } from '@/config/env';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { supabaseAnonKey, supabaseUrl } from '@/config/env';
 
 export function hasSupabaseEnv(): boolean {
   return supabaseUrl() !== null && supabaseAnonKey() !== null;
@@ -64,12 +63,4 @@ export async function userClient(): Promise<SupabaseClient> {
       },
     },
   });
-}
-
-/** Service-role client. Bypasses RLS. Returns null when not configured. */
-export function adminClient(): SupabaseClient | null {
-  const url = supabaseUrl();
-  const key = envOptional('SUPABASE_SERVICE_ROLE_KEY');
-  if (url === null || key === null) return null;
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }

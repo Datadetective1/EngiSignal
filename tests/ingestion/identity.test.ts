@@ -198,7 +198,7 @@ describe('capability gating', () => {
       hasCost: false,
       resolvedPeople: 0,
     });
-    expect(thin.find((line) => line.label === 'P95 demand')!.available).toBe(false);
+    expect(thin.find((line) => line.key === 'percentileDemand')!.available).toBe(false);
 
     const rich = capabilityLines({
       coverage: baseCoverage,
@@ -206,7 +206,7 @@ describe('capability gating', () => {
       hasCost: false,
       resolvedPeople: 0,
     });
-    expect(rich.find((line) => line.label === 'P95 demand')!.available).toBe(true);
+    expect(rich.find((line) => line.key === 'percentileDemand')!.available).toBe(true);
   });
 
   it('withholds capacity headroom until entitlements exist', () => {
@@ -216,9 +216,9 @@ describe('capability gating', () => {
       hasCost: false,
       resolvedPeople: 0,
     });
-    const headroom = without.find((line) => line.label === 'Capacity headroom')!;
+    const headroom = without.find((line) => line.key === 'capacityHeadroom')!;
     expect(headroom.available).toBe(false);
-    expect(headroom.requires).toBe('requires entitlements');
+    expect(headroom.requires).toContain('entitlements');
 
     const withEnt = capabilityLines({
       coverage: { ...baseCoverage, entitlementRecords: 4 },
@@ -226,7 +226,7 @@ describe('capability gating', () => {
       hasCost: false,
       resolvedPeople: 0,
     });
-    expect(withEnt.find((line) => line.label === 'Capacity headroom')!.available).toBe(true);
+    expect(withEnt.find((line) => line.key === 'capacityHeadroom')!.available).toBe(true);
   });
 
   it('never offers financial opportunity without cost data', () => {
@@ -237,9 +237,9 @@ describe('capability gating', () => {
       resolvedPeople: 10,
     });
 
-    const financial = lines.find((line) => line.label === 'Financial opportunity')!;
+    const financial = lines.find((line) => line.key === 'financialOpportunity')!;
     expect(financial.available).toBe(false);
-    expect(financial.requires).toBe('requires contract or cost data');
+    expect(financial.requires).toContain('cost');
   });
 
   it('bands quality from what is actually present', () => {

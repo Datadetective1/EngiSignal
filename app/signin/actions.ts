@@ -1,6 +1,7 @@
 'use server';
 
 import { redirect } from 'next/navigation';
+import { envOptional } from '@/config/env';
 import { createSession, isSupabaseAuth } from '@/lib/auth';
 import { userClient } from '@/lib/supabase/server';
 
@@ -107,6 +108,30 @@ export async function ensureOrganization(name?: string): Promise<string | null> 
 
   if (error !== null) return null;
   return typeof data === 'string' ? data : null;
+}
+
+/**
+ * Request a password-reset email.
+ *
+ * Always reports success, even for an address with no account: telling a
+ * stranger which emails are registered is user enumeration.
+ *
+ * NOTE: delivery depends on the project's SMTP configuration. With Supabase's
+ * built-in mailer this is rate-limited and not suitable for production volume.
+ */
+export async function requestPasswordResetAction(formData: FormData) {
+  const email = String(formData.get('email') ?? '').trim();
+  if (email.length === 0 || !email.includes('@')) redirect('/signin?error=email&mode=reset');
+
+  if (!isSupabaseAuth()) redirect('/signin?notice=resetsent');
+
+  const supabase = await userClient();
+  const origin = envOptional('NEXT_PUBLIC_SITE_URL') ?? '';
+  await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${origin}/auth/callback?type=recovery`,
+  });
+
+  redirect('/signin?notice=resetsent');
 }
 
 export async function signOutAction() {

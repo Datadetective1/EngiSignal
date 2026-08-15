@@ -10,6 +10,8 @@ import {
 } from '@/lib/ingestion';
 import { resolveIngestionContext } from '@/lib/ingestion/session';
 import { getIngestionStore } from '@/lib/ingestion/store';
+import { DuplicateImportError } from '@/lib/ingestion/store/types';
+import { fingerprintImport } from '@/lib/ingestion/fingerprint';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -93,10 +95,12 @@ export async function POST(request: Request) {
   }
 
   const importId = crypto.randomUUID();
+  // Read once: the bytes are needed for both parsing and fingerprinting.
+  const fileBytes = await file.arrayBuffer();
 
   let analysis;
   try {
-    analysis = await ingestFile(await file.arrayBuffer(), {
+    analysis = await ingestFile(fileBytes, {
       dataset: body.data.dataset,
       organizationId: auth.context.organizationId,
       importId,
@@ -141,9 +145,15 @@ export async function POST(request: Request) {
     if (mapping.field !== null) mappingUsed[mapping.sourceColumn] = mapping.field;
   }
 
+  // Identical content, dataset and mapping must not be committed twice: two
+  // commits of one file double every observation, raising P95 and the
+  // recommended quantity silently.
+  const contentFingerprint = await fingerprintImport(fileBytes, body.data.dataset, mappingUsed);
+
   let summary;
   try {
     summary = await getIngestionStore().commitImport({
+      contentFingerprint,
       organizationId: auth.context.organizationId,
       importId,
       fileName: file.name,
@@ -157,6 +167,17 @@ export async function POST(request: Request) {
       result: analysis.result,
     });
   } catch (error) {
+    if (error instanceof DuplicateImportError) {
+      return NextResponse.json(
+        {
+          error:
+            'This file has already been imported with the same mapping. Importing it again would double-count the same demand.',
+          duplicate: true,
+          existingImportId: error.existingImportId,
+        },
+        { status: 409 },
+      );
+    }
     return NextResponse.json(
       {
         error:
