@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildPortfolio } from '@/lib/analytics/portfolio';
 import { computePortfolioTotals, unusedCapacitySpend } from '@/lib/analytics/financial';
-import { generateSignals } from '@/lib/analytics/signals';
+import { evidenceGapSignals, generateSignals } from '@/lib/analytics/signals';
 import { buildDatasetFromCanonical } from '@/lib/ingestion/dataset';
 import { DEFAULT_ANALYSIS_OPTIONS } from '@/lib/domain/dataset';
 import type {
@@ -191,5 +191,29 @@ describe('the same rule for a feature whose usage IS supplied', () => {
     // 275 × 1.00 growth × 1.10 safety = 302.5 → 303.
     expect(observed.rightSizing!.recommended).toBe(303);
     expect(observed.financial.optimizationOpportunity).toBe((400 - 303) * 5000);
+  });
+});
+
+describe('the evidence-gap signal', () => {
+  it('names priced software that cannot be assessed, without calling it savings', () => {
+    const rows = buildPortfolio(mixedDataset(), DEFAULT_ANALYSIS_OPTIONS);
+    const signals = evidenceGapSignals(rows);
+
+    expect(signals).toHaveLength(1);
+    const [signal] = signals;
+    expect(signal!.title).toContain('no usage evidence');
+    // The one unevidenced feature costs 1.08M.
+    expect(signal!.financialImpact).toBe(1_080_000);
+    // It must read as something to resolve, never as money available.
+    expect(signal!.subtitle.toLowerCase()).not.toContain('saving');
+    expect(signal!.subtitle.toLowerCase()).not.toContain('opportunity');
+    expect(signal!.subtitle).toContain('cannot be assessed');
+  });
+
+  it('is silent when every priced feature has usage behind it', () => {
+    const rows = buildPortfolio(mixedDataset(), DEFAULT_ANALYSIS_OPTIONS).filter(
+      (row) => row.usageEvidence === 'observed',
+    );
+    expect(evidenceGapSignals(rows)).toHaveLength(0);
   });
 });

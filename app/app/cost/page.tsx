@@ -24,12 +24,22 @@ import { loadWorkspace } from '@/lib/workspace';
 
 export const metadata: Metadata = { title: 'Cost intelligence' };
 
+/**
+ * Every axis a customer's HR export might carry.
+ *
+ * A dimension the people file did not supply produces one "Unattributed" row
+ * rather than a plausible-looking split, so offering all of them is safe: the
+ * allocation reports what it could not attribute instead of distributing it.
+ */
 const DIMENSIONS: DimensionKey[] = [
+  'organization',
   'businessUnit',
-  'program',
   'department',
+  'program',
   'discipline',
+  'competency',
   'location',
+  'region',
   'employeeType',
   'managerName',
 ];

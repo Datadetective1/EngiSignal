@@ -105,6 +105,7 @@ export function generateSignals(input: SignalGenerationInput): Signal[] {
     ...forecastSignals(input.portfolio),
     ...reconciliationSignals(input.reconciliation),
     ...unmatchedPositionSignals(input.unmatchedPositions),
+    ...evidenceGapSignals(input.portfolio),
     ...dataSignals(input.dataQuality),
   ];
 
@@ -343,6 +344,55 @@ export function dataSignals(issues: readonly DataQualityIssue[]): Signal[] {
         cta: 'Resolve',
       }),
     );
+}
+
+/**
+ * Software EngiSignal can price but cannot assess.
+ *
+ * The direct product of the evidence rule: these features have a contract, a
+ * quantity and a renewal date, and no usage was ever imported for them. That is
+ * not a defect — it is the most actionable gap in the account, because a single
+ * usage export converts the whole group from "cost we cannot judge" into
+ * "positions with a recommendation".
+ *
+ * The financial impact carried here is SPEND AT RISK OF BEING UNJUDGED, never a
+ * saving. Nothing about these lines has been measured.
+ */
+export function evidenceGapSignals(portfolio: readonly PortfolioRow[]): Signal[] {
+  const blind = portfolio.filter(
+    (row) => row.usageEvidence === 'not_supplied' && (row.financial.currentAnnualCost ?? 0) > 0,
+  );
+  if (blind.length === 0) return [];
+
+  const spend = blind.reduce((total, row) => total + (row.financial.currentAnnualCost ?? 0), 0);
+  const vendors = [...new Set(blind.map((row) => row.vendorName))];
+  const soonest = blind
+    .filter((row) => row.daysToRenewal !== null && row.daysToRenewal >= 0)
+    .sort((a, b) => (a.daysToRenewal ?? 0) - (b.daysToRenewal ?? 0))[0];
+
+  return [
+    makeSignal({
+      id: 'evidence:no-usage',
+      kind: 'data',
+      title: `${formatNumber(blind.length)} priced features have no usage evidence`,
+      subtitle: `${formatCurrency(spend)} of annual cost cannot be assessed against demand. Importing a usage export for ${vendors.slice(0, 2).join(' and ')}${vendors.length > 2 ? ' and others' : ''} would make these decidable.`,
+      facts: [
+        { label: 'Features', value: formatNumber(blind.length) },
+        { label: 'Annual cost', value: formatCurrency(spend) },
+        { label: 'Vendors', value: formatNumber(vendors.length) },
+        ...(soonest === undefined
+          ? []
+          : [{ label: 'Soonest renewal', value: `${soonest.productName} in ${soonest.daysToRenewal} days` }]),
+      ],
+      // Spend that cannot be judged — explicitly NOT an opportunity.
+      financialImpact: spend,
+      urgencyDays: soonest?.daysToRenewal ?? null,
+      risk: soonest !== undefined && (soonest.daysToRenewal ?? 999) <= 90 ? 'High' : 'Moderate',
+      confidence: 'High',
+      href: '/app/portfolio',
+      cta: 'Review',
+    }),
+  ];
 }
 
 /**
