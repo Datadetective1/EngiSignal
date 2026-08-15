@@ -120,6 +120,15 @@ export async function POST(request: Request) {
     if (error instanceof EmptyFileError || error instanceof UnsupportedFileError) {
       return NextResponse.json({ error: error.message }, { status: 422 });
     }
+    // The cause is logged server-side and never returned: a parser stack trace
+    // tells an attacker about the runtime, but without it a production-only
+    // parse failure is undiagnosable from the outside.
+    console.error('[ingestion] parse failed', {
+      fileName: file.name,
+      bytes: file.size,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack?.slice(0, 800) : undefined,
+    });
     return NextResponse.json(
       { error: 'The file could not be read. Check that it is a valid CSV, TSV or XLSX export.' },
       { status: 422 },
