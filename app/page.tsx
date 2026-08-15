@@ -309,13 +309,13 @@ function SiteHeader() {
         <div className="flex items-center gap-2.5">
           <Link
             href="/signin"
-            className="inline-flex h-9 items-center rounded-md border border-border px-3.5 text-[13px] font-medium text-fg transition-colors hover:bg-surface-2 md:hidden"
+            className="inline-flex h-9 shrink-0 items-center whitespace-nowrap rounded-md border border-border px-3 text-[12.5px] font-medium text-fg transition-colors hover:bg-surface-2 md:hidden"
           >
             Sign in
           </Link>
           <Link
             href="#pilot"
-            className="inline-flex h-9 items-center rounded-md bg-accent px-4 text-[13px] font-medium text-accent-fg transition-[filter] hover:brightness-110"
+            className="inline-flex h-9 shrink-0 items-center whitespace-nowrap rounded-md bg-accent px-3.5 text-[12.5px] font-medium text-accent-fg transition-[filter] hover:brightness-110 sm:px-4 sm:text-[13px]"
           >
             {brand.pilot.shortName}
           </Link>

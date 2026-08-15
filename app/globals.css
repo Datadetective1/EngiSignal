@@ -136,6 +136,12 @@ html {
 }
 
 body {
+  /*
+   * Positioned rather than static: scroll-linked animation measures offsets
+   * against the nearest positioned ancestor of the scroll container, and warns
+   * (and can mis-measure) when that resolves to a static body.
+   */
+  position: relative;
   background-color: var(--es-bg);
   color: var(--es-fg);
   font-family: var(--es-font-sans);
