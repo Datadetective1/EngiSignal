@@ -189,9 +189,13 @@ export function buildRenewalLines(rows: readonly PortfolioRow[]): RenewalLine[] 
 
 function describeEvidence(row: PortfolioRow): string {
   if (!row.financial.priced) return 'Unpriced — no contract cost supplied for this feature';
-  if (row.metrics === null) return 'Priced, but no concurrent demand observed to size against';
-  if (row.rightSizing === null) return 'Priced with demand observed, but not enough history to right-size';
-  return `Priced, sized from ${row.metrics.observedDays} days of observed demand`;
+  // A metrics object exists even when nothing was observed, so observedDays is
+  // the honest test. Reporting "demand observed" for a feature with none would
+  // put a confident-sounding label on the emptiest row on the page.
+  const observedDays = row.metrics?.observedDays ?? 0;
+  if (observedDays === 0) return 'Priced, but no usage was imported for this feature';
+  if (row.rightSizing === null) return `Priced, but ${observedDays} days is not enough history to right-size`;
+  return `Priced, sized from ${observedDays} days of observed demand`;
 }
 
 export function describeRenewalTiming(daysToRenewal: number | null): string {

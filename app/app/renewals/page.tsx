@@ -146,7 +146,9 @@ export default async function RenewalsPage() {
               {exposure.undatedLines > 0 && (
                 <li className="text-[12px] leading-relaxed text-fg-subtle">
                   <span className="font-medium text-fg-muted">
-                    {formatNumber(exposure.undatedLines)} features carry no renewal date.
+                    {formatNumber(exposure.undatedLines)}{' '}
+                    {exposure.undatedLines === 1 ? 'feature carries' : 'features carry'} no renewal
+                    date.
                   </span>{' '}
                   They are excluded from every window above rather than assumed to renew annually —
                   perpetual licences do exist, and putting one on a renewal calendar would send
@@ -156,7 +158,8 @@ export default async function RenewalsPage() {
               {exposure.lapsedLines > 0 && (
                 <li className="text-[12px] leading-relaxed text-fg-subtle">
                   <span className="font-medium text-fg-muted">
-                    {formatNumber(exposure.lapsedLines)} renewal dates have already passed.
+                    {formatNumber(exposure.lapsedLines)} renewal{' '}
+                    {exposure.lapsedLines === 1 ? 'date has' : 'dates have'} already passed.
                   </span>{' '}
                   Usually a stale export. Worth confirming before it is treated as either.
                 </li>
