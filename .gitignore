@@ -23,3 +23,6 @@ next-env.d.ts
 
 # Session QA fixtures — never source
 .qa-tmp/
+
+# Phase specs and closure reports, kept locally
+*.pdf
