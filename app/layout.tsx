@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import { brand } from '@/config/brand';
+import { siteUrlObject } from '@/config/site-url';
 import './globals.css';
 
 const inter = Inter({
@@ -10,7 +11,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(brand.url),
+  // Always a validated absolute URL — never an empty or malformed string.
+  metadataBase: siteUrlObject(),
   title: {
     default: brand.meta.title,
     template: brand.meta.titleTemplate,

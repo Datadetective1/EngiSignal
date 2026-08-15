@@ -1,3 +1,5 @@
+import { resolveSiteUrl } from './site-url';
+
 /**
  * Single source of brand truth for EngiSignal.
  *
@@ -6,12 +8,25 @@
  * through automatically.
  */
 
+/**
+ * Fall back when a variable is missing OR defined-but-blank.
+ *
+ * `??` only catches null and undefined. An environment variable created
+ * without a value is an empty string, which would otherwise render as an empty
+ * company name or an empty `mailto:` link. This is the same root cause that
+ * broke the production build via `new URL('')`.
+ */
+function envOr(value: string | undefined, fallback: string): string {
+  const trimmed = value?.trim();
+  return trimmed === undefined || trimmed.length === 0 ? fallback : trimmed;
+}
+
 export const brand = {
   /** Product name. Always rendered exactly this way. */
   name: 'EngiSignal',
 
   /** Display name for the operating company. Overridable via env. */
-  companyDisplayName: process.env.NEXT_PUBLIC_LEGAL_ENTITY_NAME ?? 'EngiSignal',
+  companyDisplayName: envOr(process.env.NEXT_PUBLIC_LEGAL_ENTITY_NAME, 'EngiSignal'),
 
   /** Product category — how we describe what kind of software this is. */
   category: 'Engineering Software Intelligence',
@@ -30,12 +45,18 @@ export const brand = {
   heroSupport: 'Know what you use, what you need, and what to renew.',
 
   contact: {
-    support: process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? 'support@engisignal.com',
-    pilot: process.env.NEXT_PUBLIC_PILOT_EMAIL ?? 'pilot@engisignal.com',
+    support: envOr(process.env.NEXT_PUBLIC_SUPPORT_EMAIL, 'support@engisignal.com'),
+    pilot: envOr(process.env.NEXT_PUBLIC_PILOT_EMAIL, 'pilot@engisignal.com'),
   },
 
-  /** Canonical site URL, used for absolute metadata URLs. */
-  url: process.env.NEXT_PUBLIC_SITE_URL ?? 'https://engisignal.com',
+  /**
+   * Canonical site URL, used for absolute metadata URLs.
+   *
+   * Resolved rather than read directly: a defined-but-blank environment
+   * variable is an empty string, which `??` does not catch and `new URL()`
+   * rejects. See config/site-url.ts.
+   */
+  url: resolveSiteUrl(),
 
   meta: {
     title: 'EngiSignal — Engineering Software Intelligence',
