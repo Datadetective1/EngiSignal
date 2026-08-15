@@ -60,10 +60,37 @@ function positiveIntFromEnv(raw: string | undefined, fallback: number): number {
   return Math.floor(parsed);
 }
 
-export const MAX_UPLOAD_BYTES = positiveIntFromEnv(
-  process.env.ENGISIGNAL_MAX_UPLOAD_BYTES,
-  26_214_400,
+/**
+ * The hosting platform's request-body ceiling.
+ *
+ * Vercel's serverless functions reject a request body above roughly 4.5 MB with
+ * a 413 generated BEFORE any application code runs — so EngiSignal's own size
+ * check, its error message and its advice to split the export never execute.
+ *
+ * Measured on the deployed application rather than taken from documentation:
+ * a 4.11 MB upload succeeded and a 4.46 MB upload returned 413. The value below
+ * leaves room for the multipart envelope and the other form fields, which also
+ * count toward the limit.
+ *
+ * This is a CEILING, not a default. A configured value may lower it — a
+ * self-hosted deployment behind a stricter proxy is a real case — but it can
+ * never raise it, because a larger value would only produce an unexplained
+ * platform error where a clear message belongs.
+ */
+export const PLATFORM_MAX_UPLOAD_BYTES = 4_194_304;
+
+export const MAX_UPLOAD_BYTES = Math.min(
+  positiveIntFromEnv(process.env.ENGISIGNAL_MAX_UPLOAD_BYTES, PLATFORM_MAX_UPLOAD_BYTES),
+  PLATFORM_MAX_UPLOAD_BYTES,
 );
+
+/**
+ * Row ceiling.
+ *
+ * Well above what the byte limit permits for any realistic row width, so the
+ * size check is what a customer actually meets. Kept as a second guard for
+ * pathologically narrow rows.
+ */
 export const MAX_INGEST_ROWS = positiveIntFromEnv(
   process.env.ENGISIGNAL_MAX_INGEST_ROWS,
   500_000,

@@ -134,6 +134,18 @@ interface CommitResponse {
 
 // ── Static config ────────────────────────────────────────────────────────────
 
+/**
+ * The upload ceiling, stated in the interface rather than discovered.
+ *
+ * Measured against the deployed application: a 4.11 MB request succeeded and a
+ * 4.46 MB request was rejected by the platform before EngiSignal saw it. The
+ * row figure is approximate on purpose — actual capacity depends on how wide
+ * the customer's rows are, and a precise-looking number would be wrong for
+ * most files.
+ */
+const MAX_UPLOAD_MB = 4;
+const APPROX_ROWS_PER_UPLOAD = 68_000;
+
 const DATASETS = [
   { key: 'usage', label: 'Usage', hint: 'License-manager usage export' },
   { key: 'entitlements', label: 'Entitlements', hint: 'What is owned, per feature' },
@@ -207,10 +219,27 @@ export function IngestionWorkflow() {
       }
 
       const response = await fetch(endpoint, { method: 'POST', body: form });
-      const payload = await response.json();
+
+      // A body above the hosting platform's request limit is rejected by the
+      // platform BEFORE any application code runs, so the response is a 413
+      // with no JSON in it. Parsing it first would throw and surface "the
+      // upload failed" — which tells the customer nothing about the one thing
+      // they need to do, which is split the export.
+      if (response.status === 413) {
+        setError(
+          `That file is too large to upload in one request. The limit is ${(MAX_UPLOAD_MB).toFixed(0)} MB. Split the export by date range or by license server and import the parts — they add up in EngiSignal.`,
+        );
+        return null;
+      }
+
+      const payload = await response.json().catch(() => null);
 
       if (!response.ok) {
-        setError(typeof payload.error === 'string' ? payload.error : 'The file could not be processed.');
+        setError(
+          payload !== null && typeof payload.error === 'string'
+            ? payload.error
+            : 'The file could not be processed.',
+        );
         return null;
       }
       return payload;
@@ -460,7 +489,10 @@ function UploadCard({
               className="block w-full text-[12.5px] text-fg-muted file:mr-3 file:rounded-md file:border file:border-border file:bg-surface-2 file:px-3 file:py-2 file:text-[12.5px] file:font-medium file:text-fg hover:file:bg-surface-3"
             />
             <p className="mt-1.5 text-[11.5px] text-fg-subtle">
-              CSV, TSV, XLSX or XLSM. Legacy .xls is not supported — save it as .xlsx first.
+              CSV, TSV, XLSX or XLSM, up to {MAX_UPLOAD_MB.toFixed(0)} MB — roughly{' '}
+              {APPROX_ROWS_PER_UPLOAD.toLocaleString('en-US')} usage rows. Larger exports import
+              fine in parts; split them by date range or license server. Legacy .xls is not
+              supported — save it as .xlsx first.
             </p>
           </div>
         </div>

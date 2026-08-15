@@ -317,27 +317,37 @@ describe('environment-derived limits', () => {
     };
 
     try {
+      const PLATFORM = 4_194_304;
+
       process.env.ENGISIGNAL_MAX_UPLOAD_BYTES = '';
-      expect((await load()).MAX_UPLOAD_BYTES).toBe(26_214_400);
+      expect((await load()).MAX_UPLOAD_BYTES).toBe(PLATFORM);
 
       process.env.ENGISIGNAL_MAX_UPLOAD_BYTES = '   ';
-      expect((await load()).MAX_UPLOAD_BYTES).toBe(26_214_400);
+      expect((await load()).MAX_UPLOAD_BYTES).toBe(PLATFORM);
 
       delete process.env.ENGISIGNAL_MAX_UPLOAD_BYTES;
-      expect((await load()).MAX_UPLOAD_BYTES).toBe(26_214_400);
+      expect((await load()).MAX_UPLOAD_BYTES).toBe(PLATFORM);
 
       process.env.ENGISIGNAL_MAX_UPLOAD_BYTES = 'not-a-number';
-      expect((await load()).MAX_UPLOAD_BYTES).toBe(26_214_400);
+      expect((await load()).MAX_UPLOAD_BYTES).toBe(PLATFORM);
 
       process.env.ENGISIGNAL_MAX_UPLOAD_BYTES = '0';
-      expect((await load()).MAX_UPLOAD_BYTES).toBe(26_214_400);
+      expect((await load()).MAX_UPLOAD_BYTES).toBe(PLATFORM);
 
       process.env.ENGISIGNAL_MAX_UPLOAD_BYTES = '-5';
-      expect((await load()).MAX_UPLOAD_BYTES).toBe(26_214_400);
+      expect((await load()).MAX_UPLOAD_BYTES).toBe(PLATFORM);
 
-      // A genuine override is still honoured.
+      // A LOWER override is honoured — a stricter proxy is a real deployment.
       process.env.ENGISIGNAL_MAX_UPLOAD_BYTES = '1048576';
       expect((await load()).MAX_UPLOAD_BYTES).toBe(1_048_576);
+
+      // A HIGHER one is clamped. Measured against the deployed application: a
+      // 4.11 MB request succeeded and a 4.46 MB request was rejected with 413
+      // by the platform, before any application code ran. Accepting a larger
+      // configured value would only replace EngiSignal's clear "split the
+      // export" message with an unexplained platform error.
+      process.env.ENGISIGNAL_MAX_UPLOAD_BYTES = '26214400';
+      expect((await load()).MAX_UPLOAD_BYTES).toBe(PLATFORM);
     } finally {
       if (original === undefined) delete process.env.ENGISIGNAL_MAX_UPLOAD_BYTES;
       else process.env.ENGISIGNAL_MAX_UPLOAD_BYTES = original;
