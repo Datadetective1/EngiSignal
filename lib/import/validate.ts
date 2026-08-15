@@ -27,32 +27,69 @@ export interface ValidationResult {
   distinct: { field: string; count: number; samples: string[] }[];
 }
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}/;
-const US_DATE = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/;
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})/;
+const US_DATE = /^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/;
+
+/**
+ * A guard the value must pass before the permissive Date parser is trusted.
+ *
+ * This exists because JavaScript's Date parser invents dates from nonsense:
+ * `new Date('bad-1')` returns 2001-01-01 and `new Date('bad-7')` returns
+ * 2001-07-01. Without this guard, garbage in a date column is silently
+ * accepted and the usage lands in the wrong year — which quietly removes it
+ * from the analysis window and understates demand with no trace.
+ *
+ * Requires a four-digit year AND either a month name or a digit-separator-digit
+ * sequence.
+ */
+const LOOKS_LIKE_DATE =
+  /(?=.*\b\d{4}\b)(?:.*\d\s*[/\-.]\s*\d|.*\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b)/i;
+
+/** Dates outside this range indicate a parsing accident, not real usage. */
+const MIN_YEAR = 1990;
+const MAX_YEAR = 2100;
+
+function withinPlausibleRange(iso: string): string | null {
+  const year = Number(iso.slice(0, 4));
+  if (!Number.isFinite(year) || year < MIN_YEAR || year > MAX_YEAR) return null;
+  return iso;
+}
 
 /** Parse the date formats that appear in real license-manager exports. */
 export function parseDateValue(raw: unknown): string | null {
   if (raw === null || raw === undefined) return null;
 
-  if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
-    return raw.toISOString().slice(0, 10);
+  if (raw instanceof Date) {
+    if (Number.isNaN(raw.getTime())) return null;
+    return withinPlausibleRange(raw.toISOString().slice(0, 10));
   }
 
   const value = String(raw).trim();
   if (value.length === 0) return null;
 
-  if (ISO_DATE.test(value)) return value.slice(0, 10);
+  const iso = ISO_DATE.exec(value);
+  if (iso !== null) {
+    const month = Number(iso[2]);
+    const day = Number(iso[3]);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    return withinPlausibleRange(value.slice(0, 10));
+  }
 
   const us = US_DATE.exec(value);
   if (us !== null) {
-    const month = String(Number(us[1])).padStart(2, '0');
-    const day = String(Number(us[2])).padStart(2, '0');
-    return `${us[3]}-${month}-${day}`;
+    const month = Number(us[1]);
+    const day = Number(us[2]);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    return withinPlausibleRange(
+      `${us[3]}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+    );
   }
 
+  if (!LOOKS_LIKE_DATE.test(value)) return null;
+
   const parsed = new Date(value);
-  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
-  return null;
+  if (Number.isNaN(parsed.getTime())) return null;
+  return withinPlausibleRange(parsed.toISOString().slice(0, 10));
 }
 
 export function parseNumberValue(raw: unknown): number | null {
