@@ -212,7 +212,7 @@ export function describeConfirmationEffect(
 
   if (position.annualCost !== null) {
     effects.push(
-      `${position.currency ?? ''}${position.annualCost.toLocaleString('en-US')} of annual cost will attach to ${candidate.featureName} and enter demand comparison.`.trim(),
+      `${position.currency === null ? '' : `${position.currency} `}${position.annualCost.toLocaleString('en-US')} of annual cost will attach to ${candidate.featureName} and enter demand comparison.`.trim(),
     );
   } else {
     effects.push(

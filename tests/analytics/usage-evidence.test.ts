@@ -270,3 +270,68 @@ describe('named-user right-sizing against a partial export', () => {
     expect(result.surplus).toBeLessThanOrEqual(metrics.reclaimCandidates);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A confirmed alias must move money, never lose it
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('confirming an alias', () => {
+  const ORGANIZATION = ORG;
+
+  function build(aliases: Map<string, string>) {
+    const observed = Array.from({ length: 20 }, (_, index) =>
+      usage('ansys_mech_ent', `2026-06-${String(index + 1).padStart(2, '0')}`, 275, index + 2),
+    );
+
+    return buildDatasetFromCanonical({
+      organization: ORGANIZATION,
+      usage: observed,
+      entitlements: [],
+      people: [],
+      contracts: [
+        contract('ansys_mech_ent', 400, 5000),
+        // The line a reviewer would confirm as the same product.
+        contract('ANSYS Mechanical Enterprise', 40, 9500),
+      ],
+      featureAliases: aliases,
+    });
+  }
+
+  it('keeps the total unchanged when a line is merged', () => {
+    const before = computePortfolioTotals(buildPortfolio(build(new Map()), DEFAULT_ANALYSIS_OPTIONS));
+
+    // The alias target must be the NORMALIZED key. Storing the display code
+    // produced a third key matching neither side, and $380,000 left the
+    // portfolio total without any screen saying so.
+    const after = computePortfolioTotals(
+      buildPortfolio(
+        build(new Map([['ansys mechanical enterprise', 'ansys_mech_ent']])),
+        DEFAULT_ANALYSIS_OPTIONS,
+      ),
+    );
+
+    expect(before.annualSpend).toBe(2_000_000 + 380_000);
+
+    // Equal to within rounding, not exactly equal. Merging two lines at
+    // different prices produces a blended unit price — 2,380,000 ÷ 440 =
+    // 5,409.09 — and the portfolio recomputes cost as quantity × unit price by
+    // design, so a sub-dollar residue is inherent to expressing one position as
+    // a single rate. What must never happen is the $380,000 disappearing, which
+    // is what an unnormalized alias target caused.
+    expect(after.annualSpend).toBeCloseTo(before.annualSpend, 0);
+    expect(Math.abs(after.annualSpend - before.annualSpend)).toBeLessThan(1);
+  });
+
+  it('folds the merged line into the target rather than leaving it standing', () => {
+    const merged = buildPortfolio(
+      build(new Map([['ansys mechanical enterprise', 'ansys_mech_ent']])),
+      DEFAULT_ANALYSIS_OPTIONS,
+    );
+
+    expect(merged.filter((row) => row.featureId.includes('ansys'))).toHaveLength(1);
+    const row = merged.find((r) => r.featureId === 'feature:ansys_mech_ent')!;
+    // Quantities from both lines, and demand still measured.
+    expect(row.entitled).toBe(440);
+    expect(row.metrics!.p95).toBe(275);
+  });
+});

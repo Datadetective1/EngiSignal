@@ -14,6 +14,7 @@
  */
 
 import { userClient } from '@/lib/supabase/server';
+import { normalizeFeatureKey, normalizeUserKey } from './identity';
 
 export type ConfirmationKind = 'feature' | 'user';
 
@@ -94,8 +95,25 @@ export async function confirmedAliasMaps(organizationId: string): Promise<{
 
   for (const entry of all) {
     if (entry.decision !== 'confirmed') continue;
-    const target = entry.kind === 'feature' ? features : users;
-    target.set(normalize(entry.rawValue), entry.canonicalKey);
+
+    if (entry.kind === 'feature') {
+      // NORMALIZE THE TARGET, not just the source.
+      //
+      // The review screen offers a feature by its display code — ANSYS_MECH_ENT —
+      // while identity resolution merges on the normalized key, ansys_mech_ent.
+      // Storing the code verbatim produced a THIRD key matching neither side:
+      // the contract line detached from its own position without attaching to
+      // the target, and $380,000 of annual cost silently left the portfolio
+      // total. Money disappearing is worse than a merge that fails to happen,
+      // because nothing on screen says anything is wrong.
+      //
+      // Applied on read as well as write so confirmations recorded before this
+      // was understood resolve correctly rather than needing a migration.
+      features.set(normalize(entry.rawValue), normalizeFeatureKey(entry.canonicalKey));
+      continue;
+    }
+
+    users.set(normalize(entry.rawValue), normalizeUserKey(entry.canonicalKey));
   }
 
   return { features, users };
@@ -131,7 +149,11 @@ export async function recordConfirmation(
         organization_id: input.organizationId,
         kind: input.kind,
         raw_value: normalize(input.rawValue),
-        canonical_key: input.canonicalKey,
+        // Stored already normalized, so a reader never has to know the rule.
+        canonical_key:
+          input.kind === 'feature'
+            ? normalizeFeatureKey(input.canonicalKey)
+            : normalizeUserKey(input.canonicalKey),
         decision: input.decision,
         decided_by: input.decidedBy,
         decided_by_email: input.decidedByEmail,
