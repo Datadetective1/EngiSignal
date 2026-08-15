@@ -23,8 +23,8 @@ type Status = 'live' | 'architecture' | 'roadmap';
 
 const STATUS_LABEL: Record<Status, string> = {
   live: 'Available now',
-  architecture: 'Connector-ready architecture',
-  roadmap: 'Production connector roadmap',
+  architecture: 'Production architecture',
+  roadmap: 'Roadmap',
 };
 
 const STATUS_CLASS: Record<Status, string> = {
@@ -108,6 +108,9 @@ export function ConnectionPaths() {
             </p>
 
             <div className="mt-5 border-t border-border pt-4">
+              <p className="mb-2.5 text-[11px] font-medium uppercase tracking-[0.11em] text-fg-subtle">
+                Target production sources — not one-click connectors
+              </p>
               <ul className="flex flex-wrap gap-1.5">
                 {[
                   'REST APIs',
@@ -124,7 +127,7 @@ export function ConnectionPaths() {
                 ].map((item) => (
                   <li
                     key={item}
-                    className="rounded-md border border-border px-2 py-1 text-[11.5px] text-fg-muted"
+                    className="rounded-md border border-dashed border-border px-2 py-1 text-[11.5px] text-fg-subtle"
                   >
                     {item}
                   </li>
@@ -133,8 +136,9 @@ export function ConnectionPaths() {
             </div>
 
             <p className="mt-auto pt-5 text-[12px] leading-relaxed text-fg-subtle">
-              The data layer is built against a provider interface so these become configuration rather than
-              rework. Scoped and delivered during implementation — none is live today.
+              The data layer is built against a provider interface, so these become configuration rather than
+              rework. Each one is scoped and delivered during implementation. None is available as a
+              self-serve connector today.
             </p>
           </article>
         </Reveal>
@@ -157,8 +161,9 @@ export function ConnectionPaths() {
             </div>
 
             <p className="mt-auto pt-5 text-[12px] leading-relaxed text-fg-subtle">
-              The engineering-specific direction for production data. Connector interfaces are defined in the
-              codebase; no collector ships yet, and EngiSignal will not show one as connected until it does.
+              The engineering-specific direction for production data. The production collector is on the
+              roadmap: connector interfaces are defined in the codebase, no collector ships today, and
+              EngiSignal will not show one as connected until one does.
             </p>
           </article>
         </Reveal>

@@ -175,7 +175,7 @@ export function PilotForm({ supportEmail }: { supportEmail: string }) {
           disabled={status === 'sending'}
           className="h-11 rounded-md bg-accent px-6 text-[14px] font-medium text-accent-fg transition-[filter] hover:brightness-110 disabled:opacity-60"
         >
-          {status === 'sending' ? 'Sending…' : 'Request My 30-Day Pilot'}
+          {status === 'sending' ? 'Sending…' : 'Request a 30-Day Pilot'}
         </button>
         <p className="max-w-xs text-[11.5px] leading-relaxed text-fg-subtle">
           No production-system integration is required to begin. No payment details are collected.

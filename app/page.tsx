@@ -4,15 +4,12 @@ import { Logo, LogoMark } from '@/components/brand/logo';
 import { HeroNetwork } from '@/components/marketing/hero-network';
 import { LiveCalculator } from '@/components/marketing/live-calculator';
 import { PilotForm } from '@/components/marketing/pilot-form';
-import { ScrollStory } from '@/components/marketing/scroll-story';
+import { RecommendationChain } from '@/components/marketing/recommendation-chain';
 import { Reveal } from '@/components/marketing/motion';
 import { ArchitectureDiagram, ConnectionPaths } from '@/components/marketing/connection-paths';
 import {
   AskShowcase,
   AskTypingLine,
-  HowItWorks,
-  OutcomeCards,
-  Pipeline,
   ProblemCards,
   SignalsShowcase,
   VendorMarquee,
@@ -111,7 +108,8 @@ export default function LandingPage() {
                   Three shapes of the same problem.
                 </h2>
                 <p className="mt-2.5 text-[15px] text-fg-muted">
-                  Every engineering organization has all three, and no single report shows them together.
+                  Engineering organizations often manage these problems across separate systems and reports.
+                  EngiSignal brings them into one decision model.
                 </p>
               </div>
             </Reveal>
@@ -135,32 +133,25 @@ export default function LandingPage() {
             </Reveal>
 
             <ConnectionPaths />
-
-            <Reveal delay={80}>
-              <div className="mt-12">
-                <p className="mb-5 text-[11px] font-medium uppercase tracking-[0.13em] text-fg-subtle">
-                  What EngiSignal combines
-                </p>
-                <ArchitectureDiagram />
-              </div>
-            </Reveal>
           </div>
         </section>
 
-        {/* ── Pipeline ─────────────────────────────────────────────────── */}
+        {/* ── What EngiSignal combines ─────────────────────────────────── */}
         <section className="border-b border-border py-16 lg:py-20">
           <div className="mx-auto max-w-[1240px] px-6">
             <Reveal>
               <div className="mb-9 max-w-2xl">
                 <h2 className="text-[26px] font-semibold tracking-[-0.028em] text-fg sm:text-[32px]">
-                  Six steps from raw data to a decision.
+                  What EngiSignal combines.
                 </h2>
                 <p className="mt-2.5 text-[15px] text-fg-muted">
-                  Each stage adds the context the next one needs.
+                  Engineering license data joined to the enterprise context that gives it meaning.
                 </p>
               </div>
             </Reveal>
-            <Pipeline />
+            <Reveal delay={80}>
+              <ArchitectureDiagram />
+            </Reveal>
           </div>
         </section>
 
@@ -173,8 +164,8 @@ export default function LandingPage() {
                   Try the recommendation yourself.
                 </h2>
                 <p className="mt-2.5 text-[15px] text-fg-muted">
-                  This runs EngiSignal&rsquo;s production analytics engine on real generated demand. Move a
-                  slider and watch the position change.
+                  This runs EngiSignal&rsquo;s production analytics engine against a reproducible synthetic
+                  engineering-software dataset. Move the sliders and watch the recommendation recalculate.
                 </p>
               </div>
             </Reveal>
@@ -190,32 +181,20 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ── Scroll story ─────────────────────────────────────────────── */}
-        {/* `relative` is required: Framer Motion measures scroll offsets against
-            the nearest positioned ancestor, and warns if it is static. */}
-        <section className="relative border-b border-border">
-          <div className="mx-auto max-w-[1240px] px-6 pt-16">
-            <Reveal>
-              <div className="mb-4 max-w-2xl">
-                <h2 className="text-[26px] font-semibold tracking-[-0.028em] text-fg sm:text-[32px]">
-                  How a renewal position is built.
-                </h2>
-                <p className="mt-2.5 text-[15px] text-fg-muted">Six numbers, in order.</p>
-              </div>
-            </Reveal>
-          </div>
-          <ScrollStory />
-        </section>
-
-        {/* ── Outcomes ─────────────────────────────────────────────────── */}
+        {/* ── Recommendation methodology ───────────────────────────────── */}
         <section className="border-b border-border py-16 lg:py-20">
           <div className="mx-auto max-w-[1240px] px-6">
             <Reveal>
-              <h2 className="mb-9 text-[26px] font-semibold tracking-[-0.028em] text-fg sm:text-[32px]">
-                What you get.
-              </h2>
+              <div className="mb-9 max-w-2xl">
+                <h2 className="text-[26px] font-semibold tracking-[-0.028em] text-fg sm:text-[32px]">
+                  See how EngiSignal builds a recommendation.
+                </h2>
+                <p className="mt-2.5 text-[15px] text-fg-muted">
+                  Four stages, each one traceable to the data underneath it.
+                </p>
+              </div>
             </Reveal>
-            <OutcomeCards />
+            <RecommendationChain />
           </div>
         </section>
 
@@ -224,12 +203,15 @@ export default function LandingPage() {
           <div className="mx-auto max-w-[1240px] px-6">
             <Reveal>
               <div className="mb-9 max-w-2xl">
+                <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.13em] text-fg-subtle">
+                  Signals, not dashboards
+                </p>
                 <h2 className="text-[26px] font-semibold tracking-[-0.028em] text-fg sm:text-[32px]">
-                  Signals, not dashboards.
+                  From dashboards to decisions.
                 </h2>
                 <p className="mt-2.5 text-[15px] text-fg-muted">
-                  Ranked by financial impact, urgency and risk, then weighted by confidence in the underlying
-                  data.
+                  EngiSignal ranks what deserves attention by financial impact, urgency, capacity risk, and
+                  confidence in the underlying data.
                 </p>
               </div>
             </Reveal>
@@ -252,29 +234,12 @@ export default function LandingPage() {
                   <AskTypingLine />
                 </p>
                 <p className="mt-3 text-[13.5px] leading-relaxed text-fg-subtle">
-                  Answers are retrieved from deterministic analytics. The AI locates and explains the
-                  analysis — it never performs it, and it never invents a number.
+                  EngiSignal AI retrieves and explains deterministic analysis. It does not invent financial,
+                  utilization, forecast, or recommendation values.
                 </p>
               </div>
             </Reveal>
             <AskShowcase />
-          </div>
-        </section>
-
-        {/* ── How it works ─────────────────────────────────────────────── */}
-        <section className="border-b border-border py-16 lg:py-20">
-          <div className="mx-auto max-w-[1240px] px-6">
-            <Reveal>
-              <div className="mb-9 max-w-2xl">
-                <h2 className="text-[26px] font-semibold tracking-[-0.028em] text-fg sm:text-[32px]">
-                  Start in three steps.
-                </h2>
-                <p className="mt-2.5 text-[15px] text-fg-muted">
-                  What onboarding actually looks like, from first import to first decision.
-                </p>
-              </div>
-            </Reveal>
-            <HowItWorks />
           </div>
         </section>
 
@@ -287,6 +252,17 @@ export default function LandingPage() {
                   <h2 className="text-[26px] font-semibold tracking-[-0.028em] text-fg sm:text-[32px]">
                     {brand.pilot.name}
                   </h2>
+                  <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] font-medium text-fg-muted">
+                    <span>Connect</span>
+                    <span className="text-fg-subtle" aria-hidden="true">
+                      →
+                    </span>
+                    <span>Analyze</span>
+                    <span className="text-fg-subtle" aria-hidden="true">
+                      →
+                    </span>
+                    <span>Decide</span>
+                  </p>
                   <p className="mt-3 max-w-md text-[15px] leading-relaxed text-fg-muted">
                     Bring the exports you already have. In four weeks you will have a demand-backed position
                     for your next renewal, with the evidence behind every number.

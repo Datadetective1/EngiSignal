@@ -11,11 +11,12 @@ import { cn } from '@/lib/utils';
  *
  * This runs the production analytics engine — `computeRightSizing`,
  * `computeFinancial` and `percentile` are the same modules the authenticated
- * product uses, imported directly. The daily peaks are the real generated
- * series for the demo organization's largest position, so the P95 shown here is
- * computed on the page, not hard-coded.
+ * product uses, imported directly. The daily peaks are the reproducible
+ * synthetic series for the demo organization's largest position, so the P95
+ * shown here is computed on the page, not hard-coded.
  *
- * Nothing about this calculation is faked for the marketing site.
+ * The calculation is not faked. The dataset behind it is synthetic, and the
+ * surrounding copy must keep saying so.
  */
 export function LiveCalculator({
   dailyPeaks,

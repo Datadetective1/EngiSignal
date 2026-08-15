@@ -71,7 +71,7 @@ const PROBLEMS = [
       { label: 'Owned', value: 400 },
       { label: 'P95 demand', value: 275 },
     ],
-    outcome: '125 licenses never used',
+    outcome: '125 licenses of capacity above P95 demand',
     outcomeTone: 'positive' as const,
   },
   {
@@ -133,70 +133,6 @@ export function ProblemCards() {
             >
               {problem.outcome}
             </p>
-          </article>
-        </Reveal>
-      ))}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-const PIPELINE = [
-  { step: 'Usage', line: 'Know demand' },
-  { step: 'People', line: 'Know who' },
-  { step: 'Contracts', line: 'Know cost' },
-  { step: 'Forecast', line: "Know what's next" },
-  { step: 'Signal', line: 'Know what matters' },
-  { step: 'Decision', line: 'Know what to do' },
-];
-
-export function Pipeline() {
-  return (
-    <div className="es-scroll overflow-x-auto pb-2">
-      <ol className="flex min-w-[820px] items-stretch gap-2">
-        {PIPELINE.map((stage, index) => (
-          <Reveal key={stage.step} delay={index * 80} as="li" className="flex-1">
-            <div className="relative flex h-full flex-col rounded-lg border border-border bg-surface px-4 py-4">
-              <span className="tnum text-[10.5px] font-medium text-fg-subtle">
-                {String(index + 1).padStart(2, '0')}
-              </span>
-              <p className="mt-1.5 text-[15px] font-semibold tracking-[-0.02em] text-fg">{stage.step}</p>
-              <p className="mt-1 text-[12.5px] text-fg-muted">{stage.line}</p>
-
-              {index < PIPELINE.length - 1 && (
-                <span
-                  className="absolute -right-[13px] top-1/2 z-10 hidden -translate-y-1/2 text-fg-subtle md:block"
-                  aria-hidden="true"
-                >
-                  →
-                </span>
-              )}
-            </div>
-          </Reveal>
-        ))}
-      </ol>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-const OUTCOMES = [
-  { title: 'Right-size renewals', line: 'Know what to buy.' },
-  { title: 'Find unused licenses', line: 'Recover idle spend.' },
-  { title: 'Forecast demand', line: 'Plan ahead.' },
-  { title: 'Allocate cost', line: 'Know who drives spend.' },
-];
-
-export function OutcomeCards() {
-  return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      {OUTCOMES.map((outcome, index) => (
-        <Reveal key={outcome.title} delay={index * 70}>
-          <article className="h-full rounded-xl border border-border bg-surface px-5 py-6">
-            <h3 className="text-[15px] font-semibold tracking-[-0.02em] text-fg">{outcome.title}</h3>
-            <p className="mt-1.5 text-[13px] text-fg-muted">{outcome.line}</p>
           </article>
         </Reveal>
       ))}
@@ -366,43 +302,5 @@ export function AskTypingLine() {
         ]}
       />
     </span>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-const STEPS = [
-  {
-    number: '01',
-    title: 'Connect your data',
-    detail:
-      'Start with exports or connect your existing systems. EngiSignal maps the incoming data into a common model.',
-  },
-  {
-    number: '02',
-    title: 'EngiSignal finds what matters',
-    detail: 'Demand, cost, capacity risk and renewal exposure are ranked into Signals.',
-  },
-  {
-    number: '03',
-    title: 'Make the decision',
-    detail:
-      'Review recommended quantities and the evidence behind them, ready for renewal and planning discussions.',
-  },
-];
-
-export function HowItWorks() {
-  return (
-    <div className="grid gap-4 md:grid-cols-3">
-      {STEPS.map((step, index) => (
-        <Reveal key={step.number} delay={index * 100}>
-          <article className="h-full rounded-xl border border-border bg-surface px-6 py-6">
-            <span className="tnum text-[12px] font-semibold text-accent">{step.number}</span>
-            <h3 className="mt-2.5 text-[16px] font-semibold tracking-[-0.02em] text-fg">{step.title}</h3>
-            <p className="mt-1.5 text-[13px] leading-relaxed text-fg-muted">{step.detail}</p>
-          </article>
-        </Reveal>
-      ))}
-    </div>
   );
 }

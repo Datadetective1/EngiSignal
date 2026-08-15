@@ -6,9 +6,10 @@ import { generateDemoDataset } from '@/lib/synthetic/generate';
 /**
  * Showcase data for the public landing page.
  *
- * The live calculator on the marketing site runs on REAL generated demand — the
- * same daily-peak series the product analyses — rather than invented constants.
- * That is why the marketing claim and the product agree exactly.
+ * The live calculator on the marketing site runs the production analytics engine
+ * against the reproducible synthetic dataset — the same daily-peak series the
+ * product analyses in demo mode — rather than invented constants. The engine is
+ * real; the demand series is synthetic, and the page says so.
  */
 export const getShowcaseData = cache(() => {
   const dataset = generateDemoDataset();
