@@ -6,6 +6,7 @@ import { LiveCalculator } from '@/components/marketing/live-calculator';
 import { PilotForm } from '@/components/marketing/pilot-form';
 import { ScrollStory } from '@/components/marketing/scroll-story';
 import { Reveal } from '@/components/marketing/motion';
+import { ArchitectureDiagram, ConnectionPaths } from '@/components/marketing/connection-paths';
 import {
   AskShowcase,
   AskTypingLine,
@@ -118,6 +119,34 @@ export default function LandingPage() {
           </div>
         </section>
 
+        {/* ── Connection paths ─────────────────────────────────────────── */}
+        <section id="connect" className="scroll-mt-16 border-b border-border py-16 lg:py-20">
+          <div className="mx-auto max-w-[1240px] px-6">
+            <Reveal>
+              <div className="mb-9 max-w-2xl">
+                <h2 className="text-[26px] font-semibold tracking-[-0.028em] text-fg sm:text-[32px]">
+                  Connect the way your environment already works.
+                </h2>
+                <p className="mt-2.5 text-[15px] text-fg-muted">
+                  Start quickly with existing exports, then automate your production data flows when
+                  you&rsquo;re ready.
+                </p>
+              </div>
+            </Reveal>
+
+            <ConnectionPaths />
+
+            <Reveal delay={80}>
+              <div className="mt-12">
+                <p className="mb-5 text-[11px] font-medium uppercase tracking-[0.13em] text-fg-subtle">
+                  What EngiSignal combines
+                </p>
+                <ArchitectureDiagram />
+              </div>
+            </Reveal>
+          </div>
+        </section>
+
         {/* ── Pipeline ─────────────────────────────────────────────────── */}
         <section className="border-b border-border py-16 lg:py-20">
           <div className="mx-auto max-w-[1240px] px-6">
@@ -199,8 +228,8 @@ export default function LandingPage() {
                   Signals, not dashboards.
                 </h2>
                 <p className="mt-2.5 text-[15px] text-fg-muted">
-                  Ranked by financial impact, urgency and risk — then weighted by how far the underlying data
-                  can be trusted.
+                  Ranked by financial impact, urgency and risk, then weighted by confidence in the underlying
+                  data.
                 </p>
               </div>
             </Reveal>
@@ -236,9 +265,14 @@ export default function LandingPage() {
         <section className="border-b border-border py-16 lg:py-20">
           <div className="mx-auto max-w-[1240px] px-6">
             <Reveal>
-              <h2 className="mb-9 text-[26px] font-semibold tracking-[-0.028em] text-fg sm:text-[32px]">
-                How it works.
-              </h2>
+              <div className="mb-9 max-w-2xl">
+                <h2 className="text-[26px] font-semibold tracking-[-0.028em] text-fg sm:text-[32px]">
+                  Start in three steps.
+                </h2>
+                <p className="mt-2.5 text-[15px] text-fg-muted">
+                  What onboarding actually looks like, from first import to first decision.
+                </p>
+              </div>
             </Reveal>
             <HowItWorks />
           </div>
@@ -256,6 +290,13 @@ export default function LandingPage() {
                   <p className="mt-3 max-w-md text-[15px] leading-relaxed text-fg-muted">
                     Bring the exports you already have. In four weeks you will have a demand-backed position
                     for your next renewal, with the evidence behind every number.
+                  </p>
+                  <p className="mt-4 max-w-md rounded-lg border border-border bg-surface px-4 py-3 text-[13px] leading-relaxed text-fg-muted">
+                    <span className="font-medium text-fg">
+                      Start with existing exports for the pilot. Connect production systems when you&rsquo;re
+                      ready.
+                    </span>{' '}
+                    No production-system integration is required to begin.
                   </p>
                 </Reveal>
 
@@ -298,8 +339,11 @@ function SiteHeader() {
         </Link>
 
         <nav className="hidden items-center gap-7 md:flex" aria-label="Main">
-          <a href="#pilot" className="text-[13.5px] text-fg-muted transition-colors hover:text-fg">
-            Pilot
+          <a href="#connect" className="text-[13.5px] text-fg-muted transition-colors hover:text-fg">
+            Connect Your Data
+          </a>
+          <a href="#pilot" className="whitespace-nowrap text-[13.5px] text-fg-muted transition-colors hover:text-fg">
+            How the Pilot Works
           </a>
           <Link href="/signin" className="text-[13.5px] text-fg-muted transition-colors hover:text-fg">
             Sign in

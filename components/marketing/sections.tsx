@@ -375,17 +375,19 @@ const STEPS = [
   {
     number: '01',
     title: 'Connect your data',
-    detail: 'Upload the CSV or XLSX exports you already produce. EngiSignal maps your column names.',
+    detail:
+      'Start with exports or connect your existing systems. EngiSignal maps the incoming data into a common model.',
   },
   {
     number: '02',
     title: 'EngiSignal finds what matters',
-    detail: 'Demand, cost, capacity risk and renewal exposure, ranked into a queue.',
+    detail: 'Demand, cost, capacity risk and renewal exposure are ranked into Signals.',
   },
   {
     number: '03',
     title: 'Make the decision',
-    detail: 'Recommended quantities with the evidence behind them, ready to take to the vendor.',
+    detail:
+      'Review recommended quantities and the evidence behind them, ready for renewal and planning discussions.',
   },
 ];
 

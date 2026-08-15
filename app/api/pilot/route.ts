@@ -63,6 +63,12 @@ export async function POST(request: Request) {
   try {
     const created = await getDataProvider().createPilotRequest({
       ...parsed.data,
+      // Optional fields are stored as empty strings rather than omitted, so the
+      // record shape stays uniform for whoever reads the pipeline.
+      approximateEmployees: parsed.data.approximateEmployees ?? '',
+      engineeringEmployees: parsed.data.engineeringEmployees ?? '',
+      primaryChallenge: parsed.data.primaryChallenge ?? '',
+      majorVendors: parsed.data.majorVendors,
       message: parsed.data.message.length > 0 ? parsed.data.message : null,
     });
 

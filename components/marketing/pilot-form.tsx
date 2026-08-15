@@ -89,22 +89,6 @@ export function PilotForm({ supportEmail }: { supportEmail: string }) {
           <input {...inputProps} name="jobTitle" autoComplete="organization-title" />
         </Field>
 
-        <Field label="Approximate employees" name="approximateEmployees" error={errors.approximateEmployees} required>
-          <select {...selectProps} name="approximateEmployees" defaultValue={EMPLOYEE_RANGES[2]}>
-            {EMPLOYEE_RANGES.map((range) => (
-              <option key={range}>{range}</option>
-            ))}
-          </select>
-        </Field>
-
-        <Field label="Engineering employees" name="engineeringEmployees" error={errors.engineeringEmployees} required>
-          <select {...selectProps} name="engineeringEmployees" defaultValue={ENGINEERING_RANGES[1]}>
-            {ENGINEERING_RANGES.map((range) => (
-              <option key={range}>{range}</option>
-            ))}
-          </select>
-        </Field>
-
         <Field label="Engineering software spend" name="softwareSpendRange" error={errors.softwareSpendRange} required>
           <select {...selectProps} name="softwareSpendRange" defaultValue={SPEND_RANGES[1]}>
             {SPEND_RANGES.map((range) => (
@@ -121,25 +105,56 @@ export function PilotForm({ supportEmail }: { supportEmail: string }) {
           </select>
         </Field>
 
+        {/* ── Optional context ─────────────────────────────────────────── */}
+        <div className="sm:col-span-2">
+          <div className="mb-1 flex items-center gap-3">
+            <span className="text-[11px] font-medium uppercase tracking-[0.11em] text-fg-subtle">
+              Optional context
+            </span>
+            <span className="h-px flex-1 bg-border" aria-hidden="true" />
+            <span className="text-[11.5px] text-fg-subtle">Helps us scope faster</span>
+          </div>
+        </div>
+
+        <Field label="Approximate employees" name="approximateEmployees" optional error={errors.approximateEmployees}>
+          <select {...selectProps} name="approximateEmployees" defaultValue="">
+            <option value="">Prefer not to say</option>
+            {EMPLOYEE_RANGES.map((range) => (
+              <option key={range}>{range}</option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="Engineering employees" name="engineeringEmployees" optional error={errors.engineeringEmployees}>
+          <select {...selectProps} name="engineeringEmployees" defaultValue="">
+            <option value="">Prefer not to say</option>
+            {ENGINEERING_RANGES.map((range) => (
+              <option key={range}>{range}</option>
+            ))}
+          </select>
+        </Field>
+
         <Field
           label="Major software vendors"
           name="majorVendors"
-          hint="Optional — for example Ansys, Siemens, Dassault"
+          optional
+          hint="For example Ansys, Siemens, Dassault"
           error={errors.majorVendors}
           className="sm:col-span-2"
         >
           <input {...inputProps} name="majorVendors" />
         </Field>
 
-        <Field label="Primary challenge" name="primaryChallenge" error={errors.primaryChallenge} required className="sm:col-span-2">
-          <select {...selectProps} name="primaryChallenge" defaultValue={CHALLENGES[1]}>
+        <Field label="Primary challenge" name="primaryChallenge" optional error={errors.primaryChallenge} className="sm:col-span-2">
+          <select {...selectProps} name="primaryChallenge" defaultValue="">
+            <option value="">Prefer not to say</option>
             {CHALLENGES.map((challenge) => (
               <option key={challenge}>{challenge}</option>
             ))}
           </select>
         </Field>
 
-        <Field label="Anything else" name="message" hint="Optional" error={errors.message} className="sm:col-span-2">
+        <Field label="Anything else" name="message" optional error={errors.message} className="sm:col-span-2">
           <textarea
             name="message"
             rows={3}
@@ -160,10 +175,10 @@ export function PilotForm({ supportEmail }: { supportEmail: string }) {
           disabled={status === 'sending'}
           className="h-11 rounded-md bg-accent px-6 text-[14px] font-medium text-accent-fg transition-[filter] hover:brightness-110 disabled:opacity-60"
         >
-          {status === 'sending' ? 'Sending…' : 'Request a 30-Day Pilot'}
+          {status === 'sending' ? 'Sending…' : 'Request My 30-Day Pilot'}
         </button>
-        <p className="text-[11.5px] leading-relaxed text-fg-subtle">
-          No payment details are collected. We use these details only to scope the pilot.
+        <p className="max-w-xs text-[11.5px] leading-relaxed text-fg-subtle">
+          No production-system integration is required to begin. No payment details are collected.
         </p>
       </div>
     </form>
@@ -186,6 +201,7 @@ function Field({
   hint,
   error,
   required = false,
+  optional = false,
   className,
   children,
 }: {
@@ -194,14 +210,16 @@ function Field({
   hint?: string;
   error?: string;
   required?: boolean;
+  optional?: boolean;
   className?: string;
   children: React.ReactNode;
 }) {
   return (
     <div className={cn(className)}>
-      <label htmlFor={name} className="mb-1.5 block text-[12px] font-medium text-fg">
+      <label htmlFor={name} className="mb-1.5 flex items-baseline gap-1.5 text-[12px] font-medium text-fg">
         {label}
-        {required && <span className="ml-1 text-fg-subtle">*</span>}
+        {required && <span className="text-fg-subtle">*</span>}
+        {optional && <span className="text-[11px] font-normal text-fg-subtle">Optional</span>}
       </label>
       <div id={name}>{children}</div>
       {hint !== undefined && error === undefined && (

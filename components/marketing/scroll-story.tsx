@@ -51,22 +51,60 @@ export function ScrollStory() {
   }
 
   return (
-    <div ref={containerRef} className="relative h-[420vh]">
+    // Shortened from 420vh: the original left long stretches of dead scroll
+    // between frames, which read as the page having stalled.
+    <div ref={containerRef} className="relative h-[300vh]">
       <div className="sticky top-0 flex h-dvh items-center overflow-hidden">
-        <div className="mx-auto grid w-full max-w-5xl items-center gap-12 px-6 lg:grid-cols-2">
+        <div className="mx-auto grid w-full max-w-6xl items-center gap-10 px-6 lg:grid-cols-[1.15fr_1fr] lg:gap-14">
           <div className="order-2 lg:order-1">
             <StoryBars progress={scrollYProgress} />
           </div>
 
-          <div className="order-1 min-h-[180px] lg:order-2">
-            {FRAMES.map((frame, index) => (
-              <StoryFrame key={frame.step} frame={frame} index={index} progress={scrollYProgress} />
-            ))}
+          <div className="order-1 lg:order-2">
+            <StepProgress progress={scrollYProgress} />
+            <div className="relative mt-5 min-h-[190px]">
+              {FRAMES.map((frame, index) => (
+                <StoryFrame key={frame.step} frame={frame} index={index} progress={scrollYProgress} />
+              ))}
+            </div>
           </div>
         </div>
       </div>
     </div>
   );
+}
+
+/**
+ * Step rail.
+ *
+ * Makes the progression legible and, importantly, shows that more frames follow
+ * — without it a reader cannot tell whether the section has more to give.
+ */
+function StepProgress({ progress }: { progress: MotionValue<number> }) {
+  return (
+    <div>
+      <div className="flex items-center gap-1.5">
+        {FRAMES.map((frame, index) => (
+          // Each tick is its own component so useTransform stays at the top
+          // level of a component rather than being called inside a loop.
+          <StepTick key={frame.step} index={index} progress={progress} />
+        ))}
+      </div>
+      <p className="mt-2.5 text-[11px] font-medium uppercase tracking-[0.13em] text-fg-subtle">
+        Keep scrolling · {FRAMES.length} steps
+      </p>
+    </div>
+  );
+}
+
+function StepTick({ index, progress }: { index: number; progress: MotionValue<number> }) {
+  const segment = 1 / FRAMES.length;
+  const opacity = useTransform(
+    progress,
+    [index * segment - segment * 0.4, index * segment + segment * 0.15],
+    [0.22, 1],
+  );
+  return <motion.span style={{ opacity }} className="h-[3px] flex-1 rounded-full bg-accent" />;
 }
 
 function StoryFrame({
@@ -125,7 +163,7 @@ function StoryBars({ progress }: { progress: MotionValue<number> }) {
         <span className="tnum text-[13px] font-semibold text-fg">400</span>
       </div>
 
-      <div className="relative h-14 w-full overflow-hidden rounded-lg bg-surface-3">
+      <div className="relative h-20 w-full overflow-hidden rounded-lg bg-surface-3 sm:h-24">
         <motion.div style={{ width: demandWidth }} className="absolute inset-y-0 left-0 bg-accent" />
         <motion.div
           style={{ width: growthWidth, left: pct(275) }}
@@ -177,7 +215,7 @@ function StaticBars() {
         </span>
         <span className="tnum text-[13px] font-semibold text-fg">400</span>
       </div>
-      <div className="relative h-14 w-full overflow-hidden rounded-lg bg-surface-3">
+      <div className="relative h-20 w-full overflow-hidden rounded-lg bg-surface-3 sm:h-24">
         <div className="absolute inset-y-0 left-0 bg-accent" style={{ width: '68.75%' }} />
         <div className="absolute inset-y-0 bg-violet opacity-80" style={{ left: '68.75%', width: '3.5%' }} />
         <div className="absolute inset-y-0 bg-aqua opacity-70" style={{ left: '72.25%', width: '7.25%' }} />

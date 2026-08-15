@@ -51,7 +51,20 @@ export const CHALLENGES = [
   'Something else',
 ] as const;
 
+/**
+ * An optional select: an unselected control submits an empty string, which is
+ * not a valid enum member. Normalize blank to undefined before validating so a
+ * skipped optional field cannot fail the form.
+ */
+function optionalEnum<T extends readonly [string, ...string[]]>(values: T) {
+  return z.preprocess(
+    (value) => (typeof value === 'string' && value.trim().length === 0 ? undefined : value),
+    z.enum(values).optional(),
+  );
+}
+
 export const pilotRequestSchema = z.object({
+  // ── Required: the minimum needed to scope a pilot conversation ───────────
   name: z.string().trim().min(2, 'Enter your name.').max(120),
   workEmail: z
     .string()
@@ -61,12 +74,14 @@ export const pilotRequestSchema = z.object({
     .email('Enter a valid email address.'),
   company: z.string().trim().min(2, 'Enter your company.').max(160),
   jobTitle: z.string().trim().min(2, 'Enter your job title.').max(160),
-  approximateEmployees: z.enum(EMPLOYEE_RANGES),
-  engineeringEmployees: z.enum(ENGINEERING_RANGES),
   softwareSpendRange: z.enum(SPEND_RANGES),
-  majorVendors: z.string().trim().max(400).default(''),
   renewalTiming: z.enum(RENEWAL_TIMINGS),
-  primaryChallenge: z.enum(CHALLENGES),
+
+  // ── Optional: useful context, never a barrier to requesting a pilot ──────
+  approximateEmployees: optionalEnum(EMPLOYEE_RANGES),
+  engineeringEmployees: optionalEnum(ENGINEERING_RANGES),
+  majorVendors: z.string().trim().max(400).optional().default(''),
+  primaryChallenge: optionalEnum(CHALLENGES),
   message: z.string().trim().max(2000).optional().default(''),
 });
 
