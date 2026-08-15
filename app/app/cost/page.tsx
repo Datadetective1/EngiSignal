@@ -1,0 +1,297 @@
+import type { Metadata } from 'next';
+import Link from 'next/link';
+import { RankedBars } from '@/components/charts';
+import {
+  Card,
+  CardHeader,
+  Kpi,
+  MethodologyNote,
+  SectionHeading,
+  TableShell,
+  Td,
+  Th,
+} from '@/components/ui/primitives';
+import {
+  ALLOCATION_METHODS,
+  DIMENSION_LABELS,
+  DRILL_PATH,
+  allocateCost,
+  type AllocationMethod,
+} from '@/lib/analytics/allocation';
+import { costPerEngineer, formatCurrency, formatNumber, formatPercent } from '@/lib/analytics/financial';
+import type { DimensionKey } from '@/lib/domain/types';
+import { loadWorkspace } from '@/lib/workspace';
+
+export const metadata: Metadata = { title: 'Cost intelligence' };
+
+const DIMENSIONS: DimensionKey[] = [
+  'businessUnit',
+  'program',
+  'department',
+  'discipline',
+  'location',
+  'employeeType',
+  'managerName',
+];
+
+export default async function CostPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ dimension?: string; method?: string }>;
+}) {
+  const { dataset, portfolio, totals, unusedCapacity } = await loadWorkspace();
+  const params = await searchParams;
+
+  const dimension = (DIMENSIONS.includes(params.dimension as DimensionKey)
+    ? params.dimension
+    : 'program') as DimensionKey;
+  const method = (Object.keys(ALLOCATION_METHODS).includes(params.method ?? '')
+    ? params.method
+    : 'actual_usage') as AllocationMethod;
+
+  const allocation = allocateCost({
+    method,
+    dimension,
+    features: portfolio.map((row) => ({
+      featureId: row.featureId,
+      licenseModel: row.licenseModel,
+      annualCost: row.financial.currentAnnualCost,
+      wasteAmount:
+        row.licenseModel === 'concurrent' && row.unitPrice !== null && row.metrics !== null
+          ? Math.max(0, row.entitled - row.metrics.p95) * row.unitPrice
+          : (row.namedUser?.reclaimValue ?? 0),
+    })),
+    activities: dataset.activities,
+    employees: dataset.employees,
+  });
+
+  const vendorSpend = new Map<string, number>();
+  for (const row of portfolio) {
+    vendorSpend.set(row.vendorName, (vendorSpend.get(row.vendorName) ?? 0) + (row.financial.currentAnnualCost ?? 0));
+  }
+  const vendorBars = [...vendorSpend.entries()]
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value);
+
+  const perEngineer = costPerEngineer(totals.annualSpend, dataset.organization.technicalHeadcount);
+  const activeUsers = new Set(
+    dataset.activities.filter((a) => a.totalSessions > 0).map((a) => a.employeeId),
+  ).size;
+
+  return (
+    <div className="space-y-6">
+      <SectionHeading
+        eyebrow="Engineering Cost Intelligence"
+        title="Where engineering software money goes"
+        description="Spend attributed to the organization that consumed it, using one declared methodology at a time."
+      />
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Kpi label="Annual spend" value={formatCurrency(totals.annualSpend)} detail={`${totals.featureCount} features`} />
+        <Kpi
+          label="Cost per technical employee"
+          value={formatCurrency(perEngineer)}
+          detail={`${formatNumber(dataset.organization.technicalHeadcount)} employees`}
+        />
+        <Kpi
+          label="Cost per active user"
+          value={formatCurrency(totals.annualSpend / Math.max(1, activeUsers))}
+          detail={`${formatNumber(activeUsers)} users with recorded activity`}
+        />
+        <Kpi
+          label="Vendor concentration"
+          value={formatPercent(totals.vendorConcentration * 100, 0)}
+          detail={`Largest vendor share of spend · ${vendorBars[0]?.label ?? '—'}`}
+        />
+      </div>
+
+      {/* ── Methodology controls ────────────────────────────────────────── */}
+      <Card>
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-border px-5 py-4">
+          <div>
+            <p className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.1em] text-fg-subtle">
+              Group by
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {DIMENSIONS.map((key) => (
+                <Link
+                  key={key}
+                  href={`/app/cost?dimension=${key}&method=${method}`}
+                  className={`rounded-md border px-2.5 py-1 text-[12px] font-medium transition-colors ${
+                    dimension === key
+                      ? 'border-accent bg-accent-soft text-accent'
+                      : 'border-border text-fg-muted hover:bg-surface-2 hover:text-fg'
+                  }`}
+                >
+                  {DIMENSION_LABELS[key]}
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.1em] text-fg-subtle">
+              Allocation method
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {(Object.keys(ALLOCATION_METHODS) as AllocationMethod[]).map((key) => (
+                <Link
+                  key={key}
+                  href={`/app/cost?dimension=${dimension}&method=${key}`}
+                  className={`rounded-md border px-2.5 py-1 text-[12px] font-medium transition-colors ${
+                    method === key
+                      ? 'border-accent bg-accent-soft text-accent'
+                      : 'border-border text-fg-muted hover:bg-surface-2 hover:text-fg'
+                  }`}
+                >
+                  {ALLOCATION_METHODS[key].label}
+                </Link>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="border-b border-border bg-surface-2 px-5 py-3">
+          <p className="text-[12.5px] leading-relaxed text-fg-muted">
+            <span className="font-medium text-fg">{allocation.methodLabel}:</span> {allocation.methodology}
+          </p>
+          {allocation.unallocated > 0 && (
+            <p className="mt-1.5 text-[12px] text-warning">
+              {formatCurrency(allocation.unallocated)} could not be attributed under this method (
+              {allocation.unallocatedReason}). It is reported here rather than redistributed, so the
+              allocated figures stay defensible.
+            </p>
+          )}
+        </div>
+
+        <TableShell>
+          <thead>
+            <tr>
+              <Th>{DIMENSION_LABELS[dimension]}</Th>
+              <Th align="right">Allocated spend</Th>
+              <Th align="right">Share</Th>
+              <Th align="right">Headcount</Th>
+              <Th align="right">Cost per engineer</Th>
+              <Th align="right">Active users</Th>
+              <Th align="right">Assigned seats</Th>
+              <Th align="right">Usage hours</Th>
+              <Th align="right">Potential waste</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {allocation.rows.map((row) => (
+              <tr key={row.key} className="hover:bg-surface-2">
+                <Td>
+                  <Link
+                    href={`/app/users?q=${encodeURIComponent(row.key)}`}
+                    className="font-medium hover:text-accent"
+                  >
+                    {row.key}
+                  </Link>
+                </Td>
+                <Td align="right" className="font-medium">
+                  {formatCurrency(row.allocatedSpend)}
+                </Td>
+                <Td align="right" className="text-fg-muted">
+                  {formatPercent(row.sharePct, 1)}
+                </Td>
+                <Td align="right">{formatNumber(row.headcount)}</Td>
+                <Td align="right">{formatCurrency(row.costPerEngineer)}</Td>
+                <Td align="right">{formatNumber(row.activeUsers)}</Td>
+                <Td align="right">{formatNumber(row.assignedLicenses)}</Td>
+                <Td align="right" className="text-fg-muted">
+                  {formatNumber(row.usageHours)}
+                </Td>
+                <Td align="right" className="text-warning">
+                  {formatCurrency(row.potentialWaste)}
+                </Td>
+              </tr>
+            ))}
+          </tbody>
+        </TableShell>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-3">
+          <p className="tnum text-[12px] text-fg-muted">
+            Allocated {formatCurrency(allocation.totalAllocated)} of {formatCurrency(totals.annualSpend)}{' '}
+            total spend
+          </p>
+          <a
+            href={`/api/export/cost?dimension=${dimension}&method=${method}`}
+            className="inline-flex h-8 items-center rounded-md border border-border px-2.5 text-[12px] font-medium text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
+          >
+            Export CSV
+          </a>
+        </div>
+      </Card>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        <Card>
+          <CardHeader title="Spend by vendor" description="Concentration is a negotiation variable." />
+          <div className="px-5 py-4">
+            <RankedBars data={vendorBars} formatValue={(v) => formatCurrency(v)} />
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="Where the waste is"
+            description="Capacity above demand, valued at contract price and attributed on the same basis as spend."
+          />
+          <div className="px-5 py-4">
+            <RankedBars
+              data={allocation.rows
+                .filter((row) => row.potentialWaste > 0)
+                .slice(0, 8)
+                .map((row) => ({
+                  label: row.key,
+                  value: row.potentialWaste,
+                  sub: `${formatPercent((row.potentialWaste / Math.max(1, row.allocatedSpend)) * 100, 1)} of allocated spend`,
+                }))}
+              formatValue={(v) => formatCurrency(v)}
+            />
+            <MethodologyNote>
+              {unusedCapacity.methodology} Named-user waste uses idle assigned seats instead, and the two
+              are never summed into a single figure without saying so.
+            </MethodologyNote>
+          </div>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader
+          title="Drill-through"
+          description="Follow the money from the enterprise down to the individual."
+        />
+        <div className="es-scroll overflow-x-auto px-5 py-4">
+          <ol className="flex min-w-[620px] items-center gap-2 text-[12.5px]">
+            <li className="rounded-md border border-border px-3 py-1.5 text-fg-muted">Enterprise</li>
+            {DRILL_PATH.map((key) => (
+              <li key={key} className="flex items-center gap-2">
+                <span className="text-fg-subtle">→</span>
+                <Link
+                  href={`/app/cost?dimension=${key}&method=${method}`}
+                  className={`rounded-md border px-3 py-1.5 font-medium transition-colors ${
+                    dimension === key
+                      ? 'border-accent bg-accent-soft text-accent'
+                      : 'border-border text-fg-muted hover:bg-surface-2 hover:text-fg'
+                  }`}
+                >
+                  {DIMENSION_LABELS[key]}
+                </Link>
+              </li>
+            ))}
+            <li className="flex items-center gap-2">
+              <span className="text-fg-subtle">→</span>
+              <Link
+                href="/app/users"
+                className="rounded-md border border-border px-3 py-1.5 font-medium text-fg-muted hover:bg-surface-2 hover:text-fg"
+              >
+                User
+              </Link>
+            </li>
+          </ol>
+        </div>
+      </Card>
+    </div>
+  );
+}
