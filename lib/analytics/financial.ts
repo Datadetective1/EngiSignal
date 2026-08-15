@@ -56,7 +56,28 @@ export function computeFinancial(input: FinancialInput): FinancialResult {
 }
 
 export interface PortfolioTotals {
+  /**
+   * Annual value of SERVED capacity: served quantity × unit price, summed.
+   *
+   * This is what the deployed estate is worth, not what the customer is
+   * contractually committed to. Where a contract says 440 and the licence
+   * server serves 350, this figure reflects 350 — which is correct for
+   * utilization and wrong for the sentence "committed annually".
+   */
   annualSpend: number;
+  /**
+   * Annual value of PURCHASED quantity: what procurement records as bought.
+   *
+   * The honest basis for a commitment headline. Null contributions are skipped
+   * rather than defaulted, so a portfolio with no contract quantities reports
+   * zero purchased commitment and says so, instead of quietly reusing the
+   * served figure.
+   */
+  purchasedCommitment: number;
+  /** Features whose purchased quantity and price were both supplied. */
+  purchasedPricedFeatures: number;
+  /** Purchased minus served. Positive means more bought than is being served. */
+  commitmentGap: number;
   recommendedSpend: number;
   optimizationOpportunity: number;
   incrementalSpend: number;
@@ -71,6 +92,8 @@ export interface PortfolioTotals {
 
 export function computePortfolioTotals(rows: readonly PortfolioRow[]): PortfolioTotals {
   let annualSpend = 0;
+  let purchasedCommitment = 0;
+  let purchasedPricedFeatures = 0;
   let recommendedSpend = 0;
   let optimizationOpportunity = 0;
   let incrementalSpend = 0;
@@ -91,6 +114,13 @@ export function computePortfolioTotals(rows: readonly PortfolioRow[]): Portfolio
     } else {
       unpricedFeatures += 1;
     }
+
+    // Counted independently of the served figure above: a feature can have a
+    // purchased commitment and no served capacity, or the reverse.
+    if (row.commitment.purchasedAnnualCommitment !== null) {
+      purchasedCommitment += row.commitment.purchasedAnnualCommitment;
+      purchasedPricedFeatures += 1;
+    }
   }
 
   let largestVendorSpend = 0;
@@ -100,6 +130,9 @@ export function computePortfolioTotals(rows: readonly PortfolioRow[]): Portfolio
 
   return {
     annualSpend: round(annualSpend, 2),
+    purchasedCommitment: round(purchasedCommitment, 2),
+    purchasedPricedFeatures,
+    commitmentGap: round(purchasedCommitment - annualSpend, 2),
     recommendedSpend: round(recommendedSpend, 2),
     optimizationOpportunity: round(optimizationOpportunity, 2),
     incrementalSpend: round(incrementalSpend, 2),

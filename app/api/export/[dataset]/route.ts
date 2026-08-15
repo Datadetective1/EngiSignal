@@ -133,8 +133,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ data
 
     case 'cost': {
       const dimension = (url.searchParams.get('dimension') ?? 'program') as DimensionKey;
-      const method = (url.searchParams.get('method') ?? 'actual_usage') as AllocationMethod;
-      const spec = ALLOCATION_METHODS[method] ?? ALLOCATION_METHODS.actual_usage;
+      const method = (url.searchParams.get('method') ?? 'duration_weighted') as AllocationMethod;
+      const spec = ALLOCATION_METHODS[method] ?? ALLOCATION_METHODS.duration_weighted;
 
       const allocation = allocateCost({
         method,

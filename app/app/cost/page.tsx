@@ -16,6 +16,7 @@ import {
   DIMENSION_LABELS,
   DRILL_PATH,
   allocateCost,
+  allocateCostAutomatically,
   type AllocationMethod,
 } from '@/lib/analytics/allocation';
 import { costPerEngineer, formatCurrency, formatNumber, formatPercent } from '@/lib/analytics/financial';
@@ -55,12 +56,15 @@ export default async function CostPage({
   const dimension = (DIMENSIONS.includes(params.dimension as DimensionKey)
     ? params.dimension
     : 'program') as DimensionKey;
-  const method = (Object.keys(ALLOCATION_METHODS).includes(params.method ?? '')
-    ? params.method
-    : 'actual_usage') as AllocationMethod;
+  // No method in the URL means "use the strongest the evidence supports", which
+  // is the difference between a duration-free export allocating correctly and
+  // returning a column of zeroes. An explicit choice is still honoured, so a
+  // customer can compare methods deliberately.
+  const explicitMethod = Object.keys(ALLOCATION_METHODS).includes(params.method ?? '')
+    ? (params.method as AllocationMethod)
+    : null;
 
-  const allocation = allocateCost({
-    method,
+  const allocationInput = {
     dimension,
     features: portfolio.map((row) => ({
       featureId: row.featureId,
@@ -73,7 +77,14 @@ export default async function CostPage({
     })),
     activities: dataset.activities,
     employees: dataset.employees,
-  });
+  };
+
+  const allocation =
+    explicitMethod === null
+      ? allocateCostAutomatically(allocationInput)
+      : allocateCost({ ...allocationInput, method: explicitMethod });
+
+  const method = allocation.method;
 
   const vendorSpend = new Map<string, number>();
   for (const row of portfolio) {
@@ -162,14 +173,51 @@ export default async function CostPage({
         </div>
 
         <div className="border-b border-border bg-surface-2 px-5 py-3">
+          {/* The basis, before any number. A figure whose basis is unstated is
+              the thing this product exists not to produce. */}
           <p className="text-[12.5px] leading-relaxed text-fg-muted">
-            <span className="font-medium text-fg">{allocation.methodLabel}:</span> {allocation.methodology}
+            <span className="font-medium text-fg">Basis — {allocation.basisLabel}:</span>{' '}
+            {allocation.methodology}
           </p>
+
+          {explicitMethod === null && (
+            <p className="mt-1.5 text-[12px] leading-relaxed text-accent">
+              {allocation.selectionReason}
+            </p>
+          )}
+
+          {!allocation.available && (
+            <p className="mt-1.5 text-[12px] leading-relaxed text-warning">
+              Cost is known but cannot be divided between groups from what has been imported. This
+              is not $0 of spend — it is spend with no safe way to attribute it.
+            </p>
+          )}
+
           {allocation.unallocated > 0 && (
             <p className="mt-1.5 text-[12px] text-warning">
-              {formatCurrency(allocation.unallocated)} could not be attributed under this method (
-              {allocation.unallocatedReason}). It is reported here rather than redistributed, so the
-              allocated figures stay defensible.
+              {formatCurrency(allocation.unallocated)} of {formatCurrency(allocation.allocatableCost)}{' '}
+              could not be attributed ({allocation.unallocatedReason}). It is reported here rather
+              than redistributed, because spreading it across the groups that happen to be
+              identifiable would inflate every one of them by the size of the gap.
+            </p>
+          )}
+
+          {allocation.unresolvedIdentityCount > 0 && (
+            <p className="mt-1.5 text-[12px] leading-relaxed text-fg-muted">
+              {formatCurrency(allocation.unresolvedIdentityCost)} of that belongs to{' '}
+              {allocation.unresolvedIdentityCount} unresolved{' '}
+              {allocation.unresolvedIdentityCount === 1 ? 'username' : 'usernames'}.{' '}
+              <Link href="/app/data/users" className="text-accent underline underline-offset-2">
+                Resolve them
+              </Link>{' '}
+              to attribute this spend.
+            </p>
+          )}
+
+          {!allocation.reconciles && (
+            <p className="mt-1.5 text-[12px] text-danger">
+              Allocated and unallocated do not sum to the allocatable total. Treat these figures as
+              unreliable and report this.
             </p>
           )}
         </div>

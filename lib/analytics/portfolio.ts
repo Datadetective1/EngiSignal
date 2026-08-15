@@ -58,6 +58,10 @@ export function buildPortfolio(dataset: AnalyticsDataset, options: AnalysisOptio
   const itemByFeature = new Map<string, ContractItem>();
   for (const item of dataset.contractItems) itemByFeature.set(item.featureId, item);
 
+  const quantitySourceByFeature = new Map(
+    dataset.quantitySources.map((source) => [source.featureId, source]),
+  );
+
   const featuresWithDenialData = new Set(dataset.denials.map((d) => d.featureId));
 
   const rows: PortfolioRow[] = [];
@@ -73,6 +77,10 @@ export function buildPortfolio(dataset: AnalyticsDataset, options: AnalysisOptio
     const entitled = item?.quantity ?? 0;
     const unitPrice = item?.unitPrice ?? null;
 
+    // Both sources, unresolved. `entitled` above collapses to one number
+    // because utilization needs a single denominator; these keep the pair.
+    const sources = quantitySourceByFeature.get(feature.id);
+
     const row = buildRow({
       dataset,
       options,
@@ -86,6 +94,8 @@ export function buildPortfolio(dataset: AnalyticsDataset, options: AnalysisOptio
       vendorName: vendor.name,
       familyName: feature.productId === null ? null : (familyById.get(product.productFamilyId ?? '')?.name ?? null),
       hasDenialData: featuresWithDenialData.has(feature.id),
+      purchasedQuantity: sources?.contractQuantity ?? null,
+      servedQuantity: sources?.entitlementQuantity ?? null,
     });
 
     rows.push(row);
@@ -108,6 +118,8 @@ interface BuildRowInput {
   vendorName: string;
   familyName: string | null;
   hasDenialData: boolean;
+  purchasedQuantity: number | null;
+  servedQuantity: number | null;
 }
 
 function buildRow(input: BuildRowInput): PortfolioRow {
@@ -255,6 +267,57 @@ function buildRow(input: BuildRowInput): PortfolioRow {
     daysToRenewal,
     contractId: contract?.id ?? null,
     usageEvidence,
+    commitment: describeCommitment(input.purchasedQuantity, input.servedQuantity, unitPrice, entitled),
+  };
+}
+
+/**
+ * The purchased and served views, computed once and labelled.
+ *
+ * `entitled` is passed as a fallback for the served side because a feature may
+ * carry an entitlement quantity through the contract item without a separate
+ * quantity-source record — an older import, for instance. What is NEVER done is
+ * the reverse: a purchased commitment is never derived from served capacity,
+ * because that answers a different question and would restate the customer's
+ * contractual obligation as whatever their licence server happens to be
+ * configured for this week.
+ */
+function describeCommitment(
+  purchasedQuantity: number | null,
+  servedQuantity: number | null,
+  unitPrice: number | null,
+  entitledFallback: number,
+): PortfolioRow['commitment'] {
+  const served = servedQuantity ?? (entitledFallback > 0 ? entitledFallback : null);
+
+  const purchasedAnnualCommitment =
+    purchasedQuantity === null || unitPrice === null ? null : round(purchasedQuantity * unitPrice, 2);
+  const servedCapacityValue =
+    served === null || unitPrice === null ? null : round(served * unitPrice, 2);
+
+  const quantityDifference =
+    purchasedQuantity === null || served === null ? null : served - purchasedQuantity;
+
+  const parts: string[] = [];
+  parts.push(
+    purchasedQuantity === null
+      ? 'No contract quantity supplied'
+      : `Purchased ${purchasedQuantity} from the procurement export`,
+  );
+  parts.push(
+    served === null
+      ? 'no entitlement quantity supplied'
+      : `served ${served} from the licence-server export`,
+  );
+  parts.push(unitPrice === null ? 'no unit price supplied' : `unit price ${unitPrice}`);
+
+  return {
+    purchasedQuantity,
+    servedQuantity: served,
+    purchasedAnnualCommitment,
+    servedCapacityValue,
+    quantityDifference,
+    basis: `${parts.join(', ')}.`,
   };
 }
 

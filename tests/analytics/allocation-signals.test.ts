@@ -52,7 +52,7 @@ describe('allocateCost', () => {
 
   it('distributes cost in proportion to usage hours', () => {
     const result = allocateCost({
-      method: 'actual_usage',
+      method: 'duration_weighted',
       dimension: 'department',
       features: [{ featureId: 'f1', licenseModel: 'concurrent', annualCost: 100_000, wasteAmount: 0 }],
       activities: [activity('e1', 'f1', 60), activity('e2', 'f1', 20), activity('e3', 'f1', 20)],
@@ -97,7 +97,7 @@ describe('allocateCost', () => {
 
   it('reports unattributable spend rather than silently redistributing it', () => {
     const result = allocateCost({
-      method: 'actual_usage',
+      method: 'duration_weighted',
       dimension: 'department',
       features: [
         { featureId: 'f1', licenseModel: 'concurrent', annualCost: 100_000, wasteAmount: 0 },
@@ -114,7 +114,7 @@ describe('allocateCost', () => {
 
   it('reports unpriced features as a distinct reason', () => {
     const result = allocateCost({
-      method: 'actual_usage',
+      method: 'duration_weighted',
       dimension: 'department',
       features: [{ featureId: 'f1', licenseModel: 'concurrent', annualCost: null, wasteAmount: 0 }],
       activities: [activity('e1', 'f1', 10)],
@@ -124,21 +124,31 @@ describe('allocateCost', () => {
     expect(result.totalAllocated).toBe(0);
   });
 
-  it('attributes usage from unknown employees to an explicit Unattributed group', () => {
+  it('sends spend from unknown employees to unallocated, not to a group row', () => {
+    // "Unattributed" as a ROW sits in a table of departments looking like a
+    // department, and invites somebody to ask who runs it. Its spend belongs in
+    // the explicit unallocated total, with a reason and a way to fix it.
     const result = allocateCost({
-      method: 'actual_usage',
+      method: 'duration_weighted',
       dimension: 'department',
       features: [{ featureId: 'f1', licenseModel: 'concurrent', annualCost: 100_000, wasteAmount: 0 }],
       activities: [activity('e1', 'f1', 50), activity('ghost-user', 'f1', 50)],
       employees,
     });
 
-    expect(result.rows.find((r) => r.key === 'Unattributed')?.allocatedSpend).toBe(50_000);
+    expect(result.rows.find((r) => r.key === 'Unattributed')).toBeUndefined();
+    expect(result.unallocated).toBe(50_000);
+    expect(result.unresolvedIdentityCost).toBe(50_000);
+    expect(result.unresolvedIdentityCount).toBe(1);
+
+    // The identifiable half is NOT inflated to absorb the gap.
+    expect(result.rows.find((r) => r.key === 'Structures')?.allocatedSpend).toBe(50_000);
+    expect(result.reconciles).toBe(true);
   });
 
   it('computes cost per engineer from active headcount in each group', () => {
     const result = allocateCost({
-      method: 'actual_usage',
+      method: 'duration_weighted',
       dimension: 'department',
       features: [{ featureId: 'f1', licenseModel: 'concurrent', annualCost: 100_000, wasteAmount: 0 }],
       activities: [activity('e1', 'f1', 50), activity('e2', 'f1', 50)],
@@ -152,7 +162,7 @@ describe('allocateCost', () => {
 
   it('distributes waste on the same basis as spend', () => {
     const result = allocateCost({
-      method: 'actual_usage',
+      method: 'duration_weighted',
       dimension: 'department',
       features: [{ featureId: 'f1', licenseModel: 'concurrent', annualCost: 100_000, wasteAmount: 40_000 }],
       activities: [activity('e1', 'f1', 75), activity('e3', 'f1', 25)],
@@ -165,7 +175,7 @@ describe('allocateCost', () => {
 
   it('groups by any organizational dimension', () => {
     const result = allocateCost({
-      method: 'actual_usage',
+      method: 'duration_weighted',
       dimension: 'program',
       features: [{ featureId: 'f1', licenseModel: 'concurrent', annualCost: 100_000, wasteAmount: 0 }],
       activities: [activity('e1', 'f1', 100)],
@@ -264,6 +274,14 @@ function portfolioRow(overrides: Partial<PortfolioRow> = {}): PortfolioRow {
     daysToRenewal: 58,
     contractId: 'c1',
     usageEvidence: 'observed' as const,
+    commitment: {
+      purchasedQuantity: null,
+      servedQuantity: null,
+      purchasedAnnualCommitment: null,
+      servedCapacityValue: null,
+      quantityDifference: null,
+      basis: 'Test fixture.',
+    },
     ...overrides,
   };
 }

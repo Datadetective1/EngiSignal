@@ -34,6 +34,10 @@ export interface PortfolioTableRow {
    * means "nothing measured", because the fix is to import a usage export.
    */
   usageEvidence: 'observed' | 'not_supplied';
+  /** What procurement says was bought. Null when no contract line exists. */
+  purchasedQuantity: number | null;
+  /** What the licence server is configured to serve. */
+  servedQuantity: number | null;
 }
 
 const LICENSE_LABELS: Record<LicenseModel, string> = {
@@ -197,7 +201,8 @@ export function PortfolioTable({
             <tr>
               <SortableTh label="Vendor / Product" sortKey="product" align="left" />
               <Th>Model</Th>
-              <SortableTh label="Entitled" sortKey="entitled" />
+              <SortableTh label="Served" sortKey="entitled" />
+              <Th align="right">Purchased</Th>
               <SortableTh label="P95" sortKey="p95" />
               <Th align="right">Max</Th>
               <SortableTh label="Utilization" sortKey="utilization" />
@@ -233,6 +238,19 @@ export function PortfolioTable({
                     <Badge>{LICENSE_LABELS[row.licenseModel]}</Badge>
                   </Td>
                   <Td align="right">{formatNumber(row.entitled)}</Td>
+                  <Td align="right" className="tnum">
+                    {/* Shown beside served capacity so a disagreement is a
+                        thing the customer sees rather than has to look for. */}
+                    {row.purchasedQuantity === null ? (
+                      <span className="text-fg-subtle">—</span>
+                    ) : row.purchasedQuantity !== row.servedQuantity ? (
+                      <span className="font-medium text-warning">
+                        {formatNumber(row.purchasedQuantity)}
+                      </span>
+                    ) : (
+                      formatNumber(row.purchasedQuantity)
+                    )}
+                  </Td>
                   <Td align="right">{row.p95 === null ? '—' : formatNumber(row.p95, 0)}</Td>
                   <Td align="right" className="text-fg-muted">
                     {row.max === null ? '—' : formatNumber(row.max)}

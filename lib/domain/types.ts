@@ -716,4 +716,52 @@ export interface PortfolioRow {
    * was never measured.
    */
   usageEvidence: UsageEvidence;
+
+  /**
+   * ── TWO QUANTITIES, TWO QUESTIONS ────────────────────────────────────────
+   *
+   * `entitled` above is the SERVED quantity — what the licence server is
+   * configured to issue. It is the right denominator for utilization, because
+   * demand was measured against what the server would actually hand out.
+   *
+   * It is the wrong basis for a spend headline. A customer with a contract for
+   * 440 and a server serving 350 is committed to 440, and reporting their
+   * annual commitment as 350 × price understates what they actually pay — which
+   * is exactly what "Committed annually: $2.6M" did when the contract said
+   * $2.8M.
+   *
+   * Both are kept, both are labelled, and neither is used for the other's job.
+   */
+  commitment: QuantityBasis;
+}
+
+/**
+ * The purchased and served views of one feature, side by side.
+ *
+ * A figure with no stated basis is the thing this product exists not to
+ * produce, so every monetary value here carries how it was derived.
+ */
+export interface QuantityBasis {
+  /** What procurement records as bought. Null when no contract line exists. */
+  purchasedQuantity: number | null;
+  /** What the licence server is configured to serve. Null when unstated. */
+  servedQuantity: number | null;
+  /**
+   * purchasedQuantity × unit price. The customer's annual commitment.
+   * Null when either the quantity or the price is unknown.
+   */
+  purchasedAnnualCommitment: number | null;
+  /**
+   * servedQuantity × unit price. What the deployed capacity is worth.
+   * NOT a commitment, and never labelled as one.
+   */
+  servedCapacityValue: number | null;
+  /**
+   * servedQuantity − purchasedQuantity. Negative means less is served than was
+   * bought. Null when either side is missing — a difference from one number is
+   * not a difference.
+   */
+  quantityDifference: number | null;
+  /** Plain-language statement of where each number came from. */
+  basis: string;
 }

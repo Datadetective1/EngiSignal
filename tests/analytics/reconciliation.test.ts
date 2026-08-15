@@ -41,6 +41,14 @@ function row(overrides: Partial<PortfolioRow> & { featureId: string }): Portfoli
     daysToRenewal: 90,
     contractId: 'c1',
     usageEvidence: 'not_supplied',
+    commitment: {
+      purchasedQuantity: null,
+      servedQuantity: null,
+      purchasedAnnualCommitment: null,
+      servedCapacityValue: null,
+      quantityDifference: null,
+      basis: 'Test fixture.',
+    },
     ...overrides,
   };
 }

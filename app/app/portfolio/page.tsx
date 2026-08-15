@@ -34,6 +34,8 @@ export default async function PortfolioPage({
     risk: row.risk,
     confidence: row.confidence.level,
     usageEvidence: row.usageEvidence,
+    purchasedQuantity: row.commitment.purchasedQuantity,
+    servedQuantity: row.commitment.servedQuantity,
   }));
 
   return (
@@ -41,7 +43,15 @@ export default async function PortfolioPage({
       <SectionHeading
         eyebrow="Portfolio"
         title="Every engineering software position"
-        description={`${portfolio.length} features across ${totals.vendorCount} vendors, ${formatCurrency(totals.annualSpend)} committed annually. Sort, filter and drill into any position.`}
+        // "Committed" is a claim about a contract, so it may only be made from
+        // contract quantities. Where none were imported, the sentence says what
+        // the figure actually is — the value of served capacity — rather than
+        // borrowing the stronger word for the weaker number.
+        description={
+          totals.purchasedPricedFeatures > 0
+            ? `${portfolio.length} features across ${totals.vendorCount} vendors. ${formatCurrency(totals.purchasedCommitment)} purchased commitment, ${formatCurrency(totals.annualSpend)} of served capacity.`
+            : `${portfolio.length} features across ${totals.vendorCount} vendors, ${formatCurrency(totals.annualSpend)} of served capacity valued annually. Import contract quantities to state a purchased commitment.`
+        }
       />
 
       <PortfolioTable rows={rows} initialRisk={params.risk} />
