@@ -40,5 +40,19 @@ export function effectiveRequiredFields(
     return featureRequired ? ['feature', 'entitledQuantity'] : ['entitledQuantity'];
   }
 
+  if (dataset === 'contracts') {
+    // Identity only. A commercial line is identified by whichever of feature,
+    // product or SKU the document happens to use — procurement writes "Ansys
+    // Mechanical Enterprise" where the license server says "ansys_mech_ent",
+    // and a renewal schedule that names only the SKU is still a real document.
+    //
+    // Whether the row carries anything worth storing is a question about its
+    // VALUES, not its columns, so it is enforced in the normalizer where the
+    // values are visible. Requiring a price here would reject renewal-date-only
+    // schedules, which are exactly the files that unlock renewal exposure.
+    if (mapped.has('product') || mapped.has('sku')) return [];
+    return ['feature'];
+  }
+
   return ['user'];
 }

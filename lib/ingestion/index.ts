@@ -136,12 +136,26 @@ export function ingestParsedFile(parsed: ParsedFile, options: IngestOptions): In
           candidates: [],
         };
 
+  // Falling back is expected for commercial files and alarming for usage files,
+  // so the message says which situation the customer is in. A renewal schedule
+  // is written by procurement in Excel; it has no license-manager signature to
+  // find, and reporting that as a failure would undermine confidence in a file
+  // that is behaving exactly as it should.
   if (detection.fellBack) {
-    warnings.push({
-      code: 'low_detection_confidence',
-      message: 'The license-management system could not be identified with confidence.',
-      detail: 'Generic mapping was used. Review the column mapping before importing.',
-    });
+    warnings.push(
+      dataset === 'contracts'
+        ? {
+            code: 'low_detection_confidence',
+            message: 'Read as a general commercial export.',
+            detail:
+              'Contract and pricing files are written by procurement rather than by a license manager, so there is no vendor signature to detect. Review the column mapping below.',
+          }
+        : {
+            code: 'low_detection_confidence',
+            message: 'The license-management system could not be identified with confidence.',
+            detail: 'Generic mapping was used. Review the column mapping before importing.',
+          },
+    );
   }
 
   const adapter = getAdapter(detection.source);
@@ -150,6 +164,7 @@ export function ingestParsedFile(parsed: ParsedFile, options: IngestOptions): In
   const usage: IngestionResult['usage'] = [];
   const entitlements: IngestionResult['entitlements'] = [];
   const people: IngestionResult['people'] = [];
+  const contracts: IngestionResult['contracts'] = [];
   const rejections: RejectedRow[] = [];
 
   let totalRows = 0;
@@ -198,6 +213,7 @@ export function ingestParsedFile(parsed: ParsedFile, options: IngestOptions): In
     usage.push(...output.usage);
     entitlements.push(...output.entitlements);
     people.push(...output.people);
+    contracts.push(...output.contracts);
     rejections.push(...output.rejections);
   }
 
@@ -224,6 +240,30 @@ export function ingestParsedFile(parsed: ParsedFile, options: IngestOptions): In
     });
   }
 
+  // A commercial file with no money in it is importable and useful — it still
+  // dates the renewal — but the customer should hear that before they wonder
+  // why the financial capability stayed locked.
+  if (dataset === 'contracts') {
+    const hasCostColumn =
+      mappedFields.has('unitPrice') || mappedFields.has('totalCost') || mappedFields.has('annualCost');
+    if (!hasCostColumn) {
+      warnings.push({
+        code: 'missing_optional_field',
+        message: 'No price column was found, so this file cannot unlock financial analysis.',
+        detail:
+          'Renewal dates and quantities will still be imported. Map a unit price, total cost or annual cost column to value the position.',
+      });
+    }
+    if (!mappedFields.has('currency')) {
+      warnings.push({
+        code: 'missing_optional_field',
+        message: 'No currency column was found.',
+        detail:
+          'Amounts are stored as supplied and reported without conversion. EngiSignal does not assume a currency.',
+      });
+    }
+  }
+
   if (dataset === 'usage' && !mappedFields.has('date') && mappedFields.has('observedAt')) {
     warnings.push({
       code: 'missing_optional_field',
@@ -243,7 +283,13 @@ export function ingestParsedFile(parsed: ParsedFile, options: IngestOptions): In
   }
 
   const records: CanonicalRecord[] =
-    dataset === 'usage' ? usage : dataset === 'entitlements' ? entitlements : people;
+    dataset === 'usage'
+      ? usage
+      : dataset === 'entitlements'
+        ? entitlements
+        : dataset === 'contracts'
+          ? contracts
+          : people;
 
   const quality = buildQualityReport({
     dataset,
@@ -261,6 +307,7 @@ export function ingestParsedFile(parsed: ParsedFile, options: IngestOptions): In
     usage,
     entitlements,
     people,
+    contracts,
     totalRows,
     acceptedRows: accepted,
     rejectedRows: rejected,

@@ -102,6 +102,10 @@ interface AnalyzeResponse {
     usageRecords: number;
     entitlementRecords: number;
     peopleRecords: number;
+    contractRecords: number;
+    pricedContractRecords: number;
+    datedContractRecords: number;
+    currencies: string[];
     distinctFeatures: number;
     distinctUsers: number;
     firstDate: string | null;
@@ -134,6 +138,7 @@ const DATASETS = [
   { key: 'usage', label: 'Usage', hint: 'License-manager usage export' },
   { key: 'entitlements', label: 'Entitlements', hint: 'What is owned, per feature' },
   { key: 'people', label: 'People', hint: 'Directory or HR roster' },
+  { key: 'contracts', label: 'Contracts & cost', hint: 'Renewal schedule, PO or price list' },
 ] as const;
 
 /**
@@ -775,7 +780,40 @@ function PreviewCard({
     { label: 'Denials', ok: coverage.hasDenials, detail: coverage.hasDenials ? 'Available' : 'Not supplied' },
     { label: 'Entitlements', ok: coverage.entitlementRecords > 0, detail: coverage.entitlementRecords > 0 ? `${coverage.entitlementRecords} records` : 'Not supplied' },
     { label: 'People', ok: coverage.peopleRecords > 0, detail: coverage.peopleRecords > 0 ? `${coverage.peopleRecords} records` : 'Not supplied' },
-    { label: 'Cost', ok: false, detail: 'Missing — not carried by license exports' },
+    {
+      label: 'Contract lines',
+      ok: coverage.contractRecords > 0,
+      detail: coverage.contractRecords > 0 ? `${coverage.contractRecords} lines` : 'Not supplied',
+    },
+    {
+      label: 'Renewal dates',
+      ok: coverage.datedContractRecords > 0,
+      // Never "0 days". A missing date is unknown timing, not imminent timing.
+      detail:
+        coverage.datedContractRecords > 0
+          ? `${coverage.datedContractRecords} of ${coverage.contractRecords} lines dated`
+          : 'Not supplied',
+    },
+    {
+      label: 'Cost',
+      ok: coverage.pricedContractRecords > 0,
+      detail:
+        coverage.pricedContractRecords > 0
+          ? `${coverage.pricedContractRecords} of ${coverage.contractRecords} lines priced`
+          : dataset === 'contracts'
+            ? 'No price could be determined from this file'
+            : 'Not supplied — license exports do not carry price',
+    },
+    {
+      label: 'Currency',
+      ok: coverage.currencies.length === 1,
+      detail:
+        coverage.currencies.length === 1
+          ? coverage.currencies[0]!
+          : coverage.currencies.length > 1
+            ? `Mixed: ${coverage.currencies.join(', ')}`
+            : 'Not stated',
+    },
   ];
 
   return (
@@ -803,7 +841,7 @@ function PreviewCard({
                   <tr key={index}>
                     {columns.map((column) => (
                       <Td key={column} className={row[column] === null ? 'text-fg-subtle' : 'text-fg-muted'}>
-                        {formatCell(row[column])}
+                        {formatCell(row[column], column)}
                       </Td>
                     ))}
                   </tr>
@@ -824,6 +862,28 @@ function PreviewCard({
             ))}
           </ul>
         </div>
+
+        {dataset === 'contracts' && (
+          <div>
+            <p className="mb-2 text-[12px] font-medium text-fg">How these figures will be used</p>
+            <ul className="space-y-1.5">
+              <li className="text-[12px] leading-relaxed text-fg-subtle">
+                A price shown as derived was calculated from other columns on the same row. Both the
+                calculation and the columns it used are stored, so any figure can be traced back.
+              </li>
+              <li className="text-[12px] leading-relaxed text-fg-subtle">
+                A total covering more than a year is not divided into an annual figure. Contracts are
+                rarely straight-lined, and assuming they are would produce a renewal position the
+                vendor could disprove.
+              </li>
+              <li className="text-[12px] leading-relaxed text-fg-subtle">
+                Contract lines are matched to observed features only on an exact name, a SKU or a
+                confirmed alias. Lines that cannot be matched still count toward spend and renewal
+                dates, and are listed for review rather than guessed at.
+              </li>
+            </ul>
+          </div>
+        )}
 
         {quality.notes.length > 0 && (
           <div>
@@ -849,9 +909,30 @@ function humanize(key: string): string {
     .trim();
 }
 
-function formatCell(value: unknown): string {
+/**
+ * Cost-basis codes in the reviewer's language.
+ *
+ * The preview is where somebody decides whether to trust a price, so a derived
+ * figure has to announce itself as derived. "Total ÷ quantity" tells a reviewer
+ * to check the quantity column; `total_over_quantity` tells them nothing.
+ */
+const COST_BASIS_LABEL: Record<string, string> = {
+  supplied_unit_price: 'Stated',
+  supplied_annual_cost: 'Stated (annual)',
+  supplied_total_cost: 'From line total',
+  quantity_x_unit: 'Qty × unit price',
+  total_over_quantity: 'Total ÷ qty',
+  none: 'Not determinable',
+};
+
+function formatCell(value: unknown, column?: string): string {
   if (value === null || value === undefined) return '—';
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+
+  if (column === 'unitPriceBasis' || column === 'annualCostBasis') {
+    return COST_BASIS_LABEL[String(value)] ?? String(value);
+  }
+
   const text = String(value);
   return text.length > 32 ? `${text.slice(0, 32)}…` : text;
 }

@@ -1,0 +1,20 @@
+Publisher,Software Name,SKU Description,Part Number,Qty,Unit Price,Currency,Annual Spend,Total,Contract Start,Contract End,Renewal Date,Contract Number,PO,License Type,Business Unit
+Ansys,Ansys Mechanical,ansys_mech_ent,ANS-MECH-ENT,400,5000,USD,,,2025-11-16,2026-11-15,2026-11-15,CTR-4471,PO-99812,Concurrent,Structures
+Ansys,Ansys Fluent,ansys_fluent,ANS-FLU-STD,120,7250,USD,,,2025-11-16,2026-11-15,2026-11-15,CTR-4471,PO-99812,Concurrent,Fluids
+MathWorks,MATLAB,matlab,MW-ML-NU,250,900,USD,,,2026-02-02,2027-02-01,2027-02-01,CTR-5580,PO-10233,Named User,Controls
+MathWorks,Simulink,simulink,MW-SL-NU,180,1400,USD,,,2026-02-02,2027-02-01,2027-02-01,CTR-5580,PO-10233,Named User,Controls
+Dassault Systemes,CATIA,catia_v5,DS-CAT-V5,90,,USD,1080000,,2025-10-01,2026-09-30,2026-09-30,CTR-2210,PO-77410,Concurrent,Design
+Siemens,NX CAD,nx_cad,SIE-NX-CAD,60,,USD,,492000,2025-12-21,2026-12-20,2026-12-20,CTR-8801,PO-55190,Concurrent,Design
+Altair,HyperWorks Units,hyperworks_tokens,ALT-HW-TOK,10000,22,USD,,,2026-01-11,2027-01-10,2027-01-10,CTR-6612,PO-31007,Token,Simulation
+Ansys,Ansys Mechanical Premium,ansys_mech_premium,ANS-MECH-PRM,40,9500,USD,,,2025-11-16,2026-11-15,2026-11-15,CTR-4471,PO-99812,Concurrent,Structures
+Siemens,Teamcenter,teamcenter,SIE-TC-NU,300,,USD,,,2026-04-01,2027-03-31,2027-03-31,CTR-8802,PO-55191,Named User,PLM
+Altair,Perpetual Solver,altair_perpetual,ALT-PERP,25,4000,USD,,,,,,CTR-6613,PO-31008,Concurrent,Simulation
+MathWorks,Orphan Toolbox,mw_orphan_toolbox,MW-ORPH,15,600,USD,,,2026-04-16,2027-04-15,2027-04-15,CTR-5581,PO-10234,Named User,Research
+Siemens,Multi Year Bundle,siemens_multiyear,SIE-MY-3Y,50,,USD,,2700000,2026-01-01,2028-12-31,2028-12-31,CTR-8805,PO-55194,Concurrent,Design
+Ansys,Total Without Quantity,ansys_total_noqty,ANS-TNQ,,,USD,,45000,2026-03-01,2027-02-28,2027-02-28,CTR-4473,PO-99814,Concurrent,Structures
+Ansys,Nothing Line,ansys_nothing,ANS-NULL,,,USD,,,,,,,,,
+Siemens,Bad Currency,siemens_badccy,SIE-BAD,10,500,Dollars,,,2026-05-02,2027-05-01,2027-05-01,CTR-8803,PO-55192,Concurrent,Design
+Ansys,Negative Line,ansys_negative,ANS-NEG,10,-500,USD,,,2026-06-02,2027-06-01,2027-06-01,CTR-4472,PO-99813,Concurrent,Structures
+Siemens,Backwards Dates,siemens_backwards,SIE-BACK,5,1000,USD,,,2026-08-01,2026-01-01,2026-01-01,CTR-8804,PO-55193,Concurrent,Design
+Siemens,Unreadable Date,siemens_baddate,SIE-BADDATE,5,1000,USD,,,2026-08-01,,not-a-date,CTR-8806,PO-55195,Concurrent,Design
+Ansys,Ansys Mechanical,ansys_mech_ent,ANS-MECH-ENT,400,5000,USD,,,2025-11-16,2026-11-15,2026-11-15,CTR-4471,PO-99812,Concurrent,Structures

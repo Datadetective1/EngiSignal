@@ -347,3 +347,148 @@ describe('grain honesty', () => {
     expect(employee.program).toBeNull();
   });
 });
+
+/**
+ * PHASE 2A REGRESSION.
+ *
+ * Adding commercial data must not move a single usage number. Price and
+ * renewal dates answer "what is it worth" and "when is it due"; they say
+ * nothing about how much was used, and demand analysis must be provably
+ * indifferent to them.
+ *
+ * Without this, a pricing import could quietly shift P95 — and the resulting
+ * recommendation would be wrong in exactly the situation where it finally
+ * carries a dollar figure and someone acts on it.
+ */
+describe('commercial data does not disturb usage analytics', () => {
+  const FEATURE = 'MECH_ENT';
+  const direct = buildKnownHourly(FEATURE);
+  const csv = toFlexNetCsv(direct, FEATURE);
+
+  function contractRecord(feature: string) {
+    return {
+      feature,
+      product: null,
+      vendor: 'Ansys',
+      sku: 'ANS-MECH-ENT',
+      contractNumber: 'CTR-1',
+      agreementNumber: null,
+      purchaseOrder: 'PO-1',
+      supplier: null,
+      quantity: 400,
+      unitPrice: 5000,
+      totalCost: null,
+      annualCost: 2_000_000,
+      currency: 'USD',
+      licenseModel: 'concurrent' as const,
+      pricingUnit: null,
+      contractStartDate: '2025-11-16',
+      contractEndDate: '2026-11-15',
+      renewalDate: '2026-11-15',
+      businessUnit: null,
+      costCenter: null,
+      owner: null,
+      notes: null,
+      unitPriceBasis: 'supplied_unit_price' as const,
+      annualCostBasis: 'quantity_x_unit' as const,
+      multiYearTotal: false,
+      provenance: {
+        organizationId: ORG.id,
+        importId: 'import-contracts',
+        importedAt: '2026-08-15T00:00:00.000Z',
+        sourceFile: 'contracts.csv',
+        sourceSystem: 'generic' as const,
+        sourceSheet: null,
+        sourceRow: 2,
+      },
+    };
+  }
+
+  it('produces identical hourly and daily demand with and without contracts', () => {
+    const parsed = parseDelimited(csv);
+    const analysis = ingestParsedFile(parsed, {
+      dataset: 'usage',
+      organizationId: ORG.id,
+      importId: 'import-usage',
+      fileName: 'usage.csv',
+    });
+
+    const base = {
+      organization: ORG,
+      usage: analysis.result.usage,
+      entitlements: [],
+      people: [],
+    };
+
+    const without = buildDatasetFromCanonical(base);
+    const with_ = buildDatasetFromCanonical({
+      ...base,
+      contracts: [contractRecord(FEATURE)],
+    });
+
+    expect(with_.hourlyUsage).toEqual(without.hourlyUsage);
+    expect(with_.dailyUsage).toEqual(without.dailyUsage);
+  });
+
+  it('produces an identical P95 and recommendation with contracts present', () => {
+    const parsed = parseDelimited(csv);
+    const analysis = ingestParsedFile(parsed, {
+      dataset: 'usage',
+      organizationId: ORG.id,
+      importId: 'import-usage',
+      fileName: 'usage.csv',
+    });
+
+    const priced = buildDatasetFromCanonical({
+      organization: ORG,
+      usage: analysis.result.usage,
+      entitlements: [],
+      people: [],
+      contracts: [contractRecord(FEATURE)],
+    });
+
+    const expectedPeaks = aggregateHourlyToDaily(direct).map((row) => row.peak);
+    const actualPeaks = aggregateHourlyToDaily(priced.hourlyUsage).map((row) => row.peak);
+
+    for (const p of [0.9, 0.95, 0.99]) {
+      expect(percentile(actualPeaks, p)).toBe(percentile(expectedPeaks, p));
+    }
+
+    const options = { entitled: 400, percentile: 0.95, growthFactor: 1.05, safetyFactor: 1.1 };
+    expect(computeRightSizing({ dailyPeaks: actualPeaks, ...options }).recommended).toBe(
+      computeRightSizing({ dailyPeaks: expectedPeaks, ...options }).recommended,
+    );
+
+    // And the price DID arrive — this is not passing because contracts were
+    // ignored altogether.
+    const featureId = priced.features[0]!.id;
+    const item = priced.contractItems.find((i) => i.featureId === featureId)!;
+    expect(item.unitPrice).toBe(5000);
+  });
+
+  it('leaves demand untouched when a contract line matches nothing', () => {
+    const parsed = parseDelimited(csv);
+    const analysis = ingestParsedFile(parsed, {
+      dataset: 'usage',
+      organizationId: ORG.id,
+      importId: 'import-usage',
+      fileName: 'usage.csv',
+    });
+
+    const base = {
+      organization: ORG,
+      usage: analysis.result.usage,
+      entitlements: [],
+      people: [],
+    };
+
+    const orphaned = buildDatasetFromCanonical({
+      ...base,
+      contracts: [contractRecord('SOMETHING_ELSE_ENTIRELY')],
+    });
+
+    expect(orphaned.hourlyUsage).toEqual(buildDatasetFromCanonical(base).hourlyUsage);
+    // The unmatched line is surfaced rather than silently absorbed.
+    expect(orphaned.unmappedFeatures.some((f) => f.rawValue === 'SOMETHING_ELSE_ENTIRELY')).toBe(true);
+  });
+});

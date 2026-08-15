@@ -12,6 +12,7 @@
  */
 
 import type {
+  CanonicalContractRecord,
   CanonicalDataset,
   CanonicalEntitlementRecord,
   CanonicalPersonRecord,
@@ -57,6 +58,7 @@ export interface ImportSummary {
   usageRecords: number;
   entitlementRecords: number;
   peopleRecords: number;
+  contractRecords: number;
   failureReason: string | null;
 }
 
@@ -84,6 +86,19 @@ export interface CoverageSummary {
   usageRecords: number;
   entitlementRecords: number;
   peopleRecords: number;
+  contractRecords: number;
+  /**
+   * Commercial lines carrying a determinable unit price or annual cost.
+   *
+   * Distinct from `contractRecords`: a renewal schedule with dates but no
+   * pricing produces contract records and zero priced lines, which unlocks
+   * renewal exposure while correctly leaving financial opportunity withheld.
+   */
+  pricedContractRecords: number;
+  /** Commercial lines carrying a renewal or end date. */
+  datedContractRecords: number;
+  /** ISO 4217 codes observed. More than one means amounts are not summable. */
+  currencies: string[];
   distinctFeatures: number;
   distinctUsers: number;
   /** ISO dates, null when no usage has been imported. */
@@ -138,6 +153,7 @@ export interface IngestionStore {
   listUsage(orgId: string, options?: { importId?: string; limit?: number }): Promise<CanonicalUsageRecord[]>;
   listEntitlements(orgId: string, options?: { importId?: string }): Promise<CanonicalEntitlementRecord[]>;
   listPeople(orgId: string, options?: { importId?: string }): Promise<CanonicalPersonRecord[]>;
+  listContracts(orgId: string, options?: { importId?: string }): Promise<CanonicalContractRecord[]>;
 
   getCoverage(orgId: string): Promise<CoverageSummary>;
 }
@@ -147,10 +163,12 @@ export function summarizeCoverage(
   usage: readonly CanonicalUsageRecord[],
   entitlements: readonly CanonicalEntitlementRecord[],
   people: readonly CanonicalPersonRecord[],
+  contracts: readonly CanonicalContractRecord[] = [],
 ): CoverageSummary {
   const features = new Set<string>();
   const users = new Set<string>();
   const sources = new Set<SourceSystem>();
+  const currencies = new Set<string>();
   let first: string | null = null;
   let last: string | null = null;
   let hasTime = false;
@@ -176,6 +194,16 @@ export function summarizeCoverage(
     users.add(record.user.toLowerCase());
   }
 
+  let pricedContracts = 0;
+  let datedContracts = 0;
+  for (const record of contracts) {
+    sources.add(record.provenance.sourceSystem);
+    features.add(record.feature.toLowerCase());
+    if (record.unitPrice !== null || record.annualCost !== null) pricedContracts += 1;
+    if (record.renewalDate !== null || record.contractEndDate !== null) datedContracts += 1;
+    if (record.currency !== null) currencies.add(record.currency);
+  }
+
   const historyDays =
     first === null || last === null
       ? 0
@@ -185,6 +213,10 @@ export function summarizeCoverage(
     usageRecords: usage.length,
     entitlementRecords: entitlements.length,
     peopleRecords: people.length,
+    contractRecords: contracts.length,
+    pricedContractRecords: pricedContracts,
+    datedContractRecords: datedContracts,
+    currencies: [...currencies].sort(),
     distinctFeatures: features.size,
     distinctUsers: users.size,
     firstDate: first,

@@ -114,21 +114,33 @@ export const supabaseProvider: DataProvider = {
     const organization = await this.getOrganization(orgId);
     if (organization === null) throw new Error(`Unknown organization: ${orgId}`);
 
-    const [usage, entitlements, people, imports] = await Promise.all([
+    const [usage, entitlements, people, contracts, imports] = await Promise.all([
       supabaseIngestionStore.listUsage(orgId),
       supabaseIngestionStore.listEntitlements(orgId),
       supabaseIngestionStore.listPeople(orgId),
+      supabaseIngestionStore.listContracts(orgId),
       supabaseIngestionStore.listImports(orgId),
     ]);
 
-    const dataset = buildDatasetFromCanonical({ organization, usage, entitlements, people });
+    const dataset = buildDatasetFromCanonical({
+      organization,
+      usage,
+      entitlements,
+      people,
+      contracts,
+    });
 
     return {
       ...dataset,
       imports: imports.map((record) => ({
         id: record.id,
         organizationId: record.organizationId,
-        kind: record.dataset === 'people' ? 'employees' : record.dataset === 'entitlements' ? 'contracts' : 'usage',
+        kind:
+          record.dataset === 'people'
+            ? 'employees'
+            : record.dataset === 'entitlements' || record.dataset === 'contracts'
+              ? 'contracts'
+              : 'usage',
         fileName: record.fileName,
         fileBytes: record.fileBytes,
         rowCount: record.totalRows,

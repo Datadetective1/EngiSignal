@@ -14,6 +14,12 @@ import {
 import { RENEWAL_STAGES } from '@/lib/analytics/portfolio';
 import { formatDate } from '@/lib/analytics/dates';
 import { formatCurrency, formatNumber, formatSignedPercent } from '@/lib/analytics/financial';
+import {
+  buildRenewalLines,
+  computeRenewalExposure,
+  describeRenewalTiming,
+  renewalUrgency,
+} from '@/lib/analytics/renewal';
 import { loadWorkspace } from '@/lib/workspace';
 import type { RenewalStage } from '@/lib/domain/types';
 
@@ -29,7 +35,24 @@ const STAGE_INDEX: Record<RenewalStage, number> = {
 };
 
 export default async function RenewalsPage() {
-  const { renewals } = await loadWorkspace();
+  const { renewals, portfolio, dataset } = await loadWorkspace();
+
+  // Feature-level positions, reshaped from the portfolio the engine already
+  // computed. Nothing is recalculated here.
+  const renewalLines = buildRenewalLines(portfolio);
+  const exposure = computeRenewalExposure(renewalLines, dataset.asOf);
+
+  const positions = [...renewalLines].sort((a, b) => {
+    // Dated lines first, soonest first. Undated lines are not "far away" — their
+    // timing is unknown — so they sit at the end rather than being sorted as if
+    // they renewed in the distant future.
+    if (a.daysToRenewal === null && b.daysToRenewal === null) {
+      return (b.currentAnnualCost ?? 0) - (a.currentAnnualCost ?? 0);
+    }
+    if (a.daysToRenewal === null) return 1;
+    if (b.daysToRenewal === null) return -1;
+    return a.daysToRenewal - b.daysToRenewal;
+  });
 
   const upcoming = renewals.filter((r) => r.daysRemaining >= 0);
   const totalSpend = upcoming.reduce((acc, r) => acc + (r.currentAnnualSpend ?? 0), 0);
@@ -65,6 +88,180 @@ export default async function RenewalsPage() {
           }
         />
       </div>
+
+      {/* ── Renewal exposure ────────────────────────────────────────────── */}
+      <Card className="overflow-hidden">
+        <div className="border-b border-border px-5 py-4">
+          <h2 className="text-[13px] font-semibold text-fg">Renewal exposure</h2>
+          <p className="mt-1 text-[12.5px] text-fg-muted">
+            Commitments falling due inside each horizon. Windows are cumulative — a line renewing in
+            45 days appears in 60, 90, 180 and 365 as well, because it is exposure inside all of them.
+          </p>
+        </div>
+
+        <div className="es-scroll overflow-x-auto">
+          <TableShell>
+            <thead>
+              <tr>
+                <Th>Within</Th>
+                <Th align="right">Lines</Th>
+                <Th align="right">Annual value</Th>
+                <Th align="right">Opportunity</Th>
+                <Th>Pricing</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {exposure.buckets.map((bucket) => (
+                <tr key={bucket.window}>
+                  <Td className="font-medium text-fg">{bucket.window} days</Td>
+                  <Td align="right">{formatNumber(bucket.lineCount)}</Td>
+                  <Td align="right" className="tnum">
+                    {bucket.lineCount === 0 ? '—' : formatCurrency(bucket.annualCost)}
+                  </Td>
+                  <Td align="right" className="tnum">
+                    {bucket.optimizationOpportunity > 0
+                      ? formatCurrency(bucket.optimizationOpportunity)
+                      : '—'}
+                  </Td>
+                  <Td>
+                    {bucket.lineCount === 0 ? (
+                      <span className="text-fg-subtle">No renewals in this window</span>
+                    ) : bucket.unpricedLines > 0 ? (
+                      <Badge tone="neutral">
+                        {bucket.unpricedLines} of {bucket.lineCount} unpriced
+                      </Badge>
+                    ) : (
+                      <Badge tone="positive">Fully priced</Badge>
+                    )}
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </TableShell>
+        </div>
+
+        {(exposure.undatedLines > 0 || exposure.lapsedLines > 0) && (
+          <div className="border-t border-border px-5 py-3.5">
+            <ul className="space-y-1.5">
+              {exposure.undatedLines > 0 && (
+                <li className="text-[12px] leading-relaxed text-fg-subtle">
+                  <span className="font-medium text-fg-muted">
+                    {formatNumber(exposure.undatedLines)} features carry no renewal date.
+                  </span>{' '}
+                  They are excluded from every window above rather than assumed to renew annually —
+                  perpetual licences do exist, and putting one on a renewal calendar would send
+                  somebody to negotiate a contract that is not there.
+                </li>
+              )}
+              {exposure.lapsedLines > 0 && (
+                <li className="text-[12px] leading-relaxed text-fg-subtle">
+                  <span className="font-medium text-fg-muted">
+                    {formatNumber(exposure.lapsedLines)} renewal dates have already passed.
+                  </span>{' '}
+                  Usually a stale export. Worth confirming before it is treated as either.
+                </li>
+              )}
+            </ul>
+          </div>
+        )}
+      </Card>
+
+      {/* ── Renewal positions ───────────────────────────────────────────── */}
+      <Card className="overflow-hidden">
+        <div className="border-b border-border px-5 py-4">
+          <h2 className="text-[13px] font-semibold text-fg">Renewal positions</h2>
+          <p className="mt-1 text-[12.5px] text-fg-muted">
+            One row per feature: what is owned, what demand supports, and what the difference is
+            worth. Soonest first.
+          </p>
+        </div>
+
+        {positions.length === 0 ? (
+          <p className="px-5 py-6 text-[13px] text-fg-muted">
+            No renewal positions yet. Import a usage export and a contract or renewal schedule to
+            build one.
+          </p>
+        ) : (
+          <div className="es-scroll overflow-x-auto">
+            <TableShell>
+              <thead>
+                <tr>
+                  <Th>Vendor</Th>
+                  <Th>Feature</Th>
+                  <Th align="right">Owned</Th>
+                  <Th align="right">Annual cost</Th>
+                  <Th align="right">Recommended</Th>
+                  <Th align="right">At recommended</Th>
+                  <Th align="right">Opportunity</Th>
+                  <Th>Renewal</Th>
+                  <Th>Evidence</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {positions.map((line) => {
+                  const urgency = renewalUrgency(line.daysToRenewal);
+                  return (
+                    <tr key={line.featureKey}>
+                      <Td className="text-fg-muted">{line.vendor ?? '—'}</Td>
+                      <Td className="font-medium text-fg">{line.featureName}</Td>
+                      <Td align="right" className="tnum">
+                        {formatNumber(line.currentQuantity)}
+                      </Td>
+                      <Td align="right" className="tnum">
+                        {/* Unpriced is not zero. */}
+                        {line.currentAnnualCost === null ? (
+                          <span className="text-fg-subtle">Not priced</span>
+                        ) : (
+                          formatCurrency(line.currentAnnualCost)
+                        )}
+                      </Td>
+                      <Td align="right" className="tnum">
+                        {line.recommendedQuantity === null ? (
+                          <span className="text-fg-subtle">—</span>
+                        ) : (
+                          formatNumber(line.recommendedQuantity)
+                        )}
+                      </Td>
+                      <Td align="right" className="tnum">
+                        {line.recommendedAnnualCost === null ? (
+                          <span className="text-fg-subtle">—</span>
+                        ) : (
+                          formatCurrency(line.recommendedAnnualCost)
+                        )}
+                      </Td>
+                      <Td align="right" className="tnum">
+                        {line.optimizationOpportunity === null ? (
+                          <span className="text-fg-subtle">—</span>
+                        ) : line.optimizationOpportunity > 0 ? (
+                          <span className="text-positive">
+                            {formatCurrency(line.optimizationOpportunity)}
+                          </span>
+                        ) : (
+                          '—'
+                        )}
+                      </Td>
+                      <Td>
+                        <Badge
+                          tone={
+                            urgency === 'critical' || urgency === 'lapsed'
+                              ? 'danger'
+                              : urgency === 'high'
+                                ? 'warning'
+                                : 'neutral'
+                          }
+                        >
+                          {describeRenewalTiming(line.daysToRenewal)}
+                        </Badge>
+                      </Td>
+                      <Td className="text-[11.5px] text-fg-subtle">{line.evidence}</Td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </TableShell>
+          </div>
+        )}
+      </Card>
 
       {/* ── Decision timeline ───────────────────────────────────────────── */}
       <Card className="overflow-hidden">

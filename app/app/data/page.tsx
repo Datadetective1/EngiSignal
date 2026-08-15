@@ -43,6 +43,11 @@ export default async function DataPage() {
     // contract import supplies it.
     hasCost: dataset.contractItems.some((item) => item.unitPrice !== null),
     resolvedPeople: ingestedCoverage.peopleRecords,
+    // Reclaim is only meaningful where a seat belongs to a person. Reading this
+    // from the resolved features rather than assuming it keeps the capability
+    // withheld for a purely concurrent estate, where "inactive seat" has no
+    // meaning and a reclaim recommendation would be nonsense.
+    hasNamedUserLicensing: dataset.features.some((feature) => feature.licenseModel === 'named_user'),
   };
 
   const totalRows = dataset.imports.reduce((acc, record) => acc + record.rowCount, 0);

@@ -35,7 +35,7 @@ export const maxDuration = 60;
  */
 
 const requestSchema = z.object({
-  dataset: z.enum(['usage', 'entitlements', 'people']),
+  dataset: z.enum(['usage', 'entitlements', 'people', 'contracts']),
   forceSource: z.enum(SOURCE_SYSTEMS as [string, ...string[]]).optional(),
   mappingOverrides: z.record(z.string(), z.string()).optional(),
   sheetName: z.string().optional(),
@@ -140,14 +140,20 @@ export async function POST(request: Request) {
   // What this file alone would support. Computed from the records that would
   // actually be written, so the customer sees the consequences of the mapping
   // they are about to confirm rather than a generic promise.
-  const coverage = summarizeCoverage(result.usage, result.entitlements, result.people);
+  const coverage = summarizeCoverage(result.usage, result.entitlements, result.people, result.contracts);
   // The same matrix the Data page and the analytics layer use.
   const capabilityInput = {
     coverage,
     distinctDates: new Set(result.usage.map((record) => record.date)).size,
-    // Licence exports never carry price.
+    // Cost is derived from this file's own records rather than asserted:
+    // `availableInputs` reads `pricedContractRecords` from the coverage above,
+    // so a commercial file that priced nothing correctly leaves the financial
+    // capability locked even though it is a contracts import.
     hasCost: false,
     resolvedPeople: result.people.length,
+    hasNamedUserLicensing:
+      result.entitlements.some((record) => record.licenseModel === 'named_user') ||
+      result.contracts.some((record) => record.licenseModel === 'named_user'),
   };
   const capabilities = capabilityLines(capabilityInput);
   const unlocks = unlockSuggestions(capabilityInput);
@@ -184,14 +190,34 @@ export async function POST(request: Request) {
             source: record.provenance.sourceSystem,
             sourceRow: record.provenance.sourceRow,
           }))
-        : result.people.slice(0, PREVIEW_ROWS).map((record) => ({
-            user: record.user,
-            employeeCode: record.employeeCode,
-            displayName: record.displayName,
-            email: record.email,
-            source: record.provenance.sourceSystem,
-            sourceRow: record.provenance.sourceRow,
-          }));
+        : result.dataset === 'contracts'
+          ? result.contracts.slice(0, PREVIEW_ROWS).map((record) => ({
+              feature: record.feature,
+              product: record.product,
+              vendor: record.vendor,
+              sku: record.sku,
+              quantity: record.quantity,
+              unitPrice: record.unitPrice,
+              annualCost: record.annualCost,
+              currency: record.currency,
+              // The derivation travels with the figure so a reviewer can see
+              // that a unit price was computed rather than stated, before they
+              // commit the import that will price their renewal position.
+              unitPriceBasis: record.unitPriceBasis,
+              renewalDate: record.renewalDate,
+              contractNumber: record.contractNumber,
+              licenseModel: record.licenseModel,
+              source: record.provenance.sourceSystem,
+              sourceRow: record.provenance.sourceRow,
+            }))
+          : result.people.slice(0, PREVIEW_ROWS).map((record) => ({
+              user: record.user,
+              employeeCode: record.employeeCode,
+              displayName: record.displayName,
+              email: record.email,
+              source: record.provenance.sourceSystem,
+              sourceRow: record.provenance.sourceRow,
+            }));
 
   return NextResponse.json({
     normalizedPreview,

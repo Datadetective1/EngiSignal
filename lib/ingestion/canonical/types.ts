@@ -19,8 +19,10 @@ export type SourceSystem = 'flexnet' | 'rlm' | 'dsls' | 'sentinel' | 'generic';
 
 export const SOURCE_SYSTEMS: SourceSystem[] = ['flexnet', 'rlm', 'dsls', 'sentinel', 'generic'];
 
-/** The three record families a file can produce. */
-export type CanonicalDataset = 'usage' | 'entitlements' | 'people';
+/** The record families a file can produce. */
+export type CanonicalDataset = 'usage' | 'entitlements' | 'people' | 'contracts';
+
+export const CANONICAL_DATASETS: CanonicalDataset[] = ['usage', 'entitlements', 'people', 'contracts'];
 
 /**
  * Where a record came from.
@@ -113,10 +115,94 @@ export interface CanonicalPersonRecord {
   provenance: Provenance;
 }
 
+/**
+ * How a commercial value was arrived at.
+ *
+ * Stored on the record itself so any figure in a renewal position can be
+ * defended line by line. `supplied` means the file stated it; `quantity_x_unit`
+ * and `total_over_quantity` are the only two arithmetic derivations performed,
+ * and both are reversible from fields that are also stored.
+ *
+ * Deliberately absent: any rule that spreads a multi-year total across a term.
+ * A `Total` column may be a one-year price, a three-year commitment or a
+ * co-termed true-up, and the spreadsheet rarely says which. Dividing by the
+ * term would produce a confident annual figure from an assumption the customer
+ * never made, so a multi-year total is carried as `totalCost` and left out of
+ * annual reporting instead.
+ */
+export type CostBasis =
+  | 'supplied_unit_price'
+  | 'supplied_annual_cost'
+  | 'supplied_total_cost'
+  | 'quantity_x_unit'
+  | 'total_over_quantity'
+  | 'none';
+
+/**
+ * One commercial line: what was bought, on what terms, for how much.
+ *
+ * MINIMUM IMPORTABLE RECORD — stated here because rejecting a customer's row
+ * needs a defensible reason.
+ *
+ * A row must carry:
+ *   1. an identity — `feature`, or a `product` or `sku` to stand in for it, and
+ *   2. at least one of a cost basis (unitPrice / totalCost / annualCost)
+ *      or a contract date (renewalDate / contractEndDate).
+ *
+ * The second half is deliberately not "must have a price". A renewal schedule
+ * that lists dates but leaves pricing to procurement is a real and useful
+ * document: it unlocks renewal exposure even with no money in it. What the rule
+ * does reject is a row carrying a name and nothing else, which cannot
+ * contribute to any analysis and would otherwise inflate the accepted count
+ * with rows that do nothing.
+ */
+export interface CanonicalContractRecord {
+  /** Raw feature string as the commercial document wrote it. */
+  feature: string;
+  product: string | null;
+  vendor: string | null;
+  sku: string | null;
+
+  contractNumber: string | null;
+  agreementNumber: string | null;
+  purchaseOrder: string | null;
+  supplier: string | null;
+
+  quantity: number | null;
+  /** Price for one unit, as supplied or derived. Null when not determinable. */
+  unitPrice: number | null;
+  totalCost: number | null;
+  annualCost: number | null;
+  /** ISO 4217 when the file stated one. Never defaulted — see cost.ts. */
+  currency: string | null;
+  licenseModel: LicenseModel;
+  /** What one unit of `quantity` is: seat, token, core. Null when unstated. */
+  pricingUnit: string | null;
+
+  contractStartDate: string | null;
+  contractEndDate: string | null;
+  renewalDate: string | null;
+
+  businessUnit: string | null;
+  costCenter: string | null;
+  owner: string | null;
+  notes: string | null;
+
+  /** How `unitPrice` was obtained. Shown to the customer alongside the figure. */
+  unitPriceBasis: CostBasis;
+  /** How `annualCost` was obtained. */
+  annualCostBasis: CostBasis;
+  /** True when totalCost covers a term longer than a year, so it is not annualized. */
+  multiYearTotal: boolean;
+
+  provenance: Provenance;
+}
+
 export type CanonicalRecord =
   | CanonicalUsageRecord
   | CanonicalEntitlementRecord
-  | CanonicalPersonRecord;
+  | CanonicalPersonRecord
+  | CanonicalContractRecord;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rejections and warnings
@@ -130,7 +216,12 @@ export type RejectionRule =
   | 'invalid_hour'
   | 'negative_quantity'
   | 'duplicate_row'
-  | 'malformed_row';
+  | 'malformed_row'
+  /** A commercial row carrying neither a cost basis nor a contract date. */
+  | 'no_commercial_content'
+  | 'invalid_currency'
+  /** End or renewal date earlier than the start date. */
+  | 'inconsistent_dates';
 
 /**
  * One rejected source row.
@@ -213,6 +304,7 @@ export interface IngestionResult {
   usage: CanonicalUsageRecord[];
   entitlements: CanonicalEntitlementRecord[];
   people: CanonicalPersonRecord[];
+  contracts: CanonicalContractRecord[];
   totalRows: number;
   acceptedRows: number;
   rejectedRows: number;

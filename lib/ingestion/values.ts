@@ -174,6 +174,60 @@ export function parseText(raw: unknown): string | null {
   return value.length === 0 ? null : value;
 }
 
+/**
+ * ISO 4217 codes EngiSignal recognizes, plus the symbols that unambiguously
+ * imply one.
+ *
+ * `$` is deliberately absent. It is used by more than twenty currencies, and
+ * reading it as USD would silently convert an Australian renewal into an
+ * American one at parity — a 1.5x error in a negotiation position. A bare
+ * symbol with no code yields null, and the value is reported as unpriced
+ * currency rather than assumed.
+ */
+const CURRENCY_CODES = new Set([
+  'USD', 'EUR', 'GBP', 'JPY', 'CHF', 'CAD', 'AUD', 'NZD', 'SEK', 'NOK', 'DKK',
+  'PLN', 'CZK', 'HUF', 'RON', 'TRY', 'RUB', 'CNY', 'HKD', 'SGD', 'KRW', 'TWD',
+  'INR', 'IDR', 'MYR', 'THB', 'PHP', 'VND', 'ILS', 'AED', 'SAR', 'ZAR', 'EGP',
+  'NGN', 'KES', 'MAD', 'BRL', 'MXN', 'ARS', 'CLP', 'COP', 'PEN',
+]);
+
+const UNAMBIGUOUS_SYMBOLS: Record<string, string> = {
+  '€': 'EUR',
+  '£': 'GBP',
+  '¥': 'JPY',
+  '₹': 'INR',
+  '₩': 'KRW',
+  '₪': 'ILS',
+  '₺': 'TRY',
+  '₽': 'RUB',
+};
+
+/**
+ * Parse a currency to an ISO 4217 code.
+ *
+ * Returns `undefined` when the input is absent (nothing to interpret) and
+ * `null` when it was present but not recognizable — the caller distinguishes
+ * "no currency column" from "a currency column we could not read", and only the
+ * second is a rejection.
+ */
+export function parseCurrency(raw: unknown): string | null | undefined {
+  const text = parseText(raw);
+  if (text === null) return undefined;
+
+  const upper = text.toUpperCase();
+  if (CURRENCY_CODES.has(upper)) return upper;
+
+  // A code embedded in wording: "Price (USD)", "EUR - Euro".
+  const embedded = /\b([A-Z]{3})\b/.exec(upper);
+  if (embedded !== null && CURRENCY_CODES.has(embedded[1]!)) return embedded[1]!;
+
+  for (const [symbol, code] of Object.entries(UNAMBIGUOUS_SYMBOLS)) {
+    if (text.includes(symbol)) return code;
+  }
+
+  return null;
+}
+
 /** Generic license-model interpretation; adapters may override. */
 export function parseLicenseModel(raw: unknown): LicenseModel {
   const value = parseText(raw)?.toLowerCase();

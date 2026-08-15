@@ -33,7 +33,7 @@ export const maxDuration = 60;
  */
 
 const requestSchema = z.object({
-  dataset: z.enum(['usage', 'entitlements', 'people']),
+  dataset: z.enum(['usage', 'entitlements', 'people', 'contracts']),
   forceSource: z.enum(SOURCE_SYSTEMS as [string, ...string[]]).optional(),
   mappingOverrides: z.record(z.string(), z.string()).optional(),
   sheetName: z.string().optional(),

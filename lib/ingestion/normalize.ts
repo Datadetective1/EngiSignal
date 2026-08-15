@@ -14,6 +14,7 @@
  */
 
 import type {
+  CanonicalContractRecord,
   CanonicalDataset,
   CanonicalEntitlementRecord,
   CanonicalPersonRecord,
@@ -27,8 +28,9 @@ import { fieldSpec } from './adapters/fields';
 import type { ColumnMapping } from './adapters/resolve';
 import { toFieldIndex } from './adapters/resolve';
 import type { CanonicalFieldKey, IngestionAdapter } from './adapters/types';
+import { deriveCost } from './cost';
 import { effectiveRequiredFields } from './requirements';
-import { parseBoolean, parseDate, parseHour, parseLicenseModel, parseNumber, parseText, parseTimestamp } from './values';
+import { parseBoolean, parseCurrency, parseDate, parseHour, parseLicenseModel, parseNumber, parseText, parseTimestamp } from './values';
 
 export interface NormalizeInput {
   dataset: CanonicalDataset;
@@ -55,6 +57,7 @@ export interface NormalizeOutput {
   usage: CanonicalUsageRecord[];
   entitlements: CanonicalEntitlementRecord[];
   people: CanonicalPersonRecord[];
+  contracts: CanonicalContractRecord[];
   accepted: number;
   rejections: RejectedRow[];
   rejectedCount: number;
@@ -63,7 +66,15 @@ export interface NormalizeOutput {
 
 const DEFAULT_MAX_REJECTION_DETAIL = 500;
 
-/** Quantity-like fields where a negative value is not physically meaningful. */
+/**
+ * Quantity-like fields where a negative value is not physically meaningful.
+ *
+ * The money fields are included deliberately. A negative price on a renewal
+ * schedule is almost always a credit note, a rebate line or a sign convention
+ * from an export — none of which is a licence that costs less than nothing.
+ * Accepting one would subtract from the portfolio total and understate spend,
+ * so the row is rejected with its value shown and the customer decides.
+ */
 const NON_NEGATIVE_FIELDS = new Set<CanonicalFieldKey>([
   'quantity',
   'concurrent',
@@ -73,6 +84,9 @@ const NON_NEGATIVE_FIELDS = new Set<CanonicalFieldKey>([
   'denialCount',
   'tokens',
   'entitledQuantity',
+  'unitPrice',
+  'totalCost',
+  'annualCost',
 ]);
 
 export function normalizeRows(input: NormalizeInput): NormalizeOutput {
@@ -98,6 +112,7 @@ export function normalizeRows(input: NormalizeInput): NormalizeOutput {
   const usage: CanonicalUsageRecord[] = [];
   const entitlements: CanonicalEntitlementRecord[] = [];
   const people: CanonicalPersonRecord[] = [];
+  const contracts: CanonicalContractRecord[] = [];
   const rejections: RejectedRow[] = [];
 
   let rejectedCount = 0;
@@ -368,6 +383,179 @@ export function normalizeRows(input: NormalizeInput): NormalizeOutput {
       continue;
     }
 
+    if (dataset === 'contracts') {
+      const quantity = read('quantity');
+      const unitPrice = read('unitPrice');
+      const totalCost = read('totalCost');
+      const annualCost = read('annualCost');
+      const startDate = read('contractStartDate');
+      const endDate = read('contractEndDate');
+      const renewalDate = read('renewalDate');
+
+      if (
+        !quantity.ok ||
+        !unitPrice.ok ||
+        !totalCost.ok ||
+        !annualCost.ok ||
+        !startDate.ok ||
+        !endDate.ok ||
+        !renewalDate.ok
+      ) {
+        continue;
+      }
+
+      // Identity: whichever of the three the document used. Falling back to the
+      // SKU keeps part-number-only schedules importable; the raw value is
+      // preserved either way, so nothing is lost by the substitution.
+      const product = read('product').value as string | null;
+      const sku = read('sku').value as string | null;
+      const feature = (read('feature').value as string | null) ?? product ?? sku;
+      if (feature === null) {
+        reject(
+          sourceRow,
+          'missing_required_field',
+          'feature',
+          null,
+          'No feature, product or SKU was supplied to identify this line.',
+        );
+        continue;
+      }
+
+      // Currency present but unreadable is a rejection; absent is not. A file
+      // with no currency column is normal, and the figures are still usable in
+      // whatever currency the organization already works in.
+      const currencyColumn = columnFor.get('currency');
+      const currency = currencyColumn === undefined ? undefined : parseCurrency(row[currencyColumn]);
+      if (currency === null) {
+        reject(
+          sourceRow,
+          'invalid_currency',
+          'currency',
+          row[currencyColumn as string],
+          'Currency is not a recognizable ISO code. A bare "$" is ambiguous — write USD, CAD or AUD.',
+        );
+        continue;
+      }
+
+      const start = startDate.value as string | null;
+      const end = endDate.value as string | null;
+      const renewal = renewalDate.value as string | null;
+
+      // A term that ends before it starts means the columns are transposed or
+      // the dates are wrong. Either way every date-derived figure on the row
+      // would be wrong, so it is refused rather than half-used.
+      if (start !== null && end !== null && end < start) {
+        reject(
+          sourceRow,
+          'inconsistent_dates',
+          'contractEndDate',
+          end,
+          `Contract end ${end} is before contract start ${start}.`,
+        );
+        continue;
+      }
+      if (start !== null && renewal !== null && renewal < start) {
+        reject(
+          sourceRow,
+          'inconsistent_dates',
+          'renewalDate',
+          renewal,
+          `Renewal date ${renewal} is before contract start ${start}.`,
+        );
+        continue;
+      }
+
+      const derived = deriveCost({
+        quantity: quantity.value as number | null,
+        unitPrice: unitPrice.value as number | null,
+        totalCost: totalCost.value as number | null,
+        annualCost: annualCost.value as number | null,
+        contractStartDate: start,
+        contractEndDate: end,
+      });
+
+      // The minimum-content rule. Identity alone is not a commercial record:
+      // without money or a date the line cannot reach any analysis, and
+      // accepting it would inflate the accepted count with rows that do nothing.
+      const hasCostBasis =
+        unitPrice.value !== null || totalCost.value !== null || annualCost.value !== null;
+      const hasDate = renewal !== null || end !== null;
+
+      if (!hasCostBasis && !hasDate) {
+        reject(
+          sourceRow,
+          'no_commercial_content',
+          null,
+          feature,
+          'Row identifies a line but carries no price and no renewal or end date, so nothing can be computed from it.',
+        );
+        continue;
+      }
+
+      const modelColumn = columnFor.get('licenseModel');
+      const modelText = modelColumn === undefined ? null : parseText(row[modelColumn]);
+      const licenseModel =
+        modelText === null
+          ? 'unknown'
+          : (adapter.coerce?.licenseModel?.(modelText) ?? parseLicenseModel(modelText));
+
+      const record: CanonicalContractRecord = {
+        feature,
+        product,
+        vendor: read('vendor').value as string | null,
+        sku,
+        contractNumber: read('contractNumber').value as string | null,
+        agreementNumber: read('agreementNumber').value as string | null,
+        purchaseOrder: read('purchaseOrder').value as string | null,
+        supplier: read('supplier').value as string | null,
+        quantity: quantity.value as number | null,
+        unitPrice: derived.unitPrice,
+        totalCost: totalCost.value as number | null,
+        annualCost: derived.annualCost,
+        currency: currency ?? null,
+        licenseModel,
+        pricingUnit: read('pricingUnit').value as string | null,
+        contractStartDate: start,
+        contractEndDate: end,
+        renewalDate: renewal,
+        businessUnit: read('businessUnit').value as string | null,
+        costCenter: read('costCenter').value as string | null,
+        owner: read('owner').value as string | null,
+        notes: read('notes').value as string | null,
+        unitPriceBasis: derived.unitPriceBasis,
+        annualCostBasis: derived.annualCostBasis,
+        multiYearTotal: derived.multiYearTotal,
+        provenance: rowProvenance,
+      };
+
+      // Duplicate identity includes the commercial terms, not just the name. The
+      // same product bought twice on two POs at two prices is two real lines,
+      // and collapsing them would erase half the spend.
+      const key = [
+        record.feature,
+        record.sku ?? '',
+        record.contractNumber ?? '',
+        record.purchaseOrder ?? '',
+        record.quantity ?? '',
+        record.unitPrice ?? '',
+        record.totalCost ?? '',
+        record.annualCost ?? '',
+        record.renewalDate ?? '',
+      ]
+        .join('|')
+        .toLowerCase();
+
+      const firstSeen = seen.get(key);
+      if (rejectDuplicates && firstSeen !== undefined) {
+        duplicateCount += 1;
+        reject(sourceRow, 'duplicate_row', null, null, `Duplicate of row ${firstSeen}.`);
+        continue;
+      }
+      seen.set(key, sourceRow);
+      contracts.push(record);
+      continue;
+    }
+
     const user = read('user');
     if (!user.ok) continue;
 
@@ -394,7 +582,8 @@ export function normalizeRows(input: NormalizeInput): NormalizeOutput {
     usage,
     entitlements,
     people,
-    accepted: usage.length + entitlements.length + people.length,
+    contracts,
+    accepted: usage.length + entitlements.length + people.length + contracts.length,
     rejections,
     rejectedCount,
     duplicateCount,

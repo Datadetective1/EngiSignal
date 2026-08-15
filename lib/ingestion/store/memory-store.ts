@@ -12,6 +12,7 @@
  */
 
 import type {
+  CanonicalContractRecord,
   CanonicalEntitlementRecord,
   CanonicalPersonRecord,
   CanonicalUsageRecord,
@@ -30,6 +31,7 @@ interface TenantBucket {
   usage: CanonicalUsageRecord[];
   entitlements: CanonicalEntitlementRecord[];
   people: CanonicalPersonRecord[];
+  contracts: CanonicalContractRecord[];
 }
 
 const tenants = new Map<string, TenantBucket>();
@@ -37,7 +39,7 @@ const tenants = new Map<string, TenantBucket>();
 function bucket(orgId: string): TenantBucket {
   const existing = tenants.get(orgId);
   if (existing !== undefined) return existing;
-  const created: TenantBucket = { imports: new Map(), usage: [], entitlements: [], people: [] };
+  const created: TenantBucket = { imports: new Map(), usage: [], entitlements: [], people: [], contracts: [] };
   tenants.set(orgId, created);
   return created;
 }
@@ -85,6 +87,7 @@ export const memoryIngestionStore: IngestionStore = {
       store.usage = store.usage.filter((row) => row.provenance.importId !== importId);
       store.entitlements = store.entitlements.filter((row) => row.provenance.importId !== importId);
       store.people = store.people.filter((row) => row.provenance.importId !== importId);
+      store.contracts = store.contracts.filter((row) => row.provenance.importId !== importId);
     }
 
     const importedAt = new Date().toISOString();
@@ -92,7 +95,7 @@ export const memoryIngestionStore: IngestionStore = {
     // Records are stamped with the caller's tenant on write. A record whose
     // provenance names another organization is a bug, not a routing hint, and
     // is rejected rather than silently rewritten.
-    for (const record of [...result.usage, ...result.entitlements, ...result.people]) {
+    for (const record of [...result.usage, ...result.entitlements, ...result.people, ...result.contracts]) {
       if (record.provenance.organizationId !== organizationId) {
         throw new Error('Refusing to commit records belonging to another organization.');
       }
@@ -101,6 +104,7 @@ export const memoryIngestionStore: IngestionStore = {
     store.usage.push(...result.usage);
     store.entitlements.push(...result.entitlements);
     store.people.push(...result.people);
+    store.contracts.push(...result.contracts);
 
     const detail: ImportDetail = {
       id: importId,
@@ -121,6 +125,7 @@ export const memoryIngestionStore: IngestionStore = {
       usageRecords: result.usage.length,
       entitlementRecords: result.entitlements.length,
       peopleRecords: result.people.length,
+      contractRecords: result.contracts.length,
       failureReason: null,
       contentFingerprint: contentFingerprint ?? null,
       detectionEvidence,
@@ -160,6 +165,7 @@ export const memoryIngestionStore: IngestionStore = {
     store.usage = store.usage.filter((row) => row.provenance.importId !== importId);
     store.entitlements = store.entitlements.filter((row) => row.provenance.importId !== importId);
     store.people = store.people.filter((row) => row.provenance.importId !== importId);
+    store.contracts = store.contracts.filter((row) => row.provenance.importId !== importId);
     return true;
   },
 
@@ -185,9 +191,16 @@ export const memoryIngestionStore: IngestionStore = {
       : rows.filter((row) => row.provenance.importId === options.importId);
   },
 
+  async listContracts(orgId, options): Promise<CanonicalContractRecord[]> {
+    const rows = bucket(orgId).contracts;
+    return options?.importId === undefined
+      ? [...rows]
+      : rows.filter((row) => row.provenance.importId === options.importId);
+  },
+
   async getCoverage(orgId: string): Promise<CoverageSummary> {
     const store = bucket(orgId);
-    return summarizeCoverage(store.usage, store.entitlements, store.people);
+    return summarizeCoverage(store.usage, store.entitlements, store.people, store.contracts);
   },
 };
 

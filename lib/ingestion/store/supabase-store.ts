@@ -22,6 +22,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { userClient } from '@/lib/supabase/server';
 import type {
+  CanonicalContractRecord,
   CanonicalEntitlementRecord,
   CanonicalPersonRecord,
   CanonicalUsageRecord,
@@ -107,7 +108,12 @@ export const supabaseIngestionStore: IngestionStore = {
       organization_id: organizationId,
       // The legacy template enum still constrains this column; canonical
       // datasets are recorded in `dataset` alongside it.
-      kind: dataset === 'people' ? 'employees' : dataset === 'entitlements' ? 'contracts' : 'usage',
+      kind:
+        dataset === 'people'
+          ? 'employees'
+          : dataset === 'entitlements' || dataset === 'contracts'
+            ? 'contracts'
+            : 'usage',
       dataset,
       source_system: result.sourceSystem,
       file_name: fileName,
@@ -127,6 +133,7 @@ export const supabaseIngestionStore: IngestionStore = {
       usage_records: result.usage.length,
       entitlement_records: result.entitlements.length,
       people_records: result.people.length,
+      contract_records: result.contracts.length,
       uploaded_at: uploadedAt,
       content_fingerprint: contentFingerprint ?? null,
     });
@@ -213,6 +220,42 @@ export const supabaseIngestionStore: IngestionStore = {
           source_row: record.provenance.sourceRow,
         })),
       );
+      await insertChunked(
+        'ingestion_contracts',
+        result.contracts.map((record) => ({
+          organization_id: organizationId,
+          import_id: importId,
+          raw_feature: record.feature,
+          raw_product: record.product,
+          raw_vendor: record.vendor,
+          sku: record.sku,
+          contract_number: record.contractNumber,
+          agreement_number: record.agreementNumber,
+          purchase_order: record.purchaseOrder,
+          supplier: record.supplier,
+          quantity: record.quantity,
+          unit_price: record.unitPrice,
+          total_cost: record.totalCost,
+          annual_cost: record.annualCost,
+          currency: record.currency,
+          license_model: record.licenseModel,
+          pricing_unit: record.pricingUnit,
+          contract_start_date: record.contractStartDate,
+          contract_end_date: record.contractEndDate,
+          renewal_date: record.renewalDate,
+          business_unit: record.businessUnit,
+          cost_center: record.costCenter,
+          owner: record.owner,
+          notes: record.notes,
+          unit_price_basis: record.unitPriceBasis,
+          annual_cost_basis: record.annualCostBasis,
+          multi_year_total: record.multiYearTotal,
+          source_system: record.provenance.sourceSystem,
+          source_file: record.provenance.sourceFile,
+          source_sheet: record.provenance.sourceSheet,
+          source_row: record.provenance.sourceRow,
+        })),
+      );
       // Rejections are audit records, never analytical ones.
       await insertChunked(
         'ingestion_rejections',
@@ -266,6 +309,7 @@ export const supabaseIngestionStore: IngestionStore = {
       usageRecords: result.usage.length,
       entitlementRecords: result.entitlements.length,
       peopleRecords: result.people.length,
+      contractRecords: result.contracts.length,
       failureReason: null,
     };
   },
@@ -408,13 +452,59 @@ export const supabaseIngestionStore: IngestionStore = {
       },
     }));
   },
+  async listContracts(orgId, options): Promise<CanonicalContractRecord[]> {
+    let query = (await db()).from('ingestion_contracts').select('*').eq('organization_id', orgId);
+    if (options?.importId !== undefined) query = query.eq('import_id', options.importId);
+    const { data, error } = await query;
+    if (error !== null) throw new Error(error.message);
+    return (data ?? []).map((row) => ({
+      feature: row.raw_feature as string,
+      product: row.raw_product as string | null,
+      vendor: row.raw_vendor as string | null,
+      sku: row.sku as string | null,
+      contractNumber: row.contract_number as string | null,
+      agreementNumber: row.agreement_number as string | null,
+      purchaseOrder: row.purchase_order as string | null,
+      supplier: row.supplier as string | null,
+      quantity: numberOrNull(row.quantity),
+      // Postgres returns numeric as a string to preserve exactness. Coercing
+      // through Number here rather than trusting the driver keeps money out of
+      // string concatenation, where "5000" + 1 becomes "50001".
+      unitPrice: numberOrNull(row.unit_price),
+      totalCost: numberOrNull(row.total_cost),
+      annualCost: numberOrNull(row.annual_cost),
+      currency: row.currency as string | null,
+      licenseModel: row.license_model as CanonicalContractRecord['licenseModel'],
+      pricingUnit: row.pricing_unit as string | null,
+      contractStartDate: row.contract_start_date as string | null,
+      contractEndDate: row.contract_end_date as string | null,
+      renewalDate: row.renewal_date as string | null,
+      businessUnit: row.business_unit as string | null,
+      costCenter: row.cost_center as string | null,
+      owner: row.owner as string | null,
+      notes: row.notes as string | null,
+      unitPriceBasis: row.unit_price_basis as CanonicalContractRecord['unitPriceBasis'],
+      annualCostBasis: row.annual_cost_basis as CanonicalContractRecord['annualCostBasis'],
+      multiYearTotal: Boolean(row.multi_year_total),
+      provenance: {
+        organizationId: row.organization_id as string,
+        importId: row.import_id as string,
+        importedAt: row.created_at as string,
+        sourceFile: row.source_file as string,
+        sourceSystem: row.source_system as SourceSystem,
+        sourceSheet: row.source_sheet as string | null,
+        sourceRow: row.source_row as number,
+      },
+    }));
+  },
   async getCoverage(orgId: string): Promise<CoverageSummary> {
-    const [usage, entitlements, people] = await Promise.all([
+    const [usage, entitlements, people, contracts] = await Promise.all([
       this.listUsage(orgId),
       this.listEntitlements(orgId),
       this.listPeople(orgId),
+      this.listContracts(orgId),
     ]);
-    return summarizeCoverage(usage, entitlements, people);
+    return summarizeCoverage(usage, entitlements, people, contracts);
   },
 };
 function numberOrNull(value: unknown): number | null {
@@ -445,6 +535,7 @@ function rowToSummary(row: Record<string, unknown>): ImportSummary {
     usageRecords: Number(row.usage_records ?? 0),
     entitlementRecords: Number(row.entitlement_records ?? 0),
     peopleRecords: Number(row.people_records ?? 0),
+    contractRecords: Number(row.contract_records ?? 0),
     failureReason: (row.failure_reason ?? null) as string | null,
   };
 }

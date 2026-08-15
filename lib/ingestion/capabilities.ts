@@ -31,7 +31,15 @@ export interface CoverageLine {
 }
 
 /** Every input family EngiSignal can consume. */
-export type DataInput = 'usage' | 'concurrency' | 'entitlements' | 'denials' | 'cost' | 'people';
+export type DataInput =
+  | 'usage'
+  | 'concurrency'
+  | 'entitlements'
+  | 'denials'
+  | 'cost'
+  | 'people'
+  | 'contractDates'
+  | 'namedUser';
 
 export interface CapabilityLine {
   key: CapabilityKey;
@@ -49,6 +57,9 @@ export type CapabilityKey =
   | 'utilization'
   | 'denialAnalysis'
   | 'financialOpportunity'
+  | 'recommendedRenewalSpend'
+  | 'renewalExposure'
+  | 'reclaimOpportunity'
   | 'organizationAllocation';
 
 /** Days of history below which a percentile is arithmetic rather than evidence. */
@@ -62,6 +73,8 @@ export interface CapabilityInput {
   hasCost: boolean;
   /** Usernames that resolved to a person record. */
   resolvedPeople: number;
+  /** True when at least one entitlement or contract line is named-user. */
+  hasNamedUserLicensing?: boolean;
 }
 
 /**
@@ -91,6 +104,21 @@ export const CAPABILITY_MATRIX: {
   { key: 'utilization', label: 'Utilization', needs: ['usage', 'concurrency', 'entitlements'] },
   { key: 'denialAnalysis', label: 'Unmet demand', needs: ['usage', 'denials'] },
   { key: 'financialOpportunity', label: 'Financial opportunity', needs: ['usage', 'entitlements', 'cost'] },
+  {
+    key: 'recommendedRenewalSpend',
+    label: 'Recommended renewal spend',
+    needs: ['usage', 'concurrency', 'entitlements', 'cost'],
+    note: `at least ${MIN_DAYS_FOR_PERCENTILE} days of history`,
+  },
+  // Deliberately needs no usage. A renewal calendar is answerable from the
+  // commercial file alone, and a customer who has only uploaded contracts
+  // should get something useful on the first import rather than a locked screen.
+  { key: 'renewalExposure', label: 'Renewal exposure', needs: ['contractDates'] },
+  {
+    key: 'reclaimOpportunity',
+    label: 'Reclaim opportunity',
+    needs: ['usage', 'people', 'namedUser', 'cost'],
+  },
   { key: 'organizationAllocation', label: 'Organization allocation', needs: ['usage', 'people'] },
 ];
 
@@ -101,6 +129,8 @@ const INPUT_LABEL: Record<DataInput, string> = {
   denials: 'denial data',
   cost: 'contract or cost data',
   people: 'employee context',
+  contractDates: 'contract renewal or end dates',
+  namedUser: 'named-user licensing',
 };
 
 /** Which input families the tenant currently has. */
@@ -112,8 +142,14 @@ export function availableInputs(input: CapabilityInput): Set<DataInput> {
   if (coverage.hasConcurrency) present.add('concurrency');
   if (coverage.entitlementRecords > 0) present.add('entitlements');
   if (coverage.hasDenials) present.add('denials');
-  if (hasCost) present.add('cost');
+  // Cost is present when a projected contract line carries a price OR when the
+  // commercial import itself produced priced records. The two agree once the
+  // lines are matched; before matching, the second is the honest answer for a
+  // single-file preview, where there is nothing yet to match against.
+  if (hasCost || coverage.pricedContractRecords > 0) present.add('cost');
   if (resolvedPeople > 0) present.add('people');
+  if (coverage.datedContractRecords > 0) present.add('contractDates');
+  if (input.hasNamedUserLicensing === true) present.add('namedUser');
 
   return present;
 }
@@ -128,7 +164,13 @@ export function capabilityLines(input: CapabilityInput): CapabilityLine[] {
 
     // History is a property of the data, not an input family, so it is checked
     // separately — a year of one-day-a-week sampling is still thin evidence.
-    const historyShort = entry.key === 'percentileDemand' && missing.length === 0 && !enoughHistory;
+    // Recommended renewal spend inherits the same floor: it is a percentile
+    // multiplied by a price, and a percentile from four days of data does not
+    // become defensible by having a dollar sign in front of it.
+    const historyShort =
+      (entry.key === 'percentileDemand' || entry.key === 'recommendedRenewalSpend') &&
+      missing.length === 0 &&
+      !enoughHistory;
 
     const available = missing.length === 0 && !historyShort;
     const requires = available
@@ -194,13 +236,64 @@ export function coverageLines(input: CapabilityInput): CoverageLine[] {
     },
     {
       label: 'Contracts',
-      state: coverage.entitlementRecords > 0 ? 'partial' : 'missing',
-      detail: coverage.entitlementRecords > 0 ? 'Quantities only, no terms' : 'Missing',
+      state:
+        coverage.contractRecords > 0
+          ? 'complete'
+          : coverage.entitlementRecords > 0
+            ? 'partial'
+            : 'missing',
+      detail:
+        coverage.contractRecords > 0
+          ? `${coverage.contractRecords.toLocaleString('en-US')} commercial lines`
+          : coverage.entitlementRecords > 0
+            ? 'Quantities only, no commercial terms'
+            : 'Missing',
+    },
+    {
+      label: 'Renewal dates',
+      // Never "0 days to renewal". Either a date was supplied or it was not.
+      state:
+        coverage.datedContractRecords > 0
+          ? coverage.contractRecords > coverage.datedContractRecords
+            ? 'partial'
+            : 'complete'
+          : 'missing',
+      detail:
+        coverage.datedContractRecords > 0
+          ? `${coverage.datedContractRecords.toLocaleString('en-US')} of ${coverage.contractRecords.toLocaleString('en-US')} lines dated`
+          : 'Renewal date not supplied',
     },
     {
       label: 'Cost',
-      state: input.hasCost ? 'complete' : 'missing',
-      detail: input.hasCost ? 'Available' : 'Missing',
+      state:
+        input.hasCost || coverage.pricedContractRecords > 0
+          ? coverage.contractRecords > coverage.pricedContractRecords && coverage.contractRecords > 0
+            ? 'partial'
+            : 'complete'
+          : 'missing',
+      detail:
+        input.hasCost || coverage.pricedContractRecords > 0
+          ? coverage.contractRecords > 0
+            ? `${coverage.pricedContractRecords.toLocaleString('en-US')} of ${coverage.contractRecords.toLocaleString('en-US')} lines priced`
+            : 'Available'
+          : 'Cost data not supplied',
+    },
+    {
+      label: 'Currency',
+      state:
+        coverage.currencies.length === 1
+          ? 'complete'
+          : coverage.currencies.length > 1
+            ? 'partial'
+            : 'not_supplied',
+      detail:
+        coverage.currencies.length === 1
+          ? coverage.currencies[0]!
+          : coverage.currencies.length > 1
+            ? // Summing across currencies without a rate would be arithmetic on
+              // incomparable units. The mix is reported instead of a total.
+              `Mixed: ${coverage.currencies.join(', ')} — amounts are not summed across currencies`
+            : 'Not stated, amounts reported as supplied',
     },
   ];
 }

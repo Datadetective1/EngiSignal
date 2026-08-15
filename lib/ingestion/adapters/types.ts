@@ -44,7 +44,31 @@ export type EntitlementField =
 
 export type PeopleField = 'user' | 'employeeCode' | 'displayName' | 'email';
 
-export type CanonicalFieldKey = UsageField | EntitlementField | PeopleField;
+export type ContractField =
+  | 'feature'
+  | 'product'
+  | 'vendor'
+  | 'sku'
+  | 'contractNumber'
+  | 'agreementNumber'
+  | 'purchaseOrder'
+  | 'supplier'
+  | 'quantity'
+  | 'unitPrice'
+  | 'totalCost'
+  | 'annualCost'
+  | 'currency'
+  | 'licenseModel'
+  | 'pricingUnit'
+  | 'contractStartDate'
+  | 'contractEndDate'
+  | 'renewalDate'
+  | 'businessUnit'
+  | 'costCenter'
+  | 'owner'
+  | 'notes';
+
+export type CanonicalFieldKey = UsageField | EntitlementField | PeopleField | ContractField;
 
 export type FieldValueType = 'string' | 'number' | 'date' | 'datetime' | 'hour' | 'boolean';
 
@@ -85,8 +109,15 @@ export interface IngestionAdapter {
   exportDescription: string;
   supports: CanonicalDataset[];
   capabilities: SourceCapabilities;
-  /** Aliases used in addition to the shared base table. */
-  aliases: Record<CanonicalDataset, AliasTable>;
+  /**
+   * Aliases used in addition to the shared base table.
+   *
+   * Partial by dataset: a license manager has no commercial vocabulary of its
+   * own — a FlexNet report log is not a purchase order — so those adapters
+   * declare nothing for `contracts` and the shared base table does the work.
+   * Omission is the honest way to say "this source has no opinion here".
+   */
+  aliases: Partial<Record<CanonicalDataset, AliasTable>>;
   /**
    * Source-specific value interpretation, applied before generic coercion.
    * Returning undefined defers to the generic parser.

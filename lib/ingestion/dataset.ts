@@ -54,10 +54,12 @@ import type {
   Vendor,
 } from '@/lib/domain/types';
 import type {
+  CanonicalContractRecord,
   CanonicalEntitlementRecord,
   CanonicalPersonRecord,
   CanonicalUsageRecord,
 } from './canonical/types';
+import { linkContracts, matchVendor, mergePositions } from './contract-match';
 import { normalizeFeatureKey, resolveFeatures, resolveUsers } from './identity';
 import { projectUsage } from './project';
 
@@ -76,6 +78,7 @@ export interface BuildDatasetInput {
   usage: readonly CanonicalUsageRecord[];
   entitlements: readonly CanonicalEntitlementRecord[];
   people: readonly CanonicalPersonRecord[];
+  contracts?: readonly CanonicalContractRecord[];
   /** Customer-confirmed raw value → canonical feature key. */
   featureAliases?: ReadonlyMap<string, string>;
   /** Reference date for relative calculations. Defaults to the latest observation. */
@@ -83,7 +86,14 @@ export interface BuildDatasetInput {
 }
 
 export function buildDatasetFromCanonical(input: BuildDatasetInput): AnalyticsDataset {
-  const { organization, usage, entitlements, people, featureAliases = new Map() } = input;
+  const {
+    organization,
+    usage,
+    entitlements,
+    people,
+    contracts: contractRecords = [],
+    featureAliases = new Map(),
+  } = input;
   const orgId = organization.id;
 
   // Entitlements are folded into feature discovery as synthetic observations.
@@ -117,9 +127,52 @@ export function buildDatasetFromCanonical(input: BuildDatasetInput): AnalyticsDa
       }) satisfies CanonicalUsageRecord,
   );
 
-  // Identity resolution sees both; only real usage reaches the projection, so
-  // these placeholders can never contribute demand.
-  const featureIdentities = resolveFeatures([...usage, ...entitlementAsUsage], featureAliases);
+  // Commercial lines discover features too, for the same reason entitlements
+  // do: a customer who imports a renewal schedule first should see their
+  // renewal portfolio immediately rather than an empty screen until usage
+  // arrives. `concurrent` stays null so none of this reaches demand.
+  const contractAsUsage = contractRecords.map(
+    (record) =>
+      ({
+        date: record.renewalDate ?? record.contractEndDate ?? '1970-01-01',
+        hour: null,
+        observedAt: null,
+        user: null,
+        employeeCode: null,
+        feature: record.feature,
+        product: record.product,
+        vendor: matchVendor(record),
+        quantity: null,
+        concurrent: null,
+        peak: null,
+        available: null,
+        durationHours: null,
+        checkoutAt: null,
+        checkinAt: null,
+        denied: null,
+        denialCount: null,
+        licenseServer: null,
+        pool: null,
+        tokens: null,
+        provenance: record.provenance,
+      }) satisfies CanonicalUsageRecord,
+  );
+
+  // Identity resolution sees all three; only real usage reaches the projection,
+  // so these placeholders can never contribute demand.
+  const featureIdentities = resolveFeatures(
+    [...usage, ...entitlementAsUsage, ...contractAsUsage],
+    featureAliases,
+  );
+
+  // OBSERVED features only — usage and entitlements, never the contract file
+  // itself. Matching a contract line against a feature list that the same file
+  // just populated would make every line match itself by name, the unmatched
+  // path unreachable, and the review queue permanently empty. The question
+  // being asked is "does this line correspond to something we actually see?",
+  // and a list built from the line cannot answer it.
+  const observedIdentities = resolveFeatures([...usage, ...entitlementAsUsage], featureAliases);
+
   const userIdentities = resolveUsers(usage, people);
 
   // ── Vendors and products ───────────────────────────────────────────────────
@@ -197,45 +250,84 @@ export function buildDatasetFromCanonical(input: BuildDatasetInput): AnalyticsDa
   });
 
   // ── Contracts ──────────────────────────────────────────────────────────────
-  // An entitlement export states quantity, not commercial terms. A contract
-  // shell is created to carry the quantity, with no invented price and no
-  // invented renewal date — `unitPrice: null` means unpriced, never zero.
+  //
+  // Two sources of commercial truth meet here and they answer different
+  // questions:
+  //
+  //   ENTITLEMENTS say how many the LICENCE SERVER is configured to serve.
+  //   CONTRACTS say how many were BOUGHT, for how much, and until when.
+  //
+  // They frequently disagree, and the disagreement is real information — a
+  // server issuing 400 against a contract for 350 is over-deployment, and a
+  // contract for 400 served as 350 is shelfware. Neither is reconciled away.
+  //
+  // Quantity precedence is the ENTITLEMENT, because utilization is measured
+  // against what the server would actually issue: comparing demand to a
+  // purchased number the server never honoured would compute headroom against
+  // capacity that does not exist. Price and dates come from the contract, which
+  // is the only source that carries them.
+  const contractLinks = linkContracts({
+    contracts: contractRecords,
+    features: observedIdentities,
+    aliases: featureAliases,
+  });
+  const positions = mergePositions(contractLinks.links);
+
   const contracts: Contract[] = [];
   const contractItems: ContractItem[] = [];
 
-  for (const [key, entitlement] of entitlementByKey) {
+  const contractKeys = new Set<string>([...entitlementByKey.keys(), ...positions.keys()]);
+
+  for (const key of contractKeys) {
     const identity = featureIdentities.find((candidate) => candidate.key === key);
     if (identity === undefined) continue;
 
-    const vendor = entitlement.vendor ?? identity.vendor ?? UNKNOWN_VENDOR;
+    const entitlement = entitlementByKey.get(key);
+    const position = positions.get(key);
+
+    const vendor = entitlement?.vendor ?? identity.vendor ?? UNKNOWN_VENDOR;
     const contractId = `contract:${orgId}:${key}`;
 
-    if (entitlement.expiresOn !== null) {
+    // A renewal date the customer supplied beats an entitlement expiry, which
+    // is a licence-file expiry and not necessarily a commercial one.
+    const renewalDate = position?.renewalDate ?? entitlement?.expiresOn ?? null;
+
+    if (renewalDate !== null) {
       contracts.push({
         id: contractId,
         organizationId: orgId,
         vendorId: vendorId(orgId, vendor),
-        contractNumber: `IMPORTED-${key.toUpperCase()}`,
+        contractNumber: position?.contractNumbers[0] ?? `IMPORTED-${key.toUpperCase()}`,
         agreementName: null,
-        startDate: entitlement.expiresOn,
-        endDate: entitlement.expiresOn,
-        renewalDate: entitlement.expiresOn,
-        purchaseOrder: null,
+        // Start and end are not invented. Where the file gave only a renewal
+        // date, all three carry it and the renewal date is the one used.
+        startDate: renewalDate,
+        endDate: renewalDate,
+        renewalDate,
+        purchaseOrder: position?.purchaseOrders[0] ?? null,
         businessOwner: null,
         costCenter: null,
         status: 'active',
       });
     }
 
+    // Quantity: entitlement first, contract quantity only when no entitlement
+    // exists. Zero remains the honest answer when neither source stated one.
+    const quantity = entitlement?.entitledQuantity ?? position?.quantity ?? 0;
+
     contractItems.push({
       id: `item:${orgId}:${key}`,
       organizationId: orgId,
       contractId,
       featureId: identity.featureId,
-      sku: null,
-      licenseModel: features.find((feature) => feature.id === identity.featureId)?.licenseModel ?? 'concurrent',
-      quantity: entitlement.entitledQuantity ?? 0,
-      unitPrice: null,
+      sku: contractRecords.find((record) => normalizeFeatureKey(record.feature) === key)?.sku ?? null,
+      licenseModel:
+        features.find((feature) => feature.id === identity.featureId)?.licenseModel ?? 'concurrent',
+      quantity,
+      // The whole point of Phase 2A. Still null when the commercial file
+      // carried no determinable price — an unpriced line is reported as
+      // unpriced, never as zero.
+      unitPrice: position?.unitPrice ?? null,
     });
   }
 
@@ -326,6 +418,23 @@ export function buildDatasetFromCanonical(input: BuildDatasetInput): AnalyticsDa
       suggestedFeatureId: null,
       status: 'open',
     }));
+
+  // Commercial lines that could not be tied to an observed feature join the
+  // same queue. They are the ones that cost money to leave unresolved: an
+  // unmatched line still counts toward spend but cannot be compared against
+  // demand, so it can neither be defended nor surrendered at renewal.
+  for (const item of contractLinks.review) {
+    unmappedFeatures.push({
+      id: `unmapped-contract:${normalizeFeatureKey(item.rawValue)}`,
+      organizationId: orgId,
+      rawValue: item.rawValue,
+      occurrences: item.occurrences,
+      firstSeen: input.asOf ?? '',
+      lastSeen: input.asOf ?? '',
+      suggestedFeatureId: null,
+      status: 'open',
+    });
+  }
 
   const unmatchedUsers: UnmatchedUser[] = userIdentities
     .filter((identity) => !identity.resolved && identity.observations > 0)

@@ -124,9 +124,13 @@ export function buildQualityReport({
   return {
     confidence,
     coverage,
-    unsupportedFields: [...unsupported].map(
-      (key) => FIELDS_BY_DATASET[dataset].find((spec) => spec.key === key)?.label ?? key,
-    ),
+    // Only fields this dataset actually has. Source capabilities are described
+    // in usage vocabulary — checkout times, denials, token weights — and none of
+    // them apply to a purchase order. Listing them under a contracts import
+    // would report absent fields the file was never expected to carry.
+    unsupportedFields: [...unsupported]
+      .map((key) => FIELDS_BY_DATASET[dataset].find((spec) => spec.key === key)?.label)
+      .filter((label): label is string => label !== undefined),
     notes,
   };
 }
