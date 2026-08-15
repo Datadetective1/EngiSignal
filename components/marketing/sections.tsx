@@ -254,12 +254,15 @@ const ASK_EXCHANGES = [
   },
   {
     question: 'Who drives MATLAB demand?',
-    answer: 'Flight Controls generates 38% of consumption, concentrated in 12 heavy users.',
+    // One dimension only — engineering group — so the shares are parts of the
+    // same population and sum to 100%. Mixing groups with programs produced a
+    // breakdown that read as exceeding total consumption.
+    answer: 'Flight Controls generates 38% of consumption, the largest share of any engineering group.',
     facts: [
       ['Flight Controls', '38%'],
       ['Systems Engineering', '21%'],
-      ['Program Helios', '44%'],
-      ['Active users', '377 of 420'],
+      ['Structures', '16%'],
+      ['All other groups', '25%'],
     ],
   },
 ];

@@ -264,15 +264,15 @@ export default function LandingPage() {
                     <span>Decide</span>
                   </p>
                   <p className="mt-3 max-w-md text-[15px] leading-relaxed text-fg-muted">
-                    Bring the exports you already have. In four weeks you will have a demand-backed position
-                    for your next renewal, with the evidence behind every number.
+                    Start with the data you already have. In four weeks you will have a demand-backed
+                    position for your next renewal, with the evidence behind every number.
                   </p>
                   <p className="mt-4 max-w-md rounded-lg border border-border bg-surface px-4 py-3 text-[13px] leading-relaxed text-fg-muted">
                     <span className="font-medium text-fg">
-                      Start with existing exports for the pilot. Connect production systems when you&rsquo;re
-                      ready.
+                      For the pilot, exports are enough. Production integrations can be configured later.
                     </span>{' '}
-                    No production-system integration is required to begin.
+                    Exports are the fastest way to start, not the long-term architecture. No
+                    production-system integration is required to begin.
                   </p>
                 </Reveal>
 

@@ -99,9 +99,9 @@ export function LiveCalculator({
             </p>
             <p className="mt-2.5 text-[12.5px] text-fg-muted">
               {result.sizing.surplus > 0
-                ? `${result.sizing.surplus} licenses more than demand requires`
+                ? `${result.sizing.surplus} licenses above the recommended position`
                 : result.sizing.shortfall > 0
-                  ? `${result.sizing.shortfall} licenses short of demand`
+                  ? `${result.sizing.shortfall} licenses below the recommended position`
                   : 'Exactly right-sized'}
             </p>
 
@@ -115,9 +115,11 @@ export function LiveCalculator({
                   net > 0 ? 'text-positive' : net < 0 ? 'text-danger' : 'text-fg',
                 )}
               >
+                {/* Unsigned: the label above states the direction. An opportunity is
+                    a gain, so rendering it as a negative dollar amount read as a loss. */}
                 {net === 0
                   ? '—'
-                  : `${net > 0 ? '−' : '+'}$${Math.abs(net).toLocaleString('en-US', { maximumFractionDigits: 0 })}`}
+                  : `$${Math.abs(net).toLocaleString('en-US', { maximumFractionDigits: 0 })}`}
               </p>
             </div>
           </div>
