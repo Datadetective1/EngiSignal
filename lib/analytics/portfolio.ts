@@ -152,8 +152,23 @@ function buildRow(input: BuildRowInput): PortfolioRow {
   });
 
   // ── Right-sizing: the correct model for the license type, never a blend ────
+  //
+  // OBSERVED DAYS IS THE GATE, NOT THE PRESENCE OF A METRICS OBJECT.
+  //
+  // computeConcurrentMetrics returns a fully populated result even when it saw
+  // nothing at all — every figure zero. Feeding that to the percentile model
+  // yields basis 0, recommended 0, and therefore a surplus equal to the entire
+  // entitlement. Before prices existed the damage was invisible: unpriced lines
+  // produced no financial figure. With a contract attached it becomes a
+  // confident, dollar-valued instruction to surrender 100% of a licence pool
+  // for which no usage was ever imported — the exact inversion of this
+  // product's purpose, since absence of evidence would be sold as evidence of
+  // absence at full contract value.
+  //
+  // A feature with no observed demand has an UNKNOWN correct size. Null says
+  // that; zero asserts something false.
   let rightSizing = null;
-  if (isConcurrent && metrics !== null) {
+  if (isConcurrent && metrics !== null && metrics.observedDays > 0) {
     rightSizing = computeRightSizing({
       dailyPeaks: dailyPeaksFor(dataset, feature.id, window),
       entitled,

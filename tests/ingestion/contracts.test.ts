@@ -12,6 +12,9 @@ import { capabilityLines, coverageLines } from '@/lib/ingestion/capabilities';
 // Supabase client, which is server-only and cannot be imported into a test.
 import { summarizeCoverage } from '@/lib/ingestion/store/types';
 import { computeRenewalExposure, renewalUrgency } from '@/lib/analytics/renewal';
+import { buildPortfolio } from '@/lib/analytics/portfolio';
+import { computePortfolioTotals } from '@/lib/analytics/financial';
+import { DEFAULT_ANALYSIS_OPTIONS } from '@/lib/domain/dataset';
 import type {
   CanonicalContractRecord,
   CanonicalUsageRecord,
@@ -882,5 +885,123 @@ describe('capability gating with commercial data', () => {
 
     expect(line.state).toBe('partial');
     expect(line.detail).toContain('not summed across currencies');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The defect Phase 2A exposed
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('a priced feature with no observed demand', () => {
+  const organization: Organization = {
+    id: ORG,
+    name: 'Test Manufacturing',
+    slug: 'test-manufacturing',
+    industry: null,
+    technicalHeadcount: 100,
+    headcountGrowthRate: null,
+    currency: 'USD',
+    isDemo: false,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  };
+
+  /**
+   * Usage names one feature; the contract names two. The second is priced,
+   * entitled, and has no demand data at all.
+   */
+  function dataset() {
+    const usageRecords = Array.from({ length: 20 }, (_, index) =>
+      usage('observed_feature', `2026-06-${String(index + 1).padStart(2, '0')}`, 275, index + 2),
+    );
+
+    return buildDatasetFromCanonical({
+      organization,
+      usage: usageRecords,
+      entitlements: [],
+      people: [],
+      contracts: [
+        contract({
+          feature: 'observed_feature',
+          vendor: 'Ansys',
+          quantity: 400,
+          unitPrice: 5000,
+          annualCost: 2_000_000,
+          currency: 'USD',
+          renewalDate: '2026-11-15',
+        }),
+        contract({
+          feature: 'unobserved_feature',
+          vendor: 'Dassault',
+          quantity: 90,
+          unitPrice: 12_000,
+          annualCost: 1_080_000,
+          currency: 'USD',
+          renewalDate: '2026-09-30',
+        }),
+      ],
+    });
+  }
+
+  it('never recommends surrendering a pool it has no evidence about', () => {
+    const built = dataset();
+    const rows = buildPortfolio(built, DEFAULT_ANALYSIS_OPTIONS);
+
+    const unobserved = rows.find((row) => row.featureId === 'feature:unobserved_feature')!;
+    expect(unobserved).toBeDefined();
+
+    // Zero observed days must not become "size it to zero and bank $1.08M".
+    expect(unobserved.metrics?.observedDays ?? 0).toBe(0);
+    expect(unobserved.rightSizing).toBeNull();
+    expect(unobserved.financial.optimizationOpportunity ?? 0).toBe(0);
+
+    // The cost is still known and still reported — only the recommendation is
+    // withheld, because only the recommendation lacked evidence.
+    expect(unobserved.financial.currentAnnualCost).toBe(1_080_000);
+  });
+
+  it('still right-sizes the feature it does have evidence for', () => {
+    const built = dataset();
+    const rows = buildPortfolio(built, DEFAULT_ANALYSIS_OPTIONS);
+
+    const observed = rows.find((row) => row.featureId === 'feature:observed_feature')!;
+    expect(observed.metrics!.observedDays).toBe(20);
+    expect(observed.metrics!.p95).toBe(275);
+    expect(observed.rightSizing).not.toBeNull();
+    expect(observed.financial.currentAnnualCost).toBe(2_000_000);
+  });
+
+  it('keeps unevidenced features out of the portfolio opportunity total', () => {
+    const built = dataset();
+    const rows = buildPortfolio(built, DEFAULT_ANALYSIS_OPTIONS);
+    const totals = computePortfolioTotals(rows);
+
+    const observed = rows.find((row) => row.featureId === 'feature:observed_feature')!;
+    // Every dollar of opportunity traces to the one feature with demand behind it.
+    expect(totals.optimizationOpportunity).toBe(observed.financial.optimizationOpportunity ?? 0);
+    // Spend, by contrast, counts both: the money is committed either way.
+    expect(totals.annualSpend).toBe(3_080_000);
+  });
+});
+
+describe('commercial files are not attributed to a license manager', () => {
+  it('does not claim a vendor-named renewal schedule came from that vendor tool', async () => {
+    // The fixture names Dassault Systemes in a Publisher column, which is
+    // enough for the DSLS signature to fire on a usage import.
+    const analysis = await ingestContracts('contracts-messy.csv');
+
+    expect(analysis.detection.source).toBe('generic');
+    expect(analysis.detection.name).toBe('Commercial export');
+    expect(analysis.result.contracts.every((c) => c.provenance.sourceSystem === 'generic')).toBe(true);
+  });
+
+  it('still honours an explicitly chosen source', async () => {
+    const analysis = await ingestFile(bytes('contracts-messy.csv'), {
+      dataset: 'contracts',
+      organizationId: ORG,
+      importId: 'import-forced',
+      fileName: 'contracts-messy.csv',
+      forceSource: 'flexnet',
+    });
+    expect(analysis.detection.source).toBe('flexnet');
   });
 });

@@ -124,17 +124,44 @@ export function ingestParsedFile(parsed: ParsedFile, options: IngestOptions): In
     fileName,
   });
 
+  /**
+   * Source detection, except for commercial files.
+   *
+   * Signatures score vendor terminology, and a renewal schedule is FULL of
+   * vendor terminology — it is a list of what the company buys. A synthetic
+   * procurement file containing "Dassault Systemes" in a Publisher column was
+   * confidently reported as "Dassault Systèmes DSLS · 60%", and every row it
+   * produced was stamped `sourceSystem: dsls` in stored provenance.
+   *
+   * That is a false claim in the one field whose job is to say where a number
+   * came from, and it would be repeated back to a customer defending a renewal
+   * position. A purchase order is not a licence-server export no matter which
+   * vendors it names, so commercial files are read as what they are and the
+   * detector is not consulted. A customer who genuinely wants a vendor adapter
+   * applied can still say so explicitly.
+   */
   const detection: DetectionResult =
-    forceSource === undefined
-      ? detectSource(detectionContext)
-      : {
+    forceSource !== undefined
+      ? {
           source: forceSource,
           name: getAdapter(forceSource).name,
           confidence: 100,
           evidence: ['Source was selected manually rather than detected'],
           fellBack: false,
           candidates: [],
-        };
+        }
+      : dataset === 'contracts'
+        ? {
+            source: 'generic',
+            name: 'Commercial export',
+            confidence: 0,
+            evidence: [
+              'Read as a contract, pricing or renewal document rather than a license-manager export',
+            ],
+            fellBack: true,
+            candidates: [],
+          }
+        : detectSource(detectionContext);
 
   // Falling back is expected for commercial files and alarming for usage files,
   // so the message says which situation the customer is in. A renewal schedule
