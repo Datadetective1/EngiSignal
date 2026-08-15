@@ -344,16 +344,22 @@ export function buildDatasetFromCanonical(input: BuildDatasetInput): AnalyticsDa
       username: identity.rawUsernames[0] ?? identity.key,
       fullName: identity.displayName ?? identity.rawUsernames[0] ?? identity.key,
       email: identity.email,
-      managerName: null,
-      department: null,
-      businessUnit: null,
-      program: null,
-      discipline: null,
-      competency: null,
-      location: null,
-      region: null,
-      employeeType: 'employee',
-      status: 'active',
+      // Organizational context, and ONLY where the people file supplied it.
+      // Every one of these stays null when absent rather than defaulting to a
+      // bucket: an allocation built on a guessed department sends a cost
+      // conversation to the wrong director, and "Unknown" as a real group tells
+      // them their team uses nothing.
+      managerName: identity.org.managerName,
+      department: identity.org.department,
+      organization: identity.org.organization,
+      businessUnit: identity.org.businessUnit,
+      program: identity.org.program,
+      discipline: identity.org.discipline,
+      competency: identity.org.competency,
+      location: identity.org.location,
+      region: identity.org.region,
+      employeeType: readEmployeeType(identity.org.employmentType),
+      status: readEmploymentStatus(identity.org.employmentStatus),
       contractorCompany: null,
     }));
 
@@ -480,6 +486,38 @@ export function buildDatasetFromCanonical(input: BuildDatasetInput): AnalyticsDa
 }
 
 /**
+ * Employment type from whatever word the HR export used.
+ *
+ * Defaults to `employee` when unstated, which is the assumption already baked
+ * into the domain type — but only the CLASSIFICATION is defaulted, never the
+ * organizational context that drives allocation.
+ */
+function readEmployeeType(raw: string | null): Employee['employeeType'] {
+  if (raw === null) return 'employee';
+  const value = raw.trim().toLowerCase();
+  if (value.includes('contract') || value.includes('contingent') || value.includes('vendor')) {
+    return 'contractor';
+  }
+  return 'employee';
+}
+
+/**
+ * Employment status.
+ *
+ * Only wording that plainly means "no longer working here" produces `inactive`.
+ * An unrecognized value is treated as active rather than guessed, because
+ * marking a working engineer inactive would put their licence on a reclaim list.
+ */
+function readEmploymentStatus(raw: string | null): Employee['status'] {
+  if (raw === null) return 'active';
+  const value = raw.trim().toLowerCase();
+  const inactive = ['terminated', 'inactive', 'leaver', 'exited', 'separated', 'former', 'disabled'];
+  if (inactive.some((word) => value.includes(word))) return 'inactive';
+  if (value === 'false' || value === 'no' || value === '0') return 'inactive';
+  return 'active';
+}
+
+/**
  * Per-user, per-feature activity.
  *
  * Session and hour totals come only from what the source recorded. A snapshot
@@ -506,7 +544,18 @@ function buildActivities(
         organizationId: orgId,
         featureId,
         employeeId,
-        assigned: false,
+        // A person observed using a named-user feature IS a licence holder —
+        // that is what named-user licensing means. Reading it from the usage
+        // export is not an inference.
+        //
+        // This was previously hard-coded false, which silently disabled the
+        // entire named-user analysis for imported data: the metrics function
+        // filters on `assigned`, so it always saw an empty set and reported
+        // 0 active users and 0% utilization for features with real activity.
+        //
+        // `assignedOn` stays null because the export says who uses the feature,
+        // not when the seat was granted, and those are different facts.
+        assigned: true,
         assignedOn: null,
         lastUsedDate: null,
         totalSessions: 0,

@@ -137,6 +137,7 @@ export function generateEmployees(rng: Rng, organizationId: string): GeneratedOr
       organizationId,
       employeeCode,
       username,
+      organization: null,
       fullName: `${firstName} ${lastName}`,
       email: `${username}@aerodynamics-demo.example`,
       managerName: rng.pick(managers),

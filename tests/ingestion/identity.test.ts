@@ -52,6 +52,19 @@ function person(user: string, extra: Partial<CanonicalPersonRecord> = {}): Canon
     employeeCode: null,
     displayName: null,
     email: null,
+    employmentStatus: null,
+    employmentType: null,
+    managerName: null,
+    managerKey: null,
+    department: null,
+    organization: null,
+    businessUnit: null,
+    program: null,
+    discipline: null,
+    competency: null,
+    location: null,
+    region: null,
+    costCenter: null,
     provenance: PROV,
     ...extra,
   };
@@ -148,6 +161,71 @@ describe('user identity', () => {
 
     const unresolved = unresolvedUsers(identities);
     expect(unresolved.map((entry) => entry.key)).toEqual(['ghost']);
+  });
+
+  it('matches on employee code when usernames differ', () => {
+    const identities = resolveUsers(
+      [usage('F1', 'jh1234', { employeeCode: 'E1' })],
+      [person('jhalvorsen', { employeeCode: 'E1', displayName: 'J Halvorsen', department: 'Structures' })],
+    );
+
+    const identity = identities.find((entry) => entry.key === 'jh1234')!;
+    expect(identity.status).toBe('matched');
+    expect(identity.basis).toBe('employee_code');
+    expect(identity.org.department).toBe('Structures');
+  });
+
+  it('matches a username that is itself an email address', () => {
+    // Modern directories use the UPN as the login, so the usage export carries
+    // an email where the people file carries a short username.
+    const identities = resolveUsers(
+      [usage('F1', 'petra.andersson@example.com')],
+      [person('pandersson', { email: 'petra.andersson@example.com', displayName: 'Petra Andersson' })],
+    );
+
+    const identity = identities.find((entry) => entry.key === 'petra.andersson@example.com')!;
+    expect(identity.status).toBe('matched');
+    expect(identity.basis).toBe('email');
+  });
+
+  it('refuses to choose when two people claim the same identifier', () => {
+    // A rehire, a shared service account or a bad export. Taking whichever row
+    // was read last would attribute one person's usage to another.
+    const identities = resolveUsers(
+      [usage('F1', 'shared', { employeeCode: 'E9' })],
+      [
+        person('alpha', { employeeCode: 'E9', displayName: 'Alpha One' }),
+        person('beta', { employeeCode: 'E9', displayName: 'Beta Two' }),
+      ],
+    );
+
+    const identity = identities.find((entry) => entry.key === 'shared')!;
+    expect(identity.status).toBe('ambiguous');
+    expect(identity.basis).toBeNull();
+    expect(identity.ambiguousCandidates).toEqual(['Alpha One', 'Beta Two']);
+    // Ambiguous is NOT resolved: no org context is attributed from a guess.
+    expect(identity.org.department).toBeNull();
+  });
+
+  it('lets a customer-confirmed mapping beat every inference', () => {
+    const identities = resolveUsers(
+      [usage('F1', 'legacy_account')],
+      [person('jhalvorsen', { displayName: 'J Halvorsen', department: 'Controls' })],
+      new Map([['legacy_account', 'jhalvorsen']]),
+    );
+
+    const identity = identities.find((entry) => entry.key === 'legacy_account')!;
+    expect(identity.status).toBe('confirmed');
+    expect(identity.basis).toBe('confirmed');
+    expect(identity.org.department).toBe('Controls');
+  });
+
+  it('never carries organizational context onto an unmatched username', () => {
+    const identities = resolveUsers([usage('F1', 'ghost')], [person('known', { department: 'Design' })]);
+    const ghost = identities.find((entry) => entry.key === 'ghost')!;
+
+    expect(ghost.status).toBe('unmatched');
+    expect(ghost.org.department).toBeNull();
   });
 
   it('keeps people who have no observed usage', () => {

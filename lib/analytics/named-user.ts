@@ -101,6 +101,8 @@ export function computeNamedUserMetrics(input: NamedUserInput): NamedUserMetrics
     reclaimCandidates,
     reclaimValue: input.unitPrice === null ? null : round(reclaimCandidates * input.unitPrice, 2),
     utilizationPct: assigned > 0 ? round((activeUsers / assigned) * 100, 1) : 0,
+    observedUsers: rows.length,
+    seatsWithoutObservedUser: Math.max(0, assigned - rows.length),
   };
 }
 

@@ -122,6 +122,8 @@ export interface Employee {
   email: string | null;
   managerName: string | null;
   department: string | null;
+  /** Top-level organization or legal entity, when the HR export carries one. */
+  organization: string | null;
   businessUnit: string | null;
   program: string | null;
   discipline: string | null;
@@ -147,12 +149,14 @@ export interface UnmatchedUser {
 
 /** The organizational axes available for grouping and allocation. */
 export type DimensionKey =
+  | 'organization'
   | 'businessUnit'
   | 'program'
   | 'department'
   | 'discipline'
   | 'competency'
   | 'location'
+  | 'region'
   | 'managerName'
   | 'employeeType';
 
@@ -383,6 +387,24 @@ export interface NamedUserMetrics {
   reclaimCandidates: number;
   reclaimValue: number | null;
   utilizationPct: number;
+  /**
+   * Users actually seen in the usage export.
+   *
+   * The denominator of `utilizationPct` is what is OWNED; this is what was
+   * OBSERVED. The two differ whenever seats are held by people who never
+   * launched the software, and the gap between them is the honest measure of
+   * how much of this analysis rests on evidence.
+   */
+  observedUsers: number;
+  /**
+   * Owned seats with no observed holder: `assigned − observedUsers`.
+   *
+   * Deliberately NOT counted as reclaim candidates. A seat with no observed
+   * activity may be genuinely idle, or held by someone whose usage the export
+   * did not cover, or not assigned to anyone at all. Naming it reclaimable
+   * would recommend revoking licences from people the data never mentions.
+   */
+  seatsWithoutObservedUser: number;
 }
 
 export interface TokenMetrics {
@@ -651,6 +673,17 @@ export interface PilotRequest {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** A feature joined with its commercial position and computed analytics. */
+/**
+ * Whether any usage was actually imported for a feature.
+ *
+ * `not_supplied` is a first-class state, not an absence. A feature known only
+ * from a contract is a real position — it has a cost, a quantity and a renewal
+ * date — but nothing measured its demand, so every demand-derived figure on it
+ * must read as unavailable rather than as zero. Zero is a measurement; this is
+ * the absence of one.
+ */
+export type UsageEvidence = 'observed' | 'not_supplied';
+
 export interface PortfolioRow {
   featureId: string;
   featureName: string;
@@ -675,4 +708,11 @@ export interface PortfolioRow {
   renewalDate: string | null;
   daysToRenewal: number | null;
   contractId: string | null;
+  /**
+   * When `not_supplied`, `metrics`, `namedUser`, `tokens` and `rightSizing` are
+   * all null by construction — so an existing null-check is automatically a
+   * correct evidence-check, and no consumer can accidentally read a zero that
+   * was never measured.
+   */
+  usageEvidence: UsageEvidence;
 }

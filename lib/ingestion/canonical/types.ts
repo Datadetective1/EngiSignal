@@ -106,12 +106,39 @@ export interface CanonicalEntitlementRecord {
   provenance: Provenance;
 }
 
-/** A person association carried by the source. */
+/**
+ * A person as the directory or HR export described them.
+ *
+ * The organizational fields are what turn "275 concurrent licences" into
+ * "Structures drives 60% of Ansys demand". Every one of them is optional and
+ * stays null when absent: an allocation built on a guessed department would
+ * send a cost conversation to the wrong director, and "Unknown = 0" would tell
+ * them their group uses nothing.
+ */
 export interface CanonicalPersonRecord {
   user: string;
   employeeCode: string | null;
   displayName: string | null;
   email: string | null;
+
+  /** Active, terminated, on leave — as the source stated it. */
+  employmentStatus: string | null;
+  /** Employee or contractor, when distinguished. */
+  employmentType: string | null;
+  managerName: string | null;
+  /** Manager's employee id or email — the only defensible way to link a chain. */
+  managerKey: string | null;
+
+  department: string | null;
+  organization: string | null;
+  businessUnit: string | null;
+  program: string | null;
+  discipline: string | null;
+  competency: string | null;
+  location: string | null;
+  region: string | null;
+  costCenter: string | null;
+
   provenance: Provenance;
 }
 

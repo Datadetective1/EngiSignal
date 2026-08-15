@@ -44,10 +44,23 @@ export const ENTITLEMENT_FIELDS: FieldSpec[] = [
 ];
 
 export const PEOPLE_FIELDS: FieldSpec[] = [
-  { key: 'user', label: 'User', type: 'string', required: true, description: 'Network or license-manager username.' },
-  { key: 'employeeCode', label: 'Employee ID', type: 'string', required: false, description: 'HR identifier.' },
-  { key: 'displayName', label: 'Full name', type: 'string', required: false, description: 'Display name.' },
+  { key: 'user', label: 'User', type: 'string', required: true, description: 'Network or license-manager username. The primary key back to usage.' },
+  { key: 'employeeCode', label: 'Employee ID', type: 'string', required: false, description: 'HR identifier. Matches usage exports that carry one.' },
+  { key: 'displayName', label: 'Full name', type: 'string', required: false, description: 'Display name. Shown to people; never used to match identities.' },
   { key: 'email', label: 'Email', type: 'string', required: false, description: 'Work email address.' },
+  { key: 'employmentStatus', label: 'Status', type: 'string', required: false, description: 'Active, terminated, on leave.' },
+  { key: 'employmentType', label: 'Employment type', type: 'string', required: false, description: 'Employee or contractor.' },
+  { key: 'managerName', label: 'Manager', type: 'string', required: false, description: "Manager's name, for display." },
+  { key: 'managerKey', label: 'Manager ID or email', type: 'string', required: false, description: 'The only defensible way to link a reporting chain.' },
+  { key: 'department', label: 'Department', type: 'string', required: false, description: 'Owning department.' },
+  { key: 'organization', label: 'Organization', type: 'string', required: false, description: 'Top-level organization.' },
+  { key: 'businessUnit', label: 'Business unit', type: 'string', required: false, description: 'Business unit or division.' },
+  { key: 'program', label: 'Program', type: 'string', required: false, description: 'Programme or project.' },
+  { key: 'discipline', label: 'Discipline', type: 'string', required: false, description: 'Engineering discipline.' },
+  { key: 'competency', label: 'Competency', type: 'string', required: false, description: 'Competency or capability group.' },
+  { key: 'location', label: 'Location', type: 'string', required: false, description: 'Site or office.' },
+  { key: 'region', label: 'Region', type: 'string', required: false, description: 'Geographic region.' },
+  { key: 'costCenter', label: 'Cost centre', type: 'string', required: false, description: 'Charge code.' },
 ];
 
 /**
@@ -161,11 +174,31 @@ export const BASE_ALIASES: Record<CanonicalDataset, AliasTable> = {
     pool: ['pool', 'license_pool', 'server_group', 'cluster', 'site'],
     expiresOn: ['expires', 'expiry', 'expiration', 'expiration_date', 'expires_on', 'end_date', 'valid_until', 'renewal_date'],
   },
+  // Directory and HR exports. Workday, SuccessFactors, Active Directory and
+  // hand-built rosters all name these differently, and a customer should not
+  // have to rewrite a file their HR system produced.
+  //
+  // `manager` and `manager_email` are separate fields on purpose: a manager's
+  // NAME is for display, and their ID or EMAIL is the only thing a reporting
+  // chain can safely be built from. Two people called J. Smith are two people.
   people: {
-    user: ['user', 'username', 'user_name', 'login', 'network_id', 'network_user', 'userid', 'user_id', 'sam_account'],
-    employeeCode: ['employee_id', 'employeeid', 'emp_id', 'empl_id', 'badge', 'personnel_number', 'worker_id'],
-    displayName: ['name', 'full_name', 'fullname', 'display_name', 'employee_name', 'person'],
-    email: ['email', 'email_address', 'mail', 'work_email'],
+    user: ['user', 'username', 'user_name', 'login', 'login_name', 'network_id', 'network_user', 'networkid', 'userid', 'user_id', 'sam_account', 'samaccountname', 'account', 'ntid'],
+    employeeCode: ['employee_id', 'employeeid', 'emp_id', 'empl_id', 'badge', 'badge_number', 'personnel_number', 'worker_id', 'person_number', 'staff_id'],
+    displayName: ['name', 'full_name', 'fullname', 'display_name', 'employee_name', 'person', 'preferred_name'],
+    email: ['email', 'email_address', 'mail', 'work_email', 'primary_email', 'upn'],
+    employmentStatus: ['status', 'employment_status', 'worker_status', 'active', 'employee_status'],
+    employmentType: ['employment_type', 'worker_type', 'employee_type', 'contract_type', 'staff_type'],
+    managerName: ['manager', 'manager_name', 'supervisor', 'reports_to', 'line_manager'],
+    managerKey: ['manager_id', 'manager_email', 'managerid', 'supervisor_id', 'supervisor_email', 'reports_to_id', 'manager_employee_id'],
+    department: ['department', 'dept', 'department_name', 'org_unit', 'organizational_unit'],
+    organization: ['organization', 'organisation', 'org', 'company', 'legal_entity'],
+    businessUnit: ['business_unit', 'bu', 'division', 'sector', 'segment'],
+    program: ['program', 'programme', 'project', 'project_name', 'program_name'],
+    discipline: ['discipline', 'engineering_discipline', 'function', 'job_family', 'specialty'],
+    competency: ['competency', 'competence', 'capability', 'skill_group', 'practice'],
+    location: ['location', 'site', 'office', 'work_location', 'facility', 'campus'],
+    region: ['region', 'geo', 'geography', 'country', 'area'],
+    costCenter: ['cost_center', 'cost_centre', 'costcenter', 'charge_code', 'gl_code', 'account_code'],
   },
   // Commercial vocabulary is procurement's, not the license administrator's.
   // These files are written in Excel by finance, so the spellings below are the

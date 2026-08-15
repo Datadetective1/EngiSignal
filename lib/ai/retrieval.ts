@@ -308,7 +308,16 @@ export function retrieve(workspace: Workspace, question: string): RetrievedAnswe
       headline: `${risky.length} features are at High or Critical capacity risk.`,
       facts: risky.map((row) => ({
         label: `${row.productName} — ${row.featureName}`,
-        value: `${formatPercent(row.metrics?.utilizationPct ?? 0)} utilization at P95, ${formatNumber(row.metrics?.saturationDays ?? 0)} saturation days${row.denials === null ? '' : `, ${formatNumber(row.denials.totalDenials)} denials (${row.denials.risk} risk)`}`,
+        // Never coalesce an absent measurement to zero in an answer: a feature
+        // can be risky on denials alone, and "0.0% utilization" would state a
+        // measurement that was never taken.
+        value:
+          (row.metrics === null
+            ? 'Usage evidence not supplied'
+            : `${formatPercent(row.metrics.utilizationPct)} utilization at P95, ${formatNumber(row.metrics.saturationDays)} saturation days`) +
+          (row.denials === null
+            ? ''
+            : `, ${formatNumber(row.denials.totalDenials)} denials (${row.denials.risk} risk)`),
       })),
       narrative:
         'Denials are reported as context and are deliberately excluded from the recommended quantity calculation, so a retry burst cannot inflate a purchase.',

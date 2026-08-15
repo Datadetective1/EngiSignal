@@ -82,6 +82,7 @@ function row(overrides: Partial<PortfolioRow>): PortfolioRow {
     renewalDate: null,
     daysToRenewal: null,
     contractId: null,
+    usageEvidence: 'observed' as const,
     ...overrides,
   };
 }

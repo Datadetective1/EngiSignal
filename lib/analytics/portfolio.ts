@@ -117,29 +117,50 @@ function buildRow(input: BuildRowInput): PortfolioRow {
   const isNamedUser = feature.licenseModel === 'named_user' || feature.licenseModel === 'subscription';
   const isToken = feature.licenseModel === 'token';
 
-  const metrics = isConcurrent
-    ? computeConcurrentMetrics({ featureId: feature.id, daily: dataset.dailyUsage, window, entitled })
-    : null;
+  // ── THE EVIDENCE GATE ──────────────────────────────────────────────────────
+  //
+  // Decided once, here, rather than by each consumer. A feature known only from
+  // a contract has no observation behind it, and every metrics function in this
+  // codebase returns a fully populated all-zeros result when handed nothing:
+  // P95 0, utilization 0%, recommended 0. Those read as measurements.
+  //
+  // Nulling the metric objects at the source means the ~15 existing
+  // `metrics === null` checks scattered across signals, exports, the executive
+  // brief, the forecast and the cost page all become correct evidence checks
+  // for free — instead of each having to remember a rule it currently does not
+  // know about.
+  const hasUsageRows = dataset.dailyUsage.some((row) => row.featureId === feature.id);
+  const hasTokenRows = dataset.tokenUsage.some((row) => row.featureId === feature.id);
+  const hasActivity = dataset.activities.some((row) => row.featureId === feature.id);
+  const usageEvidence: PortfolioRow['usageEvidence'] =
+    hasUsageRows || hasTokenRows || hasActivity ? 'observed' : 'not_supplied';
 
-  const namedUser = isNamedUser
-    ? computeNamedUserMetrics({
-        featureId: feature.id,
-        activities: dataset.activities,
-        asOf: dataset.asOf,
-        unitPrice,
-        reclaimThresholdDays: options.reclaimThresholdDays,
-        entitled: entitled > 0 ? entitled : undefined,
-      })
-    : null;
+  const metrics =
+    isConcurrent && hasUsageRows
+      ? computeConcurrentMetrics({ featureId: feature.id, daily: dataset.dailyUsage, window, entitled })
+      : null;
 
-  const tokens = isToken
-    ? computeTokenMetrics({
-        featureId: feature.id,
-        daily: dataset.tokenUsage,
-        window,
-        tokenPool: entitled > 0 ? entitled : null,
-      })
-    : null;
+  const namedUser =
+    isNamedUser && hasActivity
+      ? computeNamedUserMetrics({
+          featureId: feature.id,
+          activities: dataset.activities,
+          asOf: dataset.asOf,
+          unitPrice,
+          reclaimThresholdDays: options.reclaimThresholdDays,
+          entitled: entitled > 0 ? entitled : undefined,
+        })
+      : null;
+
+  const tokens =
+    isToken && hasTokenRows
+      ? computeTokenMetrics({
+          featureId: feature.id,
+          daily: dataset.tokenUsage,
+          window,
+          tokenPool: entitled > 0 ? entitled : null,
+        })
+      : null;
 
   const observedDays = metrics?.observedDays ?? (isToken ? window.days : (namedUser === null ? 0 : window.days));
 
@@ -233,6 +254,7 @@ function buildRow(input: BuildRowInput): PortfolioRow {
     renewalDate: contract?.renewalDate ?? null,
     daysToRenewal,
     contractId: contract?.id ?? null,
+    usageEvidence,
   };
 }
 

@@ -26,6 +26,14 @@ export interface PortfolioTableRow {
   daysToRenewal: number | null;
   risk: RiskLevel;
   confidence: ConfidenceLevel;
+  /**
+   * Whether any usage was imported for this feature.
+   *
+   * Drives a visible statement rather than leaving a row of dashes to be
+   * interpreted. A dash reads as "nothing here"; the customer needs to know it
+   * means "nothing measured", because the fix is to import a usage export.
+   */
+  usageEvidence: 'observed' | 'not_supplied';
 }
 
 const LICENSE_LABELS: Record<LicenseModel, string> = {
@@ -214,6 +222,11 @@ export function PortfolioTable({
                       <span className="block truncate text-[11px] text-fg-subtle">
                         {row.vendorName} · {row.featureName}
                       </span>
+                      {row.usageEvidence === 'not_supplied' && (
+                        <span className="mt-1 block text-[10.5px] font-medium text-fg-subtle">
+                          Usage evidence not supplied
+                        </span>
+                      )}
                     </Link>
                   </Td>
                   <Td>

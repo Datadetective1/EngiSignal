@@ -15,6 +15,7 @@ function employee(id: string, department: string, program = 'Program Halo'): Emp
     username: id,
     fullName: `Employee ${id}`,
     email: null,
+    organization: null,
     managerName: 'M. Okafor',
     department,
     businessUnit: 'Aerostructures',
@@ -262,6 +263,7 @@ function portfolioRow(overrides: Partial<PortfolioRow> = {}): PortfolioRow {
     renewalDate: '2026-08-27',
     daysToRenewal: 58,
     contractId: 'c1',
+    usageEvidence: 'observed' as const,
     ...overrides,
   };
 }
@@ -355,6 +357,8 @@ describe('generateSignals', () => {
             activeUsers: 377,
             inactiveUsers: 43,
             neverUsed: 5,
+            observedUsers: 420,
+            seatsWithoutObservedUser: 0,
             active30: 300,
             active60: 350,
             active90: 377,

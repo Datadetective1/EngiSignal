@@ -155,6 +155,52 @@ function mostCommon(counts: Map<string, number>): string | null {
 // Users
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * How confidently a username was tied to a person.
+ *
+ * `ambiguous` is the state that matters. When two people records claim the same
+ * identifier the honest answer is "we do not know which", and silently taking
+ * the last one seen — which a Map does by default — would attribute one
+ * person's licence usage to another and route a reclaim decision to the wrong
+ * manager. Ambiguity is surfaced for a human instead.
+ */
+export type IdentityStatus = 'matched' | 'unmatched' | 'ambiguous' | 'confirmed';
+
+export type IdentityBasis = 'username' | 'employee_code' | 'email' | 'confirmed' | null;
+
+/** Organizational context, carried only where the people file supplied it. */
+export interface OrgContext {
+  department: string | null;
+  organization: string | null;
+  businessUnit: string | null;
+  program: string | null;
+  discipline: string | null;
+  competency: string | null;
+  location: string | null;
+  region: string | null;
+  costCenter: string | null;
+  managerName: string | null;
+  managerKey: string | null;
+  employmentStatus: string | null;
+  employmentType: string | null;
+}
+
+export const EMPTY_ORG_CONTEXT: OrgContext = {
+  department: null,
+  organization: null,
+  businessUnit: null,
+  program: null,
+  discipline: null,
+  competency: null,
+  location: null,
+  region: null,
+  costCenter: null,
+  managerName: null,
+  managerKey: null,
+  employmentStatus: null,
+  employmentType: null,
+};
+
 export interface UserIdentity {
   userId: string;
   /** Normalized comparison key. */
@@ -164,8 +210,14 @@ export interface UserIdentity {
   displayName: string | null;
   email: string | null;
   observations: number;
-  /** True when a people record confirmed this identity. */
+  /** True when a people record confirmed this identity. Kept for existing callers. */
   resolved: boolean;
+  status: IdentityStatus;
+  /** Which identifier produced the match. Null when unmatched or ambiguous. */
+  basis: IdentityBasis;
+  /** Candidate people when the identifier was ambiguous, for human review. */
+  ambiguousCandidates: string[];
+  org: OrgContext;
 }
 
 export function normalizeUserKey(raw: string): string {
@@ -190,16 +242,70 @@ export function normalizeUserKey(raw: string): string {
 export function resolveUsers(
   usage: readonly CanonicalUsageRecord[],
   people: readonly CanonicalPersonRecord[],
+  /** Customer-confirmed raw username → people-record username. */
+  confirmed: ReadonlyMap<string, string> = new Map(),
 ): UserIdentity[] {
-  const byUsername = new Map<string, CanonicalPersonRecord>();
-  const byCode = new Map<string, CanonicalPersonRecord>();
-  const byEmail = new Map<string, CanonicalPersonRecord>();
+  /**
+   * Each index maps an identifier to EVERY person claiming it, not the last one.
+   *
+   * A Map<string, Person> silently keeps whichever record was read most
+   * recently, which turns a genuine data conflict — two rows sharing an
+   * employee code after a rehire, a shared service account, a bad export — into
+   * a confident and arbitrary answer. Collecting all claimants makes the
+   * conflict visible and lets it be reported rather than resolved by luck.
+   */
+  const byUsername = new Map<string, CanonicalPersonRecord[]>();
+  const byCode = new Map<string, CanonicalPersonRecord[]>();
+  const byEmail = new Map<string, CanonicalPersonRecord[]>();
+
+  const index = (
+    map: Map<string, CanonicalPersonRecord[]>,
+    rawKey: string | null,
+    person: CanonicalPersonRecord,
+  ) => {
+    if (rawKey === null) return;
+    const key = normalizeUserKey(rawKey);
+    if (key.length === 0) return;
+    const bucket = map.get(key);
+    if (bucket === undefined) map.set(key, [person]);
+    else if (!bucket.includes(person)) bucket.push(person);
+  };
 
   for (const person of people) {
-    byUsername.set(normalizeUserKey(person.user), person);
-    if (person.employeeCode !== null) byCode.set(normalizeUserKey(person.employeeCode), person);
-    if (person.email !== null) byEmail.set(normalizeUserKey(person.email), person);
+    index(byUsername, person.user, person);
+    index(byCode, person.employeeCode, person);
+    index(byEmail, person.email, person);
   }
+
+  /** Distinct people behind one identifier, compared on identity not object. */
+  const distinct = (candidates: readonly CanonicalPersonRecord[]): CanonicalPersonRecord[] => {
+    const seen = new Map<string, CanonicalPersonRecord>();
+    for (const person of candidates) {
+      const signature = [
+        normalizeUserKey(person.user),
+        person.employeeCode === null ? '' : normalizeUserKey(person.employeeCode),
+        person.email === null ? '' : normalizeUserKey(person.email),
+      ].join('|');
+      if (!seen.has(signature)) seen.set(signature, person);
+    }
+    return [...seen.values()];
+  };
+
+  const orgOf = (person: CanonicalPersonRecord): OrgContext => ({
+    department: person.department,
+    organization: person.organization,
+    businessUnit: person.businessUnit,
+    program: person.program,
+    discipline: person.discipline,
+    competency: person.competency,
+    location: person.location,
+    region: person.region,
+    costCenter: person.costCenter,
+    managerName: person.managerName,
+    managerKey: person.managerKey,
+    employmentStatus: person.employmentStatus,
+    employmentType: person.employmentType,
+  });
 
   const identities = new Map<string, UserIdentity>();
 
@@ -215,9 +321,23 @@ export function resolveUsers(
       email: null,
       observations: 0,
       resolved: false,
+      status: 'unmatched',
+      basis: null,
+      ambiguousCandidates: [],
+      org: { ...EMPTY_ORG_CONTEXT },
     };
     identities.set(key, created);
     return created;
+  };
+
+  const attach = (identity: UserIdentity, person: CanonicalPersonRecord, basis: IdentityBasis) => {
+    identity.resolved = true;
+    identity.status = basis === 'confirmed' ? 'confirmed' : 'matched';
+    identity.basis = basis;
+    identity.displayName = person.displayName;
+    identity.email = person.email ?? identity.email;
+    identity.employeeCode = person.employeeCode ?? identity.employeeCode;
+    identity.org = orgOf(person);
   };
 
   for (const record of usage) {
@@ -233,35 +353,77 @@ export function resolveUsers(
       identity.employeeCode = record.employeeCode;
     }
 
-    const match =
-      byUsername.get(key) ??
-      (record.employeeCode !== null ? byCode.get(normalizeUserKey(record.employeeCode)) : undefined);
+    // Already settled by an earlier observation of the same username.
+    if (identity.status === 'matched' || identity.status === 'confirmed') continue;
 
-    if (match !== undefined) {
-      identity.resolved = true;
-      identity.displayName = match.displayName;
-      identity.email = match.email;
-      identity.employeeCode = match.employeeCode ?? identity.employeeCode;
+    // 1. A human already answered this. Beats every inference.
+    const confirmedTarget = confirmed.get(key);
+    if (confirmedTarget !== undefined) {
+      const target = byUsername.get(normalizeUserKey(confirmedTarget))?.[0];
+      if (target !== undefined) {
+        attach(identity, target, 'confirmed');
+        continue;
+      }
+    }
+
+    // 2. Exact username, 3. employee code, 4. email — in that order, because
+    //    that is the order of how directly each identifies the account that
+    //    checked out the licence.
+    const attempts: { candidates: CanonicalPersonRecord[]; basis: IdentityBasis }[] = [
+      { candidates: distinct(byUsername.get(key) ?? []), basis: 'username' },
+      {
+        candidates:
+          record.employeeCode === null
+            ? []
+            : distinct(byCode.get(normalizeUserKey(record.employeeCode)) ?? []),
+        basis: 'employee_code',
+      },
+      // A username that IS an email is common in modern directories.
+      { candidates: distinct(byEmail.get(key) ?? []), basis: 'email' },
+    ];
+
+    for (const attempt of attempts) {
+      if (attempt.candidates.length === 0) continue;
+      if (attempt.candidates.length === 1) {
+        attach(identity, attempt.candidates[0]!, attempt.basis);
+        break;
+      }
+      // Several distinct people claim this identifier. Refuse to choose.
+      identity.status = 'ambiguous';
+      identity.basis = null;
+      identity.ambiguousCandidates = attempt.candidates.map(
+        (person) => person.displayName ?? person.user,
+      );
+      break;
     }
   }
 
-  // People with no observed usage are still real people — an assigned seat with
-  // no activity is exactly what a reclaim review looks for.
+  // People with no observed usage are still real people — an owned seat with no
+  // activity is exactly what a reclaim review looks for.
   for (const person of people) {
     const key = normalizeUserKey(person.user);
     const identity = ensure(key);
     if (!identity.rawUsernames.includes(person.user)) identity.rawUsernames.push(person.user);
+    if (identity.status === 'ambiguous') continue;
+    if (identity.status !== 'confirmed') {
+      identity.status = 'matched';
+      identity.basis = identity.basis ?? 'username';
+    }
     identity.resolved = true;
     identity.displayName = identity.displayName ?? person.displayName;
     identity.email = identity.email ?? person.email;
     identity.employeeCode = identity.employeeCode ?? person.employeeCode;
+    if (identity.org.department === null) identity.org = orgOf(person);
   }
-
-  void byEmail;
 
   return [...identities.values()].sort(
     (a, b) => b.observations - a.observations || a.key.localeCompare(b.key),
   );
+}
+
+/** Usernames seen in usage that could not be tied to exactly one person. */
+export function ambiguousUsers(identities: readonly UserIdentity[]): UserIdentity[] {
+  return identities.filter((identity) => identity.status === 'ambiguous');
 }
 
 /** Usernames seen in usage with no matching people record. */

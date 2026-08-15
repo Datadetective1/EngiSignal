@@ -233,6 +233,8 @@ export function allocateCost(input: AllocationInput): AllocationResult {
 }
 
 export const DIMENSION_LABELS: Record<DimensionKey, string> = {
+  organization: 'Organization',
+  region: 'Region',
   businessUnit: 'Business Unit',
   program: 'Program',
   department: 'Department',

@@ -42,7 +42,24 @@ export type EntitlementField =
   | 'pool'
   | 'expiresOn';
 
-export type PeopleField = 'user' | 'employeeCode' | 'displayName' | 'email';
+export type PeopleField =
+  | 'user'
+  | 'employeeCode'
+  | 'displayName'
+  | 'email'
+  | 'employmentStatus'
+  | 'employmentType'
+  | 'managerName'
+  | 'managerKey'
+  | 'department'
+  | 'organization'
+  | 'businessUnit'
+  | 'program'
+  | 'discipline'
+  | 'competency'
+  | 'location'
+  | 'region'
+  | 'costCenter';
 
 export type ContractField =
   | 'feature'

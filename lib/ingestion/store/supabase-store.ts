@@ -79,7 +79,14 @@ export const supabaseIngestionStore: IngestionStore = {
       mappingUsed,
       contentFingerprint,
     } = input;
-    for (const record of [...result.usage, ...result.entitlements, ...result.people]) {
+    // Every family, including contracts — which carry the money, and were
+    // missed when the commercial dataset was added.
+    for (const record of [
+      ...result.usage,
+      ...result.entitlements,
+      ...result.people,
+      ...result.contracts,
+    ]) {
       if (record.provenance.organizationId !== organizationId) {
         throw new Error('Refusing to commit records belonging to another organization.');
       }
@@ -214,6 +221,19 @@ export const supabaseIngestionStore: IngestionStore = {
           employee_code: record.employeeCode,
           display_name: record.displayName,
           email: record.email,
+          employment_status: record.employmentStatus,
+          employment_type: record.employmentType,
+          manager_name: record.managerName,
+          manager_key: record.managerKey,
+          department: record.department,
+          organization: record.organization,
+          business_unit: record.businessUnit,
+          program: record.program,
+          discipline: record.discipline,
+          competency: record.competency,
+          location: record.location,
+          region: record.region,
+          cost_center: record.costCenter,
           source_system: record.provenance.sourceSystem,
           source_file: record.provenance.sourceFile,
           source_sheet: record.provenance.sourceSheet,
@@ -441,6 +461,19 @@ export const supabaseIngestionStore: IngestionStore = {
       employeeCode: row.employee_code as string | null,
       displayName: row.display_name as string | null,
       email: row.email as string | null,
+      employmentStatus: row.employment_status as string | null,
+      employmentType: row.employment_type as string | null,
+      managerName: row.manager_name as string | null,
+      managerKey: row.manager_key as string | null,
+      department: row.department as string | null,
+      organization: row.organization as string | null,
+      businessUnit: row.business_unit as string | null,
+      program: row.program as string | null,
+      discipline: row.discipline as string | null,
+      competency: row.competency as string | null,
+      location: row.location as string | null,
+      region: row.region as string | null,
+      costCenter: row.cost_center as string | null,
       provenance: {
         organizationId: row.organization_id as string,
         importId: row.import_id as string,

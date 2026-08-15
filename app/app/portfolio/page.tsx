@@ -33,6 +33,7 @@ export default async function PortfolioPage({
     daysToRenewal: row.daysToRenewal,
     risk: row.risk,
     confidence: row.confidence.level,
+    usageEvidence: row.usageEvidence,
   }));
 
   return (

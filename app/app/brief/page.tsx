@@ -254,9 +254,21 @@ export default async function ExecutiveBriefPage() {
                     <Badge tone="danger">{row.risk} risk</Badge>
                   </div>
                   <p className="tnum mt-1 text-[12.5px] text-fg-muted">
-                    {formatPercent(row.metrics?.utilizationPct ?? 0)} utilization at P95 ·{' '}
-                    {formatNumber(row.metrics?.saturationDays ?? 0)} saturation days · entitled{' '}
-                    {formatNumber(row.entitled)}, maximum observed {formatNumber(row.metrics?.max ?? 0)}
+                    {/* A feature can reach this list on denial risk alone, with
+                        no concurrency measured. "0.0% utilization at P95" would
+                        then be a fabricated measurement, so the sentence says
+                        what is actually known instead. */}
+                    {row.metrics === null ? (
+                      <>
+                        Usage evidence not supplied · entitled {formatNumber(row.entitled)}
+                      </>
+                    ) : (
+                      <>
+                        {formatPercent(row.metrics.utilizationPct)} utilization at P95 ·{' '}
+                        {formatNumber(row.metrics.saturationDays)} saturation days · entitled{' '}
+                        {formatNumber(row.entitled)}, maximum observed {formatNumber(row.metrics.max)}
+                      </>
+                    )}
                   </p>
                   {row.denials !== null && (
                     <p className="mt-1 text-[12px] leading-relaxed text-fg-subtle">
