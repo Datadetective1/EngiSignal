@@ -79,7 +79,6 @@ For a real deployment:
 ENGISIGNAL_DATA_PROVIDER=supabase
 NEXT_PUBLIC_SUPABASE_URL=https://<ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key>
-SUPABASE_SERVICE_ROLE_KEY=<service role key>     # server only, never NEXT_PUBLIC_
 NEXT_PUBLIC_SITE_URL=https://your-domain.com
 ```
 
@@ -94,7 +93,7 @@ NEXT_PUBLIC_PILOT_EMAIL=pilot@your-domain.com
 NEXT_PUBLIC_LEGAL_ENTITY_NAME=<registered entity>
 ```
 
-`SUPABASE_SERVICE_ROLE_KEY` bypasses RLS. It must never carry a `NEXT_PUBLIC_` prefix and must never be referenced from client code.
+There is deliberately no service-role key in that list. Every database call the application makes runs as the signed-in user, so Row Level Security is what enforces tenant isolation. Do not add `SUPABASE_SERVICE_ROLE_KEY` to the deployment: no code path reads it, and a key that bypasses RLS only widens the blast radius if the environment leaks.
 
 ### 4.3 Fallback behaviour
 

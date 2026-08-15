@@ -104,7 +104,7 @@ The public pilot endpoint is limited to 5 requests per IP per minute. It is the 
 
 - No secret is committed. `.env*.local` is gitignored.
 - `.env.example` documents every variable with its purpose.
-- `SUPABASE_SERVICE_ROLE_KEY` is server-only and bypasses RLS by design — it is never referenced from client code.
+- The application holds no service-role key at all. Every database call runs as the signed-in user, so Row Level Security is the enforcement boundary rather than a second line of defence behind privileged code. `SUPABASE_SERVICE_ROLE_KEY` is not read by any code path and should not be set in the deployment environment.
 - AI provider keys are read server-side only; the browser never sees them.
 - Connector credentials are typed `secret?: string` with an explicit contract that they are never logged or persisted in plain text.
 
