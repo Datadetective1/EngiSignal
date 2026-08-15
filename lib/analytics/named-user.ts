@@ -176,11 +176,34 @@ export function reclaimValue(candidates: readonly ReclaimCandidate[]): number {
 /**
  * Right-sizing for named-user features.
  *
- * Named-user seats are not sized from a concurrent peak — every assigned seat
- * is consumed whether or not it is used, so the correct basis is the count of
- * users who actually show activity, plus headroom for growth and onboarding.
- * Kept separate from the concurrent model rather than forced through it, so the
- * methodology text shown to the customer is always literally true.
+ * Named-user seats are not sized from a concurrent peak: every assigned seat is
+ * consumed whether or not it is used, so the basis is people rather than
+ * simultaneous demand.
+ *
+ * ── WHY THE BASIS IS NOT SIMPLY "ACTIVE USERS" ──────────────────────────────
+ *
+ * It was, and it produced a recommendation to cut a 250-seat MATLAB entitlement
+ * to 6 because a 20-day export happened to name five people. That is the same
+ * error as sizing a concurrent feature with no usage to zero, wearing a
+ * different hat: it treats the absence of a person from one export as proof
+ * that their seat is unnecessary.
+ *
+ * It also contradicted this module's own reclaim rule. `reclaimCandidates`
+ * counts only holders EngiSignal watched sitting idle, and
+ * `seatsWithoutObservedUser` is documented as explicitly not reclaimable —
+ * because such a seat may be genuinely idle, or held by someone whose usage the
+ * export did not cover, or not assigned to anyone at all. Two answers to the
+ * same question, and the more aggressive one carried the dollar figure.
+ *
+ * So the measured population is sized with headroom, and the unmeasured seats
+ * are carried through untouched:
+ *
+ *     recommended = ceil(activeUsers × growth × safety) + seatsWithoutObservedUser
+ *
+ * When the export covers everyone, that term is zero and the recommendation is
+ * exactly the demand-backed one. When it covers a fraction, the recommendation
+ * declines to claim anything about the rest — which is the honest answer, and
+ * the reclaim queue still surfaces every holder actually observed idle.
  */
 export function computeNamedUserRightSizing(
   metrics: NamedUserMetrics,
@@ -189,7 +212,9 @@ export function computeNamedUserRightSizing(
   const growthFactor = options.growthFactor ?? 1;
   const safetyFactor = options.safetyFactor ?? 1.1;
   const basis = metrics.activeUsers;
-  const rawRecommended = basis * growthFactor * safetyFactor;
+  const sizedActive = basis * growthFactor * safetyFactor;
+  // Seats whose holder was never observed are carried through, not surrendered.
+  const rawRecommended = sizedActive + metrics.seatsWithoutObservedUser;
   const recommended = ceilPrecise(rawRecommended);
   const entitled = metrics.assigned;
 
@@ -215,7 +240,11 @@ export function computeNamedUserRightSizing(
     methodology:
       `Users active within ${metrics.reclaimThresholdDays} days (${basis}), ` +
       `adjusted for ${growthPct === 0 ? 'no assumed growth' : `${growthPct > 0 ? '+' : ''}${growthPct}% growth`} ` +
-      `and a ${safetyPct}% onboarding buffer, rounded up to a whole seat.`,
+      `and a ${safetyPct}% onboarding buffer` +
+      (metrics.seatsWithoutObservedUser > 0
+        ? `, plus ${metrics.seatsWithoutObservedUser} seats whose holder was not observed in this export and which are therefore not treated as surplus`
+        : '') +
+      `, rounded up to a whole seat.`,
   };
 }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildPortfolio } from '@/lib/analytics/portfolio';
+import { computeNamedUserRightSizing } from '@/lib/analytics/named-user';
 import { computePortfolioTotals, unusedCapacitySpend } from '@/lib/analytics/financial';
 import { evidenceGapSignals, generateSignals } from '@/lib/analytics/signals';
 import { buildDatasetFromCanonical } from '@/lib/ingestion/dataset';
@@ -215,5 +216,57 @@ describe('the evidence-gap signal', () => {
       (row) => row.usageEvidence === 'observed',
     );
     expect(evidenceGapSignals(rows)).toHaveLength(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Named-user seats nobody was observed holding
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('named-user right-sizing against a partial export', () => {
+  const base = {
+    featureId: 'f1',
+    reclaimThresholdDays: 90,
+    neverUsed: 0,
+    active30: 0,
+    active60: 0,
+    active90: 0,
+    active180: 0,
+    reclaimValue: null,
+    utilizationPct: 0,
+  };
+
+  it('does not surrender seats whose holder was never observed', () => {
+    // A 20-day export named five people against a 250-seat entitlement. The
+    // previous basis recommended 6 seats and $220K of "opportunity".
+    const result = computeNamedUserRightSizing(
+      { ...base, assigned: 250, activeUsers: 5, inactiveUsers: 0, reclaimCandidates: 0, observedUsers: 5, seatsWithoutObservedUser: 245 },
+      { growthFactor: 1, safetyFactor: 1.1 },
+    );
+
+    // ceil(5 × 1.1) = 6 for the measured population, plus 245 left alone.
+    expect(result.recommended).toBe(251);
+    expect(result.surplus).toBe(0);
+    expect(result.methodology).toContain('not treated as surplus');
+  });
+
+  it('sizes normally when the export covers the whole population', () => {
+    const result = computeNamedUserRightSizing(
+      { ...base, assigned: 250, activeUsers: 150, inactiveUsers: 100, reclaimCandidates: 100, observedUsers: 250, seatsWithoutObservedUser: 0 },
+      { growthFactor: 1, safetyFactor: 1.1 },
+    );
+
+    // Every seat accounted for, so the reduction is real and defensible.
+    expect(result.recommended).toBe(165);
+    expect(result.surplus).toBe(85);
+    expect(result.methodology).not.toContain('not treated as surplus');
+  });
+
+  it('agrees with the reclaim rule rather than contradicting it', () => {
+    // Reclaim counts only observed idle holders. Right-sizing must never
+    // surrender more seats than reclaim is willing to name.
+    const metrics = { ...base, assigned: 250, activeUsers: 5, inactiveUsers: 0, reclaimCandidates: 0, observedUsers: 5, seatsWithoutObservedUser: 245 };
+    const result = computeNamedUserRightSizing(metrics, { growthFactor: 1, safetyFactor: 1.1 });
+    expect(result.surplus).toBeLessThanOrEqual(metrics.reclaimCandidates);
   });
 });
