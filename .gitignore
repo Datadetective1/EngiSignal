@@ -20,3 +20,6 @@ next-env.d.ts
 
 # Playwright MCP session artifacts
 .playwright-mcp/
+
+# Session QA fixtures — never source
+.qa-tmp/
