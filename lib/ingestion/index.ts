@@ -26,7 +26,8 @@ import type {
 import { buildQualityReport } from './canonical/quality';
 import { getAdapter } from './adapters/registry';
 import { FIELDS_BY_DATASET } from './adapters/fields';
-import { missingRequiredFields, resolveColumns, type ColumnMapping } from './adapters/resolve';
+import { resolveColumns, type ColumnMapping } from './adapters/resolve';
+import { effectiveRequiredFields } from './requirements';
 import type { CanonicalFieldKey } from './adapters/types';
 import { buildDetectionContext, detectSource, type DetectionResult } from './detect';
 import { normalizeRows, summarizeRejections, type NormalizeOptions } from './normalize';
@@ -270,10 +271,16 @@ export function ingestParsedFile(parsed: ParsedFile, options: IngestOptions): In
     quality,
   };
 
+  // Uses the same rule the normalizer applies, so the gate can never refuse a
+  // file the pipeline would in fact have accepted.
+  const missingRequired = effectiveRequiredFields(dataset, mappedFields)
+    .filter((key) => !mappedFields.has(key))
+    .map((key) => FIELDS_BY_DATASET[dataset].find((spec) => spec.key === key)?.label ?? key);
+
   return {
     detection,
     mappings: allMappings,
-    missingRequired: missingRequiredFields(allMappings, dataset),
+    missingRequired,
     sheetNames: parsed.sheetNames,
     headers: sheets.flatMap((sheet) => sheet.headers),
     previewRows: sheets[0]?.rows.slice(0, PREVIEW_ROWS) ?? [],

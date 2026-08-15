@@ -27,6 +27,7 @@ import { fieldSpec } from './adapters/fields';
 import type { ColumnMapping } from './adapters/resolve';
 import { toFieldIndex } from './adapters/resolve';
 import type { CanonicalFieldKey, IngestionAdapter } from './adapters/types';
+import { effectiveRequiredFields } from './requirements';
 import { parseBoolean, parseDate, parseHour, parseLicenseModel, parseNumber, parseText, parseTimestamp } from './values';
 
 export interface NormalizeInput {
@@ -424,34 +425,12 @@ function usageKey(record: CanonicalUsageRecord): string {
   ].join('|');
 }
 
-/**
- * Required fields, given what the file actually carries.
- *
- * A usage row needs a date, but several sources never emit a date column —
- * Sentinel snapshots carry only a sample time, and some FlexNet report exports
- * carry only a checkout timestamp. Taking the calendar date from a timestamp
- * that is already present is a reading of the same instant, not an invented
- * value, so those files are accepted rather than rejected wholesale.
- */
+/** Delegates to the single shared definition — see lib/ingestion/requirements.ts. */
 function requiredFieldsFor(
   dataset: CanonicalDataset,
   columnFor: ReadonlyMap<CanonicalFieldKey, string>,
 ): CanonicalFieldKey[] {
-  // A file that names only the product carries the feature identity in that
-  // column. Using it is reading the identifier the source gave, not inventing
-  // one — and the caller raises a warning so the substitution is visible.
-  const featureRequired = !columnFor.has('product');
-
-  if (dataset === 'usage') {
-    const hasTimestamp = columnFor.has('observedAt') || columnFor.has('checkoutAt');
-    const keys: CanonicalFieldKey[] = featureRequired ? ['feature'] : [];
-    if (!hasTimestamp || columnFor.has('date')) keys.unshift('date');
-    return keys;
-  }
-  if (dataset === 'entitlements') {
-    return featureRequired ? ['feature', 'entitledQuantity'] : ['entitledQuantity'];
-  }
-  return ['user'];
+  return effectiveRequiredFields(dataset, new Set(columnFor.keys()));
 }
 
 /** Group rejections for display; counts come from the caller, not this list. */

@@ -12,16 +12,26 @@ import {
   Td,
   Th,
 } from '@/components/ui/primitives';
+import { ImportInventory } from '@/components/app/import-inventory';
 import { formatDate } from '@/lib/analytics/dates';
 import { formatNumber, formatPercent } from '@/lib/analytics/financial';
 import { CONNECTORS } from '@/lib/connectors';
 import { IMPORT_KINDS, IMPORT_SCHEMAS } from '@/lib/import/schema';
+import { getIngestionStore, isEphemeralStore } from '@/lib/ingestion/store';
 import { loadWorkspace } from '@/lib/workspace';
 
 export const metadata: Metadata = { title: 'Data' };
 
 export default async function DataPage() {
-  const { dataset, dataQuality, confidence } = await loadWorkspace();
+  const { dataset, dataQuality, confidence, organization } = await loadWorkspace();
+
+  // Read directly rather than through the HTTP endpoint: this is a server
+  // component, and the store is already tenant-scoped by argument.
+  const store = getIngestionStore();
+  const [ingestedImports, ingestedCoverage] = await Promise.all([
+    store.listImports(organization.id),
+    store.getCoverage(organization.id),
+  ]);
 
   const totalRows = dataset.imports.reduce((acc, record) => acc + record.rowCount, 0);
   const rejectedRows = dataset.imports.reduce((acc, record) => acc + record.rejectedRows, 0);
@@ -39,6 +49,12 @@ export default async function DataPage() {
             Import data
           </LinkButton>
         }
+      />
+
+      <ImportInventory
+        imports={ingestedImports}
+        coverage={ingestedCoverage}
+        ephemeral={isEphemeralStore()}
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

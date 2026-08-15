@@ -1,14 +1,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ImportWorkflow } from '@/components/app/import-workflow';
+import { IngestionWorkflow } from '@/components/app/ingestion-workflow';
 import { MethodologyNote, SectionHeading } from '@/components/ui/primitives';
-import { loadWorkspace } from '@/lib/workspace';
 
 export const metadata: Metadata = { title: 'Import data' };
 
-export default async function ImportPage() {
-  const { dataset } = await loadWorkspace();
-
+export default function ImportPage() {
   return (
     <div>
       <nav className="mb-2 flex items-center gap-1.5 text-[12px] text-fg-subtle">
@@ -22,17 +19,10 @@ export default async function ImportPage() {
       <SectionHeading
         eyebrow="Import"
         title="Bring your data in as it already is"
-        description="Upload a CSV or XLSX export. EngiSignal reads the column headers, proposes a mapping, and shows exactly what would be accepted before anything is committed."
+        description="Upload an export from FlexNet, RLM, DSLS, Sentinel, or any tabular file. EngiSignal identifies the source, proposes a mapping, and shows exactly what would be stored before anything is committed."
       />
 
-      <ImportWorkflow
-        savedMappings={dataset.importMappings.map((mapping) => ({
-          id: mapping.id,
-          name: mapping.name,
-          kind: mapping.kind,
-          fields: mapping.fields,
-        }))}
-      />
+      <IngestionWorkflow />
 
       <MethodologyNote>
         Nothing is applied silently. A mapping that quietly guesses wrong produces confidently wrong

@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getSession } from '@/lib/auth';
-import { getDataProvider } from '@/lib/data';
+import { resolveIngestionContext } from '@/lib/ingestion/session';
+import { assessCapabilities, projectUsage } from '@/lib/ingestion/project';
+import { summarizeCoverage } from '@/lib/ingestion/store';
 import {
   EmptyFileError,
+  FIELDS_BY_DATASET,
   MAX_UPLOAD_BYTES,
   SOURCE_SYSTEMS,
   UnsupportedFileError,
@@ -43,11 +45,12 @@ const requestSchema = z.object({
 /** Rejection detail returned to the client. The counts are always exact. */
 const MAX_REJECTIONS_RETURNED = 50;
 
+/** Rows shown in the normalized preview table. */
+const PREVIEW_ROWS = 10;
+
 export async function POST(request: Request) {
-  const session = await getSession();
-  if (session === null) {
-    return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 });
-  }
+  const auth = await resolveIngestionContext();
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   let form: FormData;
   try {
@@ -99,21 +102,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid ingestion request.' }, { status: 400 });
   }
 
-  // Tenant is derived from the caller's own memberships. The client never
-  // supplies an organization id, so it cannot address another tenant.
-  const organizations = await getDataProvider().listOrganizations(session.userId);
-  const organization = organizations[0];
-  if (organization === undefined) {
-    return NextResponse.json({ error: 'No organization is available for this account.' }, { status: 403 });
-  }
-
   const importId = crypto.randomUUID();
 
   let analysis;
   try {
     analysis = await ingestFile(await file.arrayBuffer(), {
       dataset: body.data.dataset,
-      organizationId: organization.id,
+      organizationId: auth.context.organizationId,
       importId,
       fileName: file.name,
       forceSource: body.data.forceSource as never,
@@ -133,7 +128,72 @@ export async function POST(request: Request) {
 
   const { detection, mappings, missingRequired, sheetNames, previewRows, result } = analysis;
 
+  // What this file alone would support. Computed from the records that would
+  // actually be written, so the customer sees the consequences of the mapping
+  // they are about to confirm rather than a generic promise.
+  const coverage = summarizeCoverage(result.usage, result.entitlements, result.people);
+  const projection = projectUsage(result.usage, result.entitlements);
+  const capabilities = assessCapabilities({
+    projection,
+    entitlementCount: result.entitlements.length,
+    peopleCount: result.people.length,
+    hasDenials: coverage.hasDenials,
+    distinctDates: new Set(result.usage.map((record) => record.date)).size,
+  });
+
+  /** Normalized records, not the source spreadsheet. */
+  const normalizedPreview =
+    result.dataset === 'usage'
+      ? result.usage.slice(0, PREVIEW_ROWS).map((record) => ({
+          date: record.date,
+          hour: record.hour,
+          observedAt: record.observedAt,
+          user: record.user,
+          feature: record.feature,
+          product: record.product,
+          vendor: record.vendor,
+          quantity: record.quantity,
+          concurrent: record.concurrent,
+          peak: record.peak,
+          licenseServer: record.licenseServer,
+          tokens: record.tokens,
+          denied: record.denied,
+          source: record.provenance.sourceSystem,
+          sourceRow: record.provenance.sourceRow,
+        }))
+      : result.dataset === 'entitlements'
+        ? result.entitlements.slice(0, PREVIEW_ROWS).map((record) => ({
+            feature: record.feature,
+            product: record.product,
+            vendor: record.vendor,
+            entitledQuantity: record.entitledQuantity,
+            licenseModel: record.licenseModel,
+            licenseServer: record.licenseServer,
+            expiresOn: record.expiresOn,
+            source: record.provenance.sourceSystem,
+            sourceRow: record.provenance.sourceRow,
+          }))
+        : result.people.slice(0, PREVIEW_ROWS).map((record) => ({
+            user: record.user,
+            employeeCode: record.employeeCode,
+            displayName: record.displayName,
+            email: record.email,
+            source: record.provenance.sourceSystem,
+            sourceRow: record.provenance.sourceRow,
+          }));
+
   return NextResponse.json({
+    normalizedPreview,
+    coverage,
+    capabilities,
+    /** Every canonical field, so a reviewer can reassign any column. */
+    fields: FIELDS_BY_DATASET[result.dataset].map((spec) => ({
+      key: spec.key,
+      label: spec.label,
+      type: spec.type,
+      required: spec.required,
+      description: spec.description,
+    })),
     importId,
     fileName: file.name,
     fileBytes: file.size,

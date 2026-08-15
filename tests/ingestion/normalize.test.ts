@@ -355,3 +355,55 @@ describe('quality reporting', () => {
     expect(unmapped.some((warning) => warning.message.includes('mystery_column'))).toBe(true);
   });
 });
+
+describe('required-field gate', () => {
+  it('does not demand a date column when the source carries a timestamp', () => {
+    // Regression: the pre-import gate reported "Date" missing for Sentinel
+    // exports while the normalizer happily derived it from Sample Time, so a
+    // perfectly importable file was refused for a reason that was not true.
+    const parsed = parseDelimited(
+      [
+        'Sample Time,Feature Name,Client User,Licenses In Use',
+        '2026-03-02 08:00:00,SOLIDCAM_PRO,wanderson,112',
+      ].join('\n'),
+    );
+    const { missingRequired, result } = ingestParsedFile(parsed, {
+      dataset: 'usage',
+      organizationId: 'org-alpha',
+      importId: 'import-sentinel-gate',
+      fileName: 'sentinel.csv',
+    });
+
+    expect(missingRequired).toEqual([]);
+    expect(result.acceptedRows).toBe(1);
+    expect(result.usage[0]!.date).toBe('2026-03-02');
+  });
+
+  it('does not demand a feature column when the source names only the product', () => {
+    const parsed = parseDelimited(
+      ['day,application,licenses used', '2026-05-04,MATLAB,88'].join('\n'),
+    );
+    const { missingRequired, result } = ingestParsedFile(parsed, {
+      dataset: 'usage',
+      organizationId: 'org-alpha',
+      importId: 'import-generic-gate',
+      fileName: 'generic.csv',
+    });
+
+    expect(missingRequired).toEqual([]);
+    expect(result.acceptedRows).toBe(1);
+    expect(result.usage[0]!.feature).toBe('MATLAB');
+  });
+
+  it('still demands a feature when neither feature nor product is present', () => {
+    const parsed = parseDelimited(['date,user', '2026-03-02,agarcia'].join('\n'));
+    const { missingRequired } = ingestParsedFile(parsed, {
+      dataset: 'usage',
+      organizationId: 'org-alpha',
+      importId: 'import-no-feature',
+      fileName: 'no-feature.csv',
+    });
+
+    expect(missingRequired).toContain('Feature');
+  });
+});

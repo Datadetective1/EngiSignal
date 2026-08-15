@@ -9,9 +9,11 @@ import { cn } from '@/lib/utils';
  * TRUTHFULNESS CONSTRAINT — read before editing.
  *
  * Status labels here must match `lib/connectors/index.ts`, where every
- * connector currently reports `available: false`. Only the file importer is
- * implemented (parse → suggest mapping → validate, in lib/import/*), so only
- * Quick Start carries a "live" label.
+ * connector currently reports `available: false`. What IS implemented is
+ * file ingestion (lib/ingestion/*): detection, mapping, validation and
+ * persistence for FlexNet, RLM, DSLS, Sentinel and generic exports. That is
+ * why Quick Start carries a "live" label and names those products — it reads
+ * their FILES. Nothing here connects to a license server.
  *
  * The other two paths are labelled as architecture and roadmap, in EngiSignal's
  * own words, with no claimed polling intervals, install times, real-time
@@ -76,11 +78,14 @@ export function ConnectionPaths() {
 
             <ul className="mt-5 space-y-2 border-t border-border pt-4">
               {[
-                'CSV and XLSX imports',
-                'License usage exports',
-                'Vendor portal exports',
+                // These name FILE EXPORTS, which are genuinely implemented and
+                // tested. They must never be read as live connections to the
+                // license managers themselves.
+                'FlexNet, RLM, DSLS and Sentinel file exports',
+                'CSV, TSV, XLSX and XLSM imports',
+                'Vendor portal and generic tabular exports',
                 'Reports from tools such as OpenLM or Open iT',
-                'Any tabular export, mapped to your own column names',
+                'Mapped to your own column names, with every mapping reviewable',
               ].map((item) => (
                 <li key={item} className="flex gap-2.5 text-[12.5px] leading-relaxed text-fg-muted">
                   <span className="mt-[7px] size-1 shrink-0 rounded-full bg-positive" aria-hidden="true" />
@@ -90,8 +95,8 @@ export function ConnectionPaths() {
             </ul>
 
             <p className="mt-auto pt-5 text-[12px] leading-relaxed text-fg-subtle">
-              Ideal for pilots, historical analysis and one-time imports. EngiSignal maps whatever column
-              names your export already uses — there is no template to conform to.
+              EngiSignal identifies which license manager produced the file, proposes a mapping, and shows
+              exactly what would be stored before anything is committed. Legacy .xls is not supported.
             </p>
           </article>
         </Reveal>

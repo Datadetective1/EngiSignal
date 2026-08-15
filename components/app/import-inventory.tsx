@@ -1,0 +1,222 @@
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Badge, Button, Card, CardHeader, TableShell, Td, Th } from '@/components/ui/primitives';
+
+/**
+ * Imported sources.
+ *
+ * Answers "what does EngiSignal actually know, and where did it come from" —
+ * and lets a customer withdraw an import. Reversal is per-import by design:
+ * canonical records are stored at source grain with import lineage, so removing
+ * one import cannot disturb another.
+ */
+
+export interface ImportRow {
+  id: string;
+  fileName: string;
+  dataset: string;
+  sourceSystem: string;
+  detectionConfidence: number;
+  detectionFellBack: boolean;
+  status: string;
+  uploadedAt: string;
+  totalRows: number;
+  acceptedRows: number;
+  rejectedRows: number;
+  usageRecords: number;
+  entitlementRecords: number;
+  peopleRecords: number;
+}
+
+export interface CoverageRow {
+  usageRecords: number;
+  entitlementRecords: number;
+  peopleRecords: number;
+  distinctFeatures: number;
+  distinctUsers: number;
+  firstDate: string | null;
+  lastDate: string | null;
+  historyDays: number;
+  hasConcurrency: boolean;
+  hasDenials: boolean;
+  sources: string[];
+}
+
+const SOURCE_LABEL: Record<string, string> = {
+  flexnet: 'FlexNet',
+  rlm: 'RLM',
+  dsls: 'DSLS',
+  sentinel: 'Sentinel',
+  generic: 'Generic',
+};
+
+export function ImportInventory({
+  imports,
+  coverage,
+  ephemeral,
+}: {
+  imports: ImportRow[];
+  coverage: CoverageRow;
+  ephemeral: boolean;
+}) {
+  const router = useRouter();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const remove = async (importId: string) => {
+    setBusyId(importId);
+    setError(null);
+    try {
+      const response = await fetch(`/api/ingestion/imports/${importId}`, { method: 'DELETE' });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        setError(typeof payload.error === 'string' ? payload.error : 'The import could not be removed.');
+        return;
+      }
+      router.refresh();
+    } catch {
+      setError('The import could not be removed.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const coverageRows = [
+    { label: 'Usage', ok: coverage.usageRecords > 0, detail: coverage.usageRecords > 0 ? `${coverage.usageRecords.toLocaleString('en-US')} records` : 'Missing' },
+    { label: 'Concurrent demand', ok: coverage.hasConcurrency, detail: coverage.hasConcurrency ? 'Available' : 'Missing' },
+    { label: 'Entitlements', ok: coverage.entitlementRecords > 0, detail: coverage.entitlementRecords > 0 ? `${coverage.entitlementRecords.toLocaleString('en-US')} records` : 'Missing' },
+    { label: 'People', ok: coverage.peopleRecords > 0, detail: coverage.peopleRecords > 0 ? `${coverage.peopleRecords.toLocaleString('en-US')} records` : 'Missing' },
+    { label: 'Denials', ok: coverage.hasDenials, detail: coverage.hasDenials ? 'Available' : 'Not supplied' },
+    { label: 'Cost', ok: false, detail: 'Missing' },
+  ];
+
+  return (
+    <Card>
+      <CardHeader
+        title="Imported sources"
+        description="Files EngiSignal has ingested, what they contained, and what they support."
+      />
+
+      <div className="space-y-5 px-5 py-5">
+        {ephemeral && (
+          <p className="rounded-md border border-warning/40 bg-warning-soft px-3.5 py-2.5 text-[12px] leading-relaxed text-warning">
+            This environment stores imports in memory for the life of the server process. They are not
+            durable and will reset on restart. Configure Supabase for persistent storage.
+          </p>
+        )}
+
+        {error !== null && (
+          <p role="alert" className="rounded-md border border-danger/40 bg-danger-soft px-3.5 py-2.5 text-[12.5px] text-danger">
+            {error}
+          </p>
+        )}
+
+        {imports.length === 0 ? (
+          <p className="text-[13px] text-fg-muted">
+            No files have been imported yet. Import a FlexNet, RLM, DSLS, Sentinel or tabular export to
+            begin.
+          </p>
+        ) : (
+          <>
+            <div className="es-scroll overflow-x-auto">
+              <TableShell>
+                <thead>
+                  <tr>
+                    <Th>Source</Th>
+                    <Th>File</Th>
+                    <Th>Type</Th>
+                    <Th>Records</Th>
+                    <Th>Accepted</Th>
+                    <Th>Imported</Th>
+                    <Th>Status</Th>
+                    <Th>Action</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {imports.map((record) => (
+                    <tr key={record.id}>
+                      <Td className="font-medium text-fg">
+                        {SOURCE_LABEL[record.sourceSystem] ?? record.sourceSystem}
+                        <span className="ml-2 text-[11px] font-normal text-fg-subtle">
+                          {record.detectionFellBack ? 'not identified' : `${record.detectionConfidence}%`}
+                        </span>
+                      </Td>
+                      <Td className="text-fg-muted">{record.fileName}</Td>
+                      <Td className="text-fg-muted">File import · {record.dataset}</Td>
+                      <Td className="tnum">
+                        {(record.usageRecords + record.entitlementRecords + record.peopleRecords).toLocaleString('en-US')}
+                      </Td>
+                      <Td className="tnum text-fg-muted">
+                        {record.acceptedRows.toLocaleString('en-US')} / {record.totalRows.toLocaleString('en-US')}
+                      </Td>
+                      <Td className="text-fg-muted">{record.uploadedAt.slice(0, 10)}</Td>
+                      <Td>
+                        <Badge tone={record.status === 'complete' ? 'positive' : 'warning'}>
+                          {record.status === 'complete' ? 'Active' : record.status}
+                        </Badge>
+                      </Td>
+                      <Td>
+                        <Button
+                          size="sm"
+                          disabled={busyId === record.id}
+                          onClick={() => void remove(record.id)}
+                        >
+                          {busyId === record.id ? 'Removing…' : 'Remove'}
+                        </Button>
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </TableShell>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <p className="mb-2 text-[12px] font-medium text-fg">Coverage</p>
+                <ul className="space-y-1.5">
+                  {coverageRows.map((row) => (
+                    <li key={row.label} className="flex items-center justify-between gap-3 text-[12.5px]">
+                      <span className="text-fg-muted">{row.label}</span>
+                      <Badge tone={row.ok ? 'positive' : 'neutral'}>{row.detail}</Badge>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div>
+                <p className="mb-2 text-[12px] font-medium text-fg">What has been ingested</p>
+                <dl className="space-y-1.5 text-[12.5px]">
+                  <Row label="Distinct features" value={coverage.distinctFeatures.toLocaleString('en-US')} />
+                  <Row label="Distinct users" value={coverage.distinctUsers.toLocaleString('en-US')} />
+                  <Row
+                    label="History"
+                    value={coverage.historyDays > 0 ? `${coverage.historyDays} days` : '—'}
+                  />
+                  <Row
+                    label="Window"
+                    value={
+                      coverage.firstDate !== null && coverage.lastDate !== null
+                        ? `${coverage.firstDate} → ${coverage.lastDate}`
+                        : '—'
+                    }
+                  />
+                </dl>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4">
+      <dt className="text-fg-muted">{label}</dt>
+      <dd className="tnum font-medium text-fg">{value}</dd>
+    </div>
+  );
+}
