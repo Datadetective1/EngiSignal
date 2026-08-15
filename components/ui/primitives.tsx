@@ -15,7 +15,10 @@ export function Card({
   as?: 'div' | 'section' | 'article' | 'li';
 }) {
   return (
-    <Tag className={cn('rounded-lg border border-border bg-surface', className)}>{children}</Tag>
+    // `min-w-0` matters: a grid or flex item defaults to `min-width: auto`, so
+    // without it a Card refuses to shrink below its header's min-content width
+    // and overflows the viewport on narrow screens.
+    <Tag className={cn('min-w-0 rounded-lg border border-border bg-surface', className)}>{children}</Tag>
   );
 }
 
@@ -31,8 +34,13 @@ export function CardHeader({
   className?: string;
 }) {
   return (
-    <div className={cn('flex items-start justify-between gap-4 border-b border-border px-5 py-4', className)}>
-      <div className="min-w-0">
+    <div
+      className={cn(
+        'flex flex-wrap items-start justify-between gap-x-4 gap-y-2.5 border-b border-border px-5 py-4',
+        className,
+      )}
+    >
+      <div className="min-w-0 flex-1 basis-48">
         <h2 className="text-[13px] font-semibold tracking-[-0.01em] text-fg">{title}</h2>
         {description !== undefined && (
           <p className="mt-1 text-[12.5px] leading-relaxed text-fg-muted">{description}</p>

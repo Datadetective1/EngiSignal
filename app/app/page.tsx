@@ -62,7 +62,7 @@ export default async function IntelligencePage() {
             {formatNumber(portfolio.length)} features · {formatNumber(totals.vendorCount)} vendors ·{' '}
             {formatNumber(dataset.organization.technicalHeadcount)} technical employees
           </span>
-          <span className="text-fg-subtle">·</span>
+          <span className="hidden text-fg-subtle sm:inline">·</span>
           <span className="inline-flex items-center gap-1.5">
             Portfolio confidence <ConfidenceBadge level={confidence.level} score={confidence.score} />
           </span>

@@ -162,7 +162,9 @@ export default function LandingPage() {
         </section>
 
         {/* ── Scroll story ─────────────────────────────────────────────── */}
-        <section className="border-b border-border">
+        {/* `relative` is required: Framer Motion measures scroll offsets against
+            the nearest positioned ancestor, and warns if it is static. */}
+        <section className="relative border-b border-border">
           <div className="mx-auto max-w-[1240px] px-6 pt-16">
             <Reveal>
               <div className="mb-4 max-w-2xl">
