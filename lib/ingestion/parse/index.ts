@@ -40,8 +40,34 @@ export interface ParsedFile {
   warnings: IngestionWarning[];
 }
 
-export const MAX_UPLOAD_BYTES = Number(process.env.ENGISIGNAL_MAX_UPLOAD_BYTES ?? 26_214_400);
-export const MAX_INGEST_ROWS = Number(process.env.ENGISIGNAL_MAX_INGEST_ROWS ?? 500_000);
+/**
+ * Read a positive integer limit from the environment.
+ *
+ * `??` only falls back on null and undefined. An environment variable created
+ * without a value — the normal state of a Vercel project variable added but
+ * left blank — is an empty string, and `Number('')` is 0. That silently set the
+ * upload limit to zero in production and rejected every file with "above the
+ * 0 MB limit", which reads like a deliberate restriction rather than a bug.
+ *
+ * This is the same defect class that once broke the production build through
+ * `new URL('')`; see config/site-url.ts. Validate the value, do not trust it.
+ */
+function positiveIntFromEnv(raw: string | undefined, fallback: number): number {
+  const trimmed = raw?.trim();
+  if (trimmed === undefined || trimmed.length === 0) return fallback;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.floor(parsed);
+}
+
+export const MAX_UPLOAD_BYTES = positiveIntFromEnv(
+  process.env.ENGISIGNAL_MAX_UPLOAD_BYTES,
+  26_214_400,
+);
+export const MAX_INGEST_ROWS = positiveIntFromEnv(
+  process.env.ENGISIGNAL_MAX_INGEST_ROWS,
+  500_000,
+);
 
 export const ACCEPTED_EXTENSIONS = ['.csv', '.tsv', '.txt', '.xlsx', '.xlsm'] as const;
 

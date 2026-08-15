@@ -1,5 +1,5 @@
 import ExcelJS from 'exceljs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ingestParsedFile } from '@/lib/ingestion';
 import {
   EmptyFileError,
@@ -302,5 +302,46 @@ describe('accounting', () => {
     expect(result.rejectedRows).toBe(1);
     // Every reason is still reported.
     expect(result.rejections.length).toBeGreaterThan(1);
+  });
+});
+
+describe('environment-derived limits', () => {
+  // Regression: a Vercel variable added but left blank is an empty string, and
+  // Number('') is 0. That set the upload limit to zero in production and
+  // rejected every file with "above the 0 MB limit".
+  it('falls back when the variable is blank, missing or nonsense', async () => {
+    const original = process.env.ENGISIGNAL_MAX_UPLOAD_BYTES;
+    const load = async () => {
+      vi.resetModules();
+      return import('@/lib/ingestion/parse');
+    };
+
+    try {
+      process.env.ENGISIGNAL_MAX_UPLOAD_BYTES = '';
+      expect((await load()).MAX_UPLOAD_BYTES).toBe(26_214_400);
+
+      process.env.ENGISIGNAL_MAX_UPLOAD_BYTES = '   ';
+      expect((await load()).MAX_UPLOAD_BYTES).toBe(26_214_400);
+
+      delete process.env.ENGISIGNAL_MAX_UPLOAD_BYTES;
+      expect((await load()).MAX_UPLOAD_BYTES).toBe(26_214_400);
+
+      process.env.ENGISIGNAL_MAX_UPLOAD_BYTES = 'not-a-number';
+      expect((await load()).MAX_UPLOAD_BYTES).toBe(26_214_400);
+
+      process.env.ENGISIGNAL_MAX_UPLOAD_BYTES = '0';
+      expect((await load()).MAX_UPLOAD_BYTES).toBe(26_214_400);
+
+      process.env.ENGISIGNAL_MAX_UPLOAD_BYTES = '-5';
+      expect((await load()).MAX_UPLOAD_BYTES).toBe(26_214_400);
+
+      // A genuine override is still honoured.
+      process.env.ENGISIGNAL_MAX_UPLOAD_BYTES = '1048576';
+      expect((await load()).MAX_UPLOAD_BYTES).toBe(1_048_576);
+    } finally {
+      if (original === undefined) delete process.env.ENGISIGNAL_MAX_UPLOAD_BYTES;
+      else process.env.ENGISIGNAL_MAX_UPLOAD_BYTES = original;
+      vi.resetModules();
+    }
   });
 });
