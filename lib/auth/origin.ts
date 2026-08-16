@@ -76,3 +76,17 @@ export async function authCallbackUrl(params?: Record<string, string>): Promise<
   const query = params === undefined ? '' : `?${new URLSearchParams(params).toString()}`;
   return `${origin}/auth/callback${query}`;
 }
+
+/**
+ * Where an emailed confirmation link should land.
+ *
+ * The two-step page, never the token-consuming callback. Production logs showed
+ * the PKCE exchange failing with `bad_code_verifier` because the code verifier
+ * lives in a cookie in whichever browser started sign-up, and email links are
+ * routinely opened somewhere else entirely.
+ */
+export async function emailConfirmUrl(params?: Record<string, string>): Promise<string> {
+  const origin = await authOrigin();
+  const query = params === undefined ? '' : `?${new URLSearchParams(params).toString()}`;
+  return `${origin}/auth/confirm${query}`;
+}

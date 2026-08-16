@@ -2,7 +2,7 @@
 
 import { redirect } from 'next/navigation';
 import { createSession, isSupabaseAuth } from '@/lib/auth';
-import { authCallbackUrl } from '@/lib/auth/origin';
+import { authCallbackUrl, emailConfirmUrl } from '@/lib/auth/origin';
 import { userClient } from '@/lib/supabase/server';
 
 /**
@@ -88,7 +88,11 @@ export async function signUpAction(formData: FormData) {
     email,
     password,
     options: {
-      emailRedirectTo: await authCallbackUrl({ next: '/app' }),
+      // The two-step confirmation page, not the callback. This is also the
+      // fallback target if the email template is ever reverted to
+      // {{ .ConfirmationURL }} — the link would then consume the token at
+      // Supabase and land here with a code, which the page handles.
+      emailRedirectTo: await emailConfirmUrl({ next: '/app' }),
       // Carried on the user record so it survives the confirmation round trip.
       // With email confirmation enabled there is no session here, so the
       // provisioning call below never runs — and the name the customer typed
