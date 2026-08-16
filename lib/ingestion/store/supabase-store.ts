@@ -40,6 +40,7 @@ import type {
 } from './types';
 import { DuplicateImportError, summarizeCoverage } from './types';
 import { isDuplicateImportError } from '../fingerprint';
+import { readAllRows } from './paging';
 export { hasSupabaseEnv } from '@/lib/supabase/server';
 /**
  * The request-scoped client.
@@ -334,13 +335,17 @@ export const supabaseIngestionStore: IngestionStore = {
     };
   },
   async listImports(orgId: string): Promise<ImportSummary[]> {
-    const { data, error } = await (await db())
-      .from('imports')
-      .select('*')
-      .eq('organization_id', orgId)
-      .order('uploaded_at', { ascending: false });
-    if (error !== null) throw new Error(error.message);
-    return (data ?? []).map(rowToSummary);
+    // Paged for the same reason the canonical reads are: a truncated import
+    // history hides imports the customer can no longer find to delete.
+    const client = await db();
+    const data = await readAllRows<Record<string, unknown>>(() =>
+      client
+        .from('imports')
+        .select('*')
+        .eq('organization_id', orgId)
+        .order('uploaded_at', { ascending: false }),
+    );
+    return data.map(rowToSummary);
   },
   async getImport(orgId: string, importId: string): Promise<ImportDetail | null> {
     const { data, error } = await (await db())
@@ -389,12 +394,13 @@ export const supabaseIngestionStore: IngestionStore = {
     return (data ?? []).length > 0;
   },
   async listUsage(orgId, options): Promise<CanonicalUsageRecord[]> {
-    let query = (await db()).from('ingestion_usage').select('*').eq('organization_id', orgId);
-    if (options?.importId !== undefined) query = query.eq('import_id', options.importId);
-    if (options?.limit !== undefined) query = query.limit(options.limit);
-    const { data, error } = await query;
-    if (error !== null) throw new Error(error.message);
-    return (data ?? []).map((row) => ({
+    const client = await db();
+    const data = await readAllRows<Record<string, unknown>>(() => {
+      let query = client.from('ingestion_usage').select('*').eq('organization_id', orgId);
+      if (options?.importId !== undefined) query = query.eq('import_id', options.importId);
+      return query;
+    }, options?.limit);
+    return data.map((row) => ({
       date: row.usage_date as string,
       hour: row.hour as number | null,
       observedAt: row.observed_at as string | null,
@@ -427,11 +433,13 @@ export const supabaseIngestionStore: IngestionStore = {
     }));
   },
   async listEntitlements(orgId, options): Promise<CanonicalEntitlementRecord[]> {
-    let query = (await db()).from('ingestion_entitlements').select('*').eq('organization_id', orgId);
-    if (options?.importId !== undefined) query = query.eq('import_id', options.importId);
-    const { data, error } = await query;
-    if (error !== null) throw new Error(error.message);
-    return (data ?? []).map((row) => ({
+    const client = await db();
+    const data = await readAllRows<Record<string, unknown>>(() => {
+      let query = client.from('ingestion_entitlements').select('*').eq('organization_id', orgId);
+      if (options?.importId !== undefined) query = query.eq('import_id', options.importId);
+      return query;
+    });
+    return data.map((row) => ({
       feature: row.raw_feature as string,
       product: row.raw_product as string | null,
       vendor: row.raw_vendor as string | null,
@@ -452,11 +460,13 @@ export const supabaseIngestionStore: IngestionStore = {
     }));
   },
   async listPeople(orgId, options): Promise<CanonicalPersonRecord[]> {
-    let query = (await db()).from('ingestion_people').select('*').eq('organization_id', orgId);
-    if (options?.importId !== undefined) query = query.eq('import_id', options.importId);
-    const { data, error } = await query;
-    if (error !== null) throw new Error(error.message);
-    return (data ?? []).map((row) => ({
+    const client = await db();
+    const data = await readAllRows<Record<string, unknown>>(() => {
+      let query = client.from('ingestion_people').select('*').eq('organization_id', orgId);
+      if (options?.importId !== undefined) query = query.eq('import_id', options.importId);
+      return query;
+    });
+    return data.map((row) => ({
       user: row.raw_user as string,
       employeeCode: row.employee_code as string | null,
       displayName: row.display_name as string | null,
@@ -486,11 +496,13 @@ export const supabaseIngestionStore: IngestionStore = {
     }));
   },
   async listContracts(orgId, options): Promise<CanonicalContractRecord[]> {
-    let query = (await db()).from('ingestion_contracts').select('*').eq('organization_id', orgId);
-    if (options?.importId !== undefined) query = query.eq('import_id', options.importId);
-    const { data, error } = await query;
-    if (error !== null) throw new Error(error.message);
-    return (data ?? []).map((row) => ({
+    const client = await db();
+    const data = await readAllRows<Record<string, unknown>>(() => {
+      let query = client.from('ingestion_contracts').select('*').eq('organization_id', orgId);
+      if (options?.importId !== undefined) query = query.eq('import_id', options.importId);
+      return query;
+    });
+    return data.map((row) => ({
       feature: row.raw_feature as string,
       product: row.raw_product as string | null,
       vendor: row.raw_vendor as string | null,
