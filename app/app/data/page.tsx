@@ -20,11 +20,12 @@ import { IMPORT_KINDS, IMPORT_SCHEMAS } from '@/lib/import/schema';
 import { getIngestionStore, isEphemeralStore, isServerlessEphemeral } from '@/lib/ingestion/store';
 import { capabilityLines, coverageLines, qualityBand } from '@/lib/ingestion/capabilities';
 import { loadWorkspace } from '@/lib/workspace';
+import { DataIntegrityCard } from '@/components/app/data-integrity';
 
 export const metadata: Metadata = { title: 'Data' };
 
 export default async function DataPage() {
-  const { dataset, dataQuality, confidence, organization } = await loadWorkspace();
+  const { dataset, dataQuality, confidence, organization, integrity } = await loadWorkspace();
 
   // Read directly rather than through the HTTP endpoint: this is a server
   // component, and the store is already tenant-scoped by argument.
@@ -67,6 +68,9 @@ export default async function DataPage() {
           </LinkButton>
         }
       />
+
+      {/* First, before anything derived from the rows: did we read them all? */}
+      <DataIntegrityCard integrity={integrity} />
 
       <ImportInventory
         imports={ingestedImports}

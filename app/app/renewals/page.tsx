@@ -21,6 +21,8 @@ import {
   renewalUrgency,
 } from '@/lib/analytics/renewal';
 import { loadWorkspace } from '@/lib/workspace';
+import { AnalyticsWithheld } from '@/components/app/data-integrity';
+import { analyticsAvailable } from '@/lib/analytics/integrity';
 import type { RenewalStage } from '@/lib/domain/types';
 
 export const metadata: Metadata = { title: 'Renewals' };
@@ -35,7 +37,11 @@ const STAGE_INDEX: Record<RenewalStage, number> = {
 };
 
 export default async function RenewalsPage() {
-  const { renewals, portfolio, dataset } = await loadWorkspace();
+  const { integrity, renewals, portfolio, dataset } = await loadWorkspace();
+  // Every figure below is computed from usage. When the analysis did not
+  // read all of it, there is no honest version of this page.
+  if (!analyticsAvailable(integrity)) return <AnalyticsWithheld integrity={integrity} />;
+
 
   // Feature-level positions, reshaped from the portfolio the engine already
   // computed. Nothing is recalculated here.

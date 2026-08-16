@@ -3,6 +3,8 @@ import { PortfolioTable, type PortfolioTableRow } from '@/components/app/portfol
 import { MethodologyNote, SectionHeading } from '@/components/ui/primitives';
 import { formatCurrency } from '@/lib/analytics/financial';
 import { loadWorkspace } from '@/lib/workspace';
+import { AnalyticsWithheld } from '@/components/app/data-integrity';
+import { analyticsAvailable } from '@/lib/analytics/integrity';
 
 export const metadata: Metadata = { title: 'Portfolio' };
 
@@ -11,7 +13,11 @@ export default async function PortfolioPage({
 }: {
   searchParams: Promise<{ risk?: string }>;
 }) {
-  const { portfolio, totals, options } = await loadWorkspace();
+  const { integrity, portfolio, totals, options } = await loadWorkspace();
+  // Every figure below is computed from usage. When the analysis did not
+  // read all of it, there is no honest version of this page.
+  if (!analyticsAvailable(integrity)) return <AnalyticsWithheld integrity={integrity} />;
+
   const params = await searchParams;
 
   const rows: PortfolioTableRow[] = portfolio.map((row) => ({

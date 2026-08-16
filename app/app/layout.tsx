@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { Sidebar } from '@/components/app/sidebar';
+import { IntegrityBanner } from '@/components/app/data-integrity';
 import { formatDate } from '@/lib/analytics/dates';
 import { loadWorkspace } from '@/lib/workspace';
 
@@ -35,7 +36,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </div>
         )}
 
-        <main className="mx-auto w-full max-w-[1360px] px-5 py-6 lg:px-8 lg:py-8">{children}</main>
+        <main className="mx-auto w-full max-w-[1360px] px-5 py-6 lg:px-8 lg:py-8">
+          {/* Carried by every page in the app, not just the analytical ones:
+              the condition means the whole workspace is reporting on an
+              unknown fraction of the estate. */}
+          {!workspace.integrity.complete && (
+            <div className="mb-6">
+              <IntegrityBanner integrity={workspace.integrity} />
+            </div>
+          )}
+          {children}
+        </main>
       </div>
     </div>
   );

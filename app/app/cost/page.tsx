@@ -29,6 +29,8 @@ import {
 } from '@/lib/analytics/financial';
 import type { DimensionKey } from '@/lib/domain/types';
 import { loadWorkspace } from '@/lib/workspace';
+import { AnalyticsWithheld } from '@/components/app/data-integrity';
+import { analyticsAvailable } from '@/lib/analytics/integrity';
 
 export const metadata: Metadata = { title: 'Cost intelligence' };
 
@@ -57,7 +59,11 @@ export default async function CostPage({
 }: {
   searchParams: Promise<{ dimension?: string; method?: string }>;
 }) {
-  const { dataset, portfolio, totals, unusedCapacity } = await loadWorkspace();
+  const { integrity, dataset, portfolio, totals, unusedCapacity } = await loadWorkspace();
+  // Every figure below is computed from usage. When the analysis did not
+  // read all of it, there is no honest version of this page.
+  if (!analyticsAvailable(integrity)) return <AnalyticsWithheld integrity={integrity} />;
+
   const params = await searchParams;
 
   const dimension = (DIMENSIONS.includes(params.dimension as DimensionKey)

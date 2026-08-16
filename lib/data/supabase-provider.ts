@@ -111,6 +111,27 @@ export const supabaseProvider: DataProvider = {
    * No analytical formula lives here. See lib/ingestion/dataset.ts for the
    * grain contract and the single documented aggregation choice.
    */
+  async countRowAccounting(orgId: string) {
+    const [imports, stored] = await Promise.all([
+      supabaseIngestionStore.listImports(orgId),
+      supabaseIngestionStore.countStoredRows(orgId),
+    ]);
+
+    const accepted = { usage: 0, people: 0, entitlements: 0, contracts: 0 };
+    for (const record of imports) {
+      // Only completed imports have promised anything. One still in flight has
+      // not, and a failed one was rolled back — counting either would fire the
+      // integrity check on a healthy system and train people to ignore it.
+      if (record.status !== 'complete') continue;
+      accepted.usage += record.usageRecords;
+      accepted.people += record.peopleRecords;
+      accepted.entitlements += record.entitlementRecords;
+      accepted.contracts += record.contractRecords;
+    }
+
+    return { accepted, stored };
+  },
+
   async getDataset(orgId: string): Promise<AnalyticsDataset> {
     const organization = await this.getOrganization(orgId);
     if (organization === null) throw new Error(`Unknown organization: ${orgId}`);

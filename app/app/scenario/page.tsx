@@ -4,6 +4,8 @@ import { SectionHeading } from '@/components/ui/primitives';
 import { buildWindow } from '@/lib/analytics/dates';
 import { dailySeriesForFeature } from '@/lib/analytics/concurrent';
 import { loadWorkspace } from '@/lib/workspace';
+import { AnalyticsWithheld } from '@/components/app/data-integrity';
+import { analyticsAvailable } from '@/lib/analytics/integrity';
 
 export const metadata: Metadata = { title: 'Scenario Lab' };
 
@@ -12,7 +14,11 @@ export default async function ScenarioPage({
 }: {
   searchParams: Promise<{ feature?: string }>;
 }) {
-  const { dataset, portfolio } = await loadWorkspace();
+  const { integrity, dataset, portfolio } = await loadWorkspace();
+  // Every figure below is computed from usage. When the analysis did not
+  // read all of it, there is no honest version of this page.
+  if (!analyticsAvailable(integrity)) return <AnalyticsWithheld integrity={integrity} />;
+
   const params = await searchParams;
 
   // Two years of daily peaks, so the client can re-slice any period locally

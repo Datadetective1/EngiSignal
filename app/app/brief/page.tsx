@@ -18,11 +18,17 @@ import {
 import { computeForecast, forecastPortfolioSpend } from '@/lib/analytics/forecast';
 import { SIGNAL_LABELS } from '@/lib/analytics/signals';
 import { employeeIndex, loadWorkspace } from '@/lib/workspace';
+import { AnalyticsWithheld } from '@/components/app/data-integrity';
+import { analyticsAvailable } from '@/lib/analytics/integrity';
 
 export const metadata: Metadata = { title: 'Executive brief' };
 
 export default async function ExecutiveBriefPage() {
   const workspace = await loadWorkspace();
+  // Every figure below is computed from usage. When the analysis did not
+  // read all of it, there is no honest version of this page.
+  if (!analyticsAvailable(workspace.integrity)) return <AnalyticsWithheld integrity={workspace.integrity} />;
+
   const { dataset, portfolio, renewals, signals, totals, unusedCapacity, confidence, options, dataQuality } =
     workspace;
 

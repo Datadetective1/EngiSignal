@@ -37,6 +37,7 @@ import type {
   ImportLifecycle,
   ImportSummary,
   IngestionStore,
+  StoredRowCounts,
 } from './types';
 import { DuplicateImportError, summarizeCoverage } from './types';
 import { isDuplicateImportError } from '../fingerprint';
@@ -392,6 +393,30 @@ export const supabaseIngestionStore: IngestionStore = {
       .select('id');
     if (error !== null) throw new Error(error.message);
     return (data ?? []).length > 0;
+  },
+  async countStoredRows(orgId: string): Promise<StoredRowCounts> {
+    const client = await db();
+
+    // `head: true` sends no rows at all and returns only the Content-Range
+    // count, so `db-max-rows` cannot affect the answer. Counting the length of
+    // a normal select would re-introduce the exact bug this detects.
+    const countOf = async (table: string): Promise<number> => {
+      const { count, error } = await client
+        .from(table)
+        .select('*', { count: 'exact', head: true })
+        .eq('organization_id', orgId);
+      if (error !== null) throw new Error(`${table}: ${error.message}`);
+      return count ?? 0;
+    };
+
+    const [usage, people, entitlements, contracts] = await Promise.all([
+      countOf('ingestion_usage'),
+      countOf('ingestion_people'),
+      countOf('ingestion_entitlements'),
+      countOf('ingestion_contracts'),
+    ]);
+
+    return { usage, people, entitlements, contracts };
   },
   async listUsage(orgId, options): Promise<CanonicalUsageRecord[]> {
     const client = await db();

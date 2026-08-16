@@ -17,6 +17,8 @@ import { buildReclaimCandidates, reclaimValue } from '@/lib/analytics/named-user
 import { getDataProvider } from '@/lib/data';
 import type { ReclaimStatus } from '@/lib/domain/types';
 import { employeeIndex, loadWorkspace } from '@/lib/workspace';
+import { AnalyticsWithheld } from '@/components/app/data-integrity';
+import { analyticsAvailable } from '@/lib/analytics/integrity';
 
 export const metadata: Metadata = { title: 'Reclaim campaigns' };
 
@@ -63,6 +65,10 @@ export default async function ReclaimPage({
   searchParams: Promise<{ feature?: string; status?: string }>;
 }) {
   const workspace = await loadWorkspace();
+  // Every figure below is computed from usage. When the analysis did not
+  // read all of it, there is no honest version of this page.
+  if (!analyticsAvailable(workspace.integrity)) return <AnalyticsWithheld integrity={workspace.integrity} />;
+
   const params = await searchParams;
   const { dataset, portfolio, organization, options } = workspace;
 

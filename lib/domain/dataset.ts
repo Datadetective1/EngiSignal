@@ -25,6 +25,7 @@ import type {
   UserFeatureActivity,
   Vendor,
 } from './types';
+import type { AnalyzedRowCounts } from '@/lib/analytics/integrity';
 import type { ContractReviewItem } from '@/lib/ingestion/contract-match';
 
 /** What each source said a feature's quantity was. Null means "did not say". */
@@ -89,6 +90,16 @@ export interface AnalyticsDataset {
   employeeMappingRate: number;
   /** Share of raw feature strings mapped to a canonical feature, 0–1. */
   featureMappingRate: number;
+
+  /**
+   * How many canonical records this dataset was actually built from.
+   *
+   * Recorded at the point of consumption, before any grouping or projection,
+   * so it answers "what did the analytics read?" rather than "what did the
+   * analytics produce?". Compared against an exact database count to detect a
+   * truncated read — see lib/analytics/integrity.ts.
+   */
+  analyzedRows: AnalyzedRowCounts;
 }
 
 /** Options that a user can change and immediately recalculate against. */

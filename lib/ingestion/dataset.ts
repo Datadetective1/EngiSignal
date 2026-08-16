@@ -528,6 +528,14 @@ export function buildDatasetFromCanonical(input: BuildDatasetInput): AnalyticsDa
     contractReview: contractLinks.review,
     asOf,
     // Honest ratios, not aspirational ones.
+    // Counted at the point of consumption: the arrays this function was handed,
+    // before any projection or grouping. See lib/analytics/integrity.ts.
+    analyzedRows: {
+      usage: usage.length,
+      people: people.length,
+      entitlements: entitlements.length,
+      contracts: contractRecords.length,
+    },
     employeeMappingRate: userIdentities.length === 0 ? 0 : resolvedUserCount / userIdentities.length,
     featureMappingRate: featureIdentities.length === 0 ? 0 : 1,
   };

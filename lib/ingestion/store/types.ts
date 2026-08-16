@@ -22,6 +22,9 @@ import type {
   QualityReport,
   SourceSystem,
 } from '../canonical/types';
+import type { StoredRowCounts } from '@/lib/analytics/integrity';
+
+export type { StoredRowCounts };
 
 /**
  * Import lifecycle.
@@ -156,6 +159,17 @@ export interface IngestionStore {
   listContracts(orgId: string, options?: { importId?: string }): Promise<CanonicalContractRecord[]>;
 
   getCoverage(orgId: string): Promise<CoverageSummary>;
+
+  /**
+   * Exact row counts held for a tenant, counted BY THE DATABASE.
+   *
+   * Deliberately not `(await listUsage(orgId)).length`: that would count what
+   * the read returned, which is precisely the number under suspicion. A read
+   * capped at 1,000 rows would report 1,000 stored and 1,000 analyzed and
+   * declare itself complete — the Phase 2C defect, reproduced inside its own
+   * detector. This asks the server for a count instead.
+   */
+  countStoredRows(orgId: string): Promise<StoredRowCounts>;
 }
 
 /** Coverage from canonical records. Shared by both store implementations. */

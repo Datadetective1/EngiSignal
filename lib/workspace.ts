@@ -19,6 +19,7 @@ import {
   portfolioConfidence,
 } from '@/lib/analytics/portfolio';
 import { generateSignals } from '@/lib/analytics/signals';
+import { checkIntegrity, type IntegrityReport } from '@/lib/analytics/integrity';
 import { reconcile, type ReconciliationSummary } from '@/lib/analytics/reconciliation';
 import { requireSession, type AppSession } from '@/lib/auth';
 import { getDataProvider } from '@/lib/data';
@@ -43,6 +44,12 @@ export interface Workspace {
   /** Entitlement versus contract, computed once per request. */
   reconciliation: ReconciliationSummary;
   signals: Signal[];
+  /**
+   * Did we analyse everything we stored? Computed once per request and read by
+   * every surface, so no page can render a number the integrity check would
+   * have withheld.
+   */
+  integrity: IntegrityReport;
   totals: ReturnType<typeof computePortfolioTotals>;
   unusedCapacity: ReturnType<typeof unusedCapacitySpend>;
   confidence: ConfidenceResult;
@@ -60,6 +67,15 @@ export const loadWorkspace = cache(async (): Promise<Workspace> => {
 
   const dataset = await provider.getDataset(organization.id);
   const options = DEFAULT_ANALYSIS_OPTIONS;
+
+  // Three counts that must agree: what the import receipts promised, what the
+  // database holds, and what this request actually read.
+  const accounting = await provider.countRowAccounting(organization.id);
+  const integrity = checkIntegrity({
+    accepted: accounting.accepted,
+    stored: accounting.stored,
+    analyzed: dataset.analyzedRows,
+  });
 
   const portfolio = buildPortfolio(dataset, options);
   const renewals = buildRenewals(dataset, portfolio);
@@ -103,6 +119,7 @@ export const loadWorkspace = cache(async (): Promise<Workspace> => {
     dataQuality,
     reconciliation,
     signals,
+    integrity,
     totals: computePortfolioTotals(portfolio),
     unusedCapacity: unusedCapacitySpend(portfolio),
     confidence: portfolioConfidence(portfolio),
@@ -121,3 +138,5 @@ export function recompute(dataset: AnalyticsDataset, overrides: Partial<Analysis
 export const employeeIndex = cache((dataset: AnalyticsDataset) => {
   return new Map(dataset.employees.map((employee) => [employee.id, employee]));
 });
+
+

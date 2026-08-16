@@ -14,6 +14,8 @@ import { formatDate } from '@/lib/analytics/dates';
 import { formatCurrencyExact, formatNumber } from '@/lib/analytics/financial';
 import { daysInactive } from '@/lib/analytics/named-user';
 import { employeeIndex, loadWorkspace } from '@/lib/workspace';
+import { AnalyticsWithheld } from '@/components/app/data-integrity';
+import { analyticsAvailable } from '@/lib/analytics/integrity';
 
 export const metadata: Metadata = { title: 'Users' };
 
@@ -24,7 +26,11 @@ export default async function UsersPage({
 }: {
   searchParams: Promise<{ feature?: string; q?: string; inactive?: string }>;
 }) {
-  const { dataset, portfolio, options } = await loadWorkspace();
+  const { integrity, dataset, portfolio, options } = await loadWorkspace();
+  // Every figure below is computed from usage. When the analysis did not
+  // read all of it, there is no honest version of this page.
+  if (!analyticsAvailable(integrity)) return <AnalyticsWithheld integrity={integrity} />;
+
   const params = await searchParams;
   const employees = employeeIndex(dataset);
 

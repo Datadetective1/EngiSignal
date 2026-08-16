@@ -278,6 +278,14 @@ export function generateDemoDataset(): AnalyticsDataset {
     imports: buildImportHistory(),
     importMappings: buildImportMappings(),
     asOf: DEMO_AS_OF,
+    // Synthetic data is generated in memory and consumed directly, so the
+    // analysed counts are the generated counts by construction.
+    analyzedRows: {
+      usage: hourlyUsage.length,
+      people: employees.length,
+      entitlements: features.length,
+      contracts: contractItems.length,
+    },
     employeeMappingRate: 0.99,
     featureMappingRate: 0.98,
   };

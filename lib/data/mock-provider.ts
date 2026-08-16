@@ -49,6 +49,16 @@ export const mockProvider: DataProvider = {
     return org.id === orgId ? org : null;
   },
 
+  async countRowAccounting(orgId: string) {
+    // Synthetic data is generated in memory and handed straight to the
+    // analytics, so there is no transport that could drop rows between the two.
+    // Reporting the dataset's own counts on both sides is honest here, and
+    // would be circular against a real database — which is why the Supabase
+    // provider asks the server for an exact count instead.
+    const dataset = await this.getDataset(orgId);
+    return { accepted: dataset.analyzedRows, stored: dataset.analyzedRows };
+  },
+
   async getDataset(orgId: string): Promise<AnalyticsDataset> {
     const data = dataset();
     if (orgId !== data.organization.id) {

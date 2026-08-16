@@ -23,6 +23,7 @@ import type {
   ImportDetail,
   ImportSummary,
   IngestionStore,
+  StoredRowCounts,
 } from './types';
 import { DuplicateImportError, summarizeCoverage } from './types';
 
@@ -201,6 +202,18 @@ export const memoryIngestionStore: IngestionStore = {
   async getCoverage(orgId: string): Promise<CoverageSummary> {
     const store = bucket(orgId);
     return summarizeCoverage(store.usage, store.entitlements, store.people, store.contracts);
+  },
+
+  async countStoredRows(orgId: string): Promise<StoredRowCounts> {
+    // In memory there is no transport between the store and the reader, so the
+    // array lengths ARE the authoritative counts.
+    const store = bucket(orgId);
+    return {
+      usage: store.usage.length,
+      people: store.people.length,
+      entitlements: store.entitlements.length,
+      contracts: store.contracts.length,
+    };
   },
 };
 

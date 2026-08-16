@@ -17,12 +17,18 @@ import { computeForecast } from '@/lib/analytics/forecast';
 import { forecastPortfolioSpend } from '@/lib/analytics/forecast';
 import { monthlyPeakSeries } from '@/lib/analytics/concurrent';
 import { loadWorkspace } from '@/lib/workspace';
+import { AnalyticsWithheld } from '@/components/app/data-integrity';
+import { analyticsAvailable } from '@/lib/analytics/integrity';
 
 export const metadata: Metadata = { title: 'Intelligence' };
 
 export default async function IntelligencePage() {
-  const { dataset, portfolio, renewals, signals, totals, unusedCapacity, confidence, options } =
+  const { dataset, portfolio, renewals, signals, totals, unusedCapacity, confidence, options, integrity } =
     await loadWorkspace();
+
+  // Every figure below is computed from usage. When the analysis did not read
+  // all of it, there is no honest version of this page.
+  if (!analyticsAvailable(integrity)) return <AnalyticsWithheld integrity={integrity} />;
 
   const capacityRisks = portfolio.filter((row) => row.risk === 'High' || row.risk === 'Critical').length;
   const reclaimCandidates = portfolio.reduce((acc, row) => acc + (row.namedUser?.reclaimCandidates ?? 0), 0);

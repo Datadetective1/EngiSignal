@@ -9,6 +9,7 @@ import {
   portfolioConfidence,
 } from '@/lib/analytics/portfolio';
 import { generateSignals } from '@/lib/analytics/signals';
+import { checkIntegrity } from '@/lib/analytics/integrity';
 import { reconcile } from '@/lib/analytics/reconciliation';
 import { DEFAULT_ANALYSIS_OPTIONS } from '@/lib/domain/dataset';
 import { generateDemoDataset } from '@/lib/synthetic/generate';
@@ -36,6 +37,11 @@ const workspace = {
   totals: computePortfolioTotals(portfolio),
   unusedCapacity: unusedCapacitySpend(portfolio),
   confidence: portfolioConfidence(portfolio),
+  integrity: checkIntegrity({
+    accepted: dataset.analyzedRows,
+    stored: dataset.analyzedRows,
+    analyzed: dataset.analyzedRows,
+  }),
   usingMockData: true,
 } satisfies Workspace;
 

@@ -7,6 +7,7 @@
  * even if a database policy were misconfigured.
  */
 
+import type { StoredRowCounts } from '@/lib/analytics/integrity';
 import type { AnalyticsDataset } from '@/lib/domain/dataset';
 import type {
   DecisionItem,
@@ -34,6 +35,19 @@ export interface DataProvider {
 
   /** The complete analytical dataset for one organization. */
   getDataset(orgId: string): Promise<AnalyticsDataset>;
+
+  /**
+   * What the import receipts promised, and what the database actually holds.
+   *
+   * Both sides come from the storage layer rather than from the dataset,
+   * because the dataset is the thing under suspicion: a truncated read would
+   * otherwise report its own truncated length as the expected total and
+   * declare itself complete. See lib/analytics/integrity.ts.
+   */
+  countRowAccounting(orgId: string): Promise<{
+    accepted: StoredRowCounts;
+    stored: StoredRowCounts;
+  }>;
 
   getReclaimOverrides(orgId: string): Promise<Map<string, ReclaimOverride>>;
   setReclaimOverride(orgId: string, candidateId: string, override: ReclaimOverride): Promise<void>;
