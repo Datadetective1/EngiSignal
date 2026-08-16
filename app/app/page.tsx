@@ -12,7 +12,13 @@ import {
 } from '@/components/ui/primitives';
 import { Sparkline } from '@/components/charts';
 import { formatDate } from '@/lib/analytics/dates';
-import { costPerEngineer, describeSpendHeadline, formatCurrency, formatNumber } from '@/lib/analytics/financial';
+import {
+  costPerEngineer,
+  describeSpendHeadline,
+  describeSpendShare,
+  formatCurrency,
+  formatNumber,
+} from '@/lib/analytics/financial';
 import { computeForecast } from '@/lib/analytics/forecast';
 import { forecastPortfolioSpend } from '@/lib/analytics/forecast';
 import { monthlyPeakSeries } from '@/lib/analytics/concurrent';
@@ -97,7 +103,7 @@ export default async function IntelligencePage() {
             label="Optimization"
             value={formatCurrency(totals.optimizationOpportunity)}
             tone="positive"
-            detail={`${((totals.optimizationOpportunity / totals.annualSpend) * 100).toFixed(1)}% of current spend`}
+            detail={describeSpendShare(totals.optimizationOpportunity, totals.annualSpend)}
             href="/app/portfolio"
           />
           <Kpi

@@ -145,6 +145,33 @@ export function computePortfolioTotals(rows: readonly PortfolioRow[]): Portfolio
   };
 }
 
+/**
+ * A part expressed as a share of total spend, or null when there is no basis.
+ *
+ * A brand-new workspace has no imports, so every total is zero, and
+ * `0 / 0 * 100` is NaN. The dashboard rendered that straight into the page as
+ * "NaN% of current spend" — a nonsense figure presented with the same
+ * confidence as a real one, on the first screen a new customer ever sees.
+ *
+ * Zero is not a valid denominator for a share, and neither is a missing one.
+ * Both mean the same thing: the question has no answer yet, and saying so is
+ * the only honest option.
+ */
+export function shareOfSpend(part: number, whole: number): number | null {
+  if (!Number.isFinite(part) || !Number.isFinite(whole) || whole <= 0) return null;
+  return (part / whole) * 100;
+}
+
+/** The sentence a KPI shows for a share of spend, including when there is none. */
+export function describeSpendShare(
+  part: number,
+  whole: number,
+  suffix = 'of current spend',
+): string {
+  const share = shareOfSpend(part, whole);
+  return share === null ? 'No spend data yet' : `${formatPercent(share)} ${suffix}`;
+}
+
 /** Annual spend per technical employee. Null when headcount is unknown. */
 export function costPerEngineer(annualSpend: number, technicalHeadcount: number | null): number | null {
   if (technicalHeadcount === null || technicalHeadcount <= 0) return null;

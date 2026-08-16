@@ -14,6 +14,7 @@ import {
   formatPercent,
   formatSignedPercent,
   describeSpendHeadline,
+  describeSpendShare,
 } from '@/lib/analytics/financial';
 import { computeForecast, forecastPortfolioSpend } from '@/lib/analytics/forecast';
 import { SIGNAL_LABELS } from '@/lib/analytics/signals';
@@ -136,7 +137,7 @@ export default async function ExecutiveBriefPage() {
               label="Optimization opportunity"
               value={formatCurrency(totals.optimizationOpportunity)}
               tone="positive"
-              sub={`${formatPercent((totals.optimizationOpportunity / totals.annualSpend) * 100)} of current spend`}
+              sub={describeSpendShare(totals.optimizationOpportunity, totals.annualSpend)}
             />
             <BriefKpi
               label="Forecast spend"

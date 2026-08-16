@@ -11,6 +11,7 @@ import {
   formatNumber,
   formatPercent,
   formatSignedPercent,
+  shareOfSpend,
 } from '@/lib/analytics/financial';
 import { computeForecast } from '@/lib/analytics/forecast';
 import { employeeIndex, loadWorkspace } from '@/lib/workspace';
@@ -501,19 +502,28 @@ function DriverList({
     <div>
       <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.1em] text-fg-subtle">{title}</p>
       <ul className="space-y-2">
-        {entries.map(([label, hours]) => (
-          <li key={label}>
-            <div className="mb-1 flex items-baseline justify-between gap-3">
-              <span className="truncate text-[12.5px] text-fg">{label}</span>
-              <span className="tnum shrink-0 text-[12px] text-fg-muted">
-                {((hours / total) * 100).toFixed(1)}%
-              </span>
-            </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-3">
-              <div className="h-full rounded-full bg-accent" style={{ width: `${(hours / total) * 100}%` }} />
-            </div>
-          </li>
-        ))}
+        {entries.map(([label, hours]) => {
+          // A concurrency-only export records who held a licence and never how
+          // long, so the hours total is legitimately zero on real estates.
+          // Dividing by it printed "NaN%" beside a full-width bar.
+          const share = shareOfSpend(hours, total);
+          return (
+            <li key={label}>
+              <div className="mb-1 flex items-baseline justify-between gap-3">
+                <span className="truncate text-[12.5px] text-fg">{label}</span>
+                <span className="tnum shrink-0 text-[12px] text-fg-muted">
+                  {share === null ? 'No duration recorded' : `${share.toFixed(1)}%`}
+                </span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-3">
+                <div
+                  className="h-full rounded-full bg-accent"
+                  style={{ width: `${share ?? 0}%` }}
+                />
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
