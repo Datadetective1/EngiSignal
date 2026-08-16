@@ -87,7 +87,15 @@ export async function signUpAction(formData: FormData) {
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { emailRedirectTo: await authCallbackUrl({ next: '/app' }) },
+    options: {
+      emailRedirectTo: await authCallbackUrl({ next: '/app' }),
+      // Carried on the user record so it survives the confirmation round trip.
+      // With email confirmation enabled there is no session here, so the
+      // provisioning call below never runs — and the name the customer typed
+      // was silently discarded, leaving every workspace named after the email
+      // domain. "Acme Aerospace" became "Acme Com".
+      data: organization.length > 0 ? { organization_name: organization } : undefined,
+    },
   });
   if (error !== null) redirect(`/signin?error=${messageFor(error)}&mode=signup`);
 
@@ -110,8 +118,21 @@ export async function ensureOrganization(name?: string): Promise<string | null> 
   if (!isSupabaseAuth()) return null;
 
   const supabase = await userClient();
+
+  // Fall back to the name captured at sign-up. Every path that provisions
+  // after confirmation reaches here without one, and the email domain is a
+  // poor substitute for what the customer actually called their company.
+  let organizationName = name;
+  if (organizationName === undefined || organizationName.length === 0) {
+    const { data: userData } = await supabase.auth.getUser();
+    const stored = userData.user?.user_metadata?.organization_name;
+    if (typeof stored === 'string' && stored.trim().length > 0) {
+      organizationName = stored.trim();
+    }
+  }
   const { data, error } = await supabase.rpc('bootstrap_organization', {
-    org_name: name !== undefined && name.length > 0 ? name : null,
+    org_name:
+      organizationName !== undefined && organizationName.length > 0 ? organizationName : null,
   });
 
   if (error !== null) return null;
