@@ -19,7 +19,14 @@ import {
   allocateCostAutomatically,
   type AllocationMethod,
 } from '@/lib/analytics/allocation';
-import { costPerEngineer, describeSpendHeadline, formatCurrency, formatNumber, formatPercent } from '@/lib/analytics/financial';
+import {
+  costPerActiveUser,
+  costPerEngineer,
+  describeSpendHeadline,
+  formatCurrency,
+  formatNumber,
+  formatPercent,
+} from '@/lib/analytics/financial';
 import type { DimensionKey } from '@/lib/domain/types';
 import { loadWorkspace } from '@/lib/workspace';
 
@@ -98,9 +105,17 @@ export default async function CostPage({
   // What the headline figure actually measures. Served capacity and a signed
   // commitment are different numbers and must not share a label.
   const headline = describeSpendHeadline(totals);
-  const activeUsers = new Set(
-    dataset.activities.filter((a) => a.totalSessions > 0).map((a) => a.employeeId),
+  // People OBSERVED using the software, on the same evidence the allocation
+  // engine uses. Counting only `totalSessions > 0` read this estate as zero
+  // active users: a concurrency export records who held a licence and never
+  // counts sessions, so every one of the 56 observed people scored zero and the
+  // page divided the whole portfolio by one of them.
+  const observedUsers = new Set(
+    dataset.activities
+      .filter((a) => a.totalSessions > 0 || a.totalHours > 0 || a.lastUsedDate !== null)
+      .map((a) => a.employeeId),
   ).size;
+  const perObservedUser = costPerActiveUser(totals.annualSpend, observedUsers);
 
   return (
     <div className="space-y-6">
@@ -126,9 +141,15 @@ export default async function CostPage({
           detail={`${formatNumber(dataset.organization.technicalHeadcount)} employees`}
         />
         <Kpi
-          label="Cost per active user"
-          value={formatCurrency(totals.annualSpend / Math.max(1, activeUsers))}
-          detail={`${formatNumber(activeUsers)} users with recorded activity`}
+          label="Cost per observed user"
+          // Null when nobody was observed. Dividing by one instead would print
+          // the entire portfolio as a single person's cost.
+          value={perObservedUser === null ? '—' : formatCurrency(perObservedUser)}
+          detail={
+            observedUsers === 0
+              ? 'No usage attributed to a person yet'
+              : `${formatNumber(observedUsers)} people observed using the software`
+          }
         />
         <Kpi
           label="Vendor concentration"
@@ -248,7 +269,7 @@ export default async function CostPage({
               <Th align="right">Share</Th>
               <Th align="right">Headcount</Th>
               <Th align="right">Cost per engineer</Th>
-              <Th align="right">Active users</Th>
+              <Th align="right">Observed users</Th>
               <Th align="right">Assigned seats</Th>
               <Th align="right">Usage hours</Th>
               <Th align="right">Potential waste</Th>
@@ -273,7 +294,7 @@ export default async function CostPage({
                 </Td>
                 <Td align="right">{formatNumber(row.headcount)}</Td>
                 <Td align="right">{formatCurrency(row.costPerEngineer)}</Td>
-                <Td align="right">{formatNumber(row.activeUsers)}</Td>
+                <Td align="right">{formatNumber(row.observedUsers)}</Td>
                 <Td align="right">{formatNumber(row.assignedLicenses)}</Td>
                 <Td align="right" className="text-fg-muted">
                   {formatNumber(row.usageHours)}
