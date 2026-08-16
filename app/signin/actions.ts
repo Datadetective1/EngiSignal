@@ -1,8 +1,8 @@
 'use server';
 
 import { redirect } from 'next/navigation';
-import { envOptional } from '@/config/env';
 import { createSession, isSupabaseAuth } from '@/lib/auth';
+import { authCallbackUrl } from '@/lib/auth/origin';
 import { userClient } from '@/lib/supabase/server';
 
 /**
@@ -80,7 +80,15 @@ export async function signUpAction(formData: FormData) {
   }
 
   const supabase = await userClient();
-  const { data, error } = await supabase.auth.signUp({ email, password });
+  // WITHOUT THIS the link in the confirmation email points at the project's
+  // Site URL — the apex host, at the site root — so a new customer confirms
+  // their address, lands on the public marketing page with `?code=…` still in
+  // the address bar, and is never signed in.
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { emailRedirectTo: await authCallbackUrl({ next: '/app' }) },
+  });
   if (error !== null) redirect(`/signin?error=${messageFor(error)}&mode=signup`);
 
   // With email confirmation enabled there is no session yet, so the workspace
@@ -126,9 +134,8 @@ export async function requestPasswordResetAction(formData: FormData) {
   if (!isSupabaseAuth()) redirect('/signin?notice=resetsent');
 
   const supabase = await userClient();
-  const origin = envOptional('NEXT_PUBLIC_SITE_URL') ?? '';
   await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${origin}/auth/callback?type=recovery`,
+    redirectTo: await authCallbackUrl({ type: 'recovery' }),
   });
 
   redirect('/signin?notice=resetsent');

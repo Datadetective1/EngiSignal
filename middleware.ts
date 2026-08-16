@@ -13,7 +13,42 @@ import { createServerClient } from '@supabase/ssr';
  * This does not authorize anything. It only keeps the session current; every
  * route still resolves its own session and every query is still governed by RLS.
  */
+/**
+ * An auth code that arrived at the wrong path.
+ *
+ * Supabase sends confirmation links to the project's Site URL when the caller
+ * did not name a redirect target. Sign-up used to do exactly that, so live
+ * confirmation links point at the site ROOT with `?code=…` attached — the
+ * public marketing page, which has no way to exchange it. The person is
+ * confirmed on Supabase's side and sees a brochure.
+ *
+ * Sign-up now names the callback explicitly, but links already in inboxes
+ * cannot be recalled, and a future misconfiguration of Site URL would silently
+ * reintroduce the same dead end. Forwarding the code to the callback makes the
+ * flow correct regardless of which of the two the email points at.
+ */
+function misdirectedAuthCode(request: NextRequest): URL | null {
+  const url = new URL(request.url);
+  if (url.pathname.startsWith('/auth/')) return null;
+
+  const code = url.searchParams.get('code');
+  const tokenHash = url.searchParams.get('token_hash');
+  if (code === null && tokenHash === null) return null;
+
+  const target = new URL('/auth/callback', url.origin);
+  for (const key of ['code', 'token_hash', 'type', 'next']) {
+    const value = url.searchParams.get(key);
+    if (value !== null) target.searchParams.set(key, value);
+  }
+  return target;
+}
+
 export async function middleware(request: NextRequest) {
+  // Before anything else: a valid auth code sitting on the wrong page is a
+  // signed-out customer who believes the product is broken.
+  const rescued = misdirectedAuthCode(request);
+  if (rescued !== null) return NextResponse.redirect(rescued);
+
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
 

@@ -15,6 +15,10 @@ const ERRORS: Record<string, string> = {
   weak: 'Choose a password of at least 8 characters.',
   invalid: 'That email and password do not match an account.',
   linkexpired: 'That link has expired or was already used. Request a new one.',
+  authfailed:
+    'That sign-in link could not be completed. Request a new one, or sign in with your password.',
+  nocode:
+    'That link was missing the code needed to sign you in. Open the most recent email and use the link there.',
   exists: 'An account already exists for that email. Sign in instead.',
   // Never reported as a problem with what the user typed.
   ratelimited: 'Too many attempts right now. Wait a minute and try again.',

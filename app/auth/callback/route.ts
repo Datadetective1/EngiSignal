@@ -38,6 +38,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL('/signin', url.origin));
   }
 
+  // Supabase reports its own failures on the query string — an expired link
+  // arrives here as an error, not as a code. Landing such a visitor on the
+  // sign-in page with no explanation is how "it just didn't work" happens.
+  const providerError = url.searchParams.get('error') ?? url.searchParams.get('error_code');
+  if (providerError !== null) {
+    const expired = /expired|otp_expired|access_denied/i.test(providerError);
+    return NextResponse.redirect(
+      new URL(`/signin?error=${expired ? 'linkexpired' : 'authfailed'}`, url.origin),
+    );
+  }
+
   const code = url.searchParams.get('code');
   const tokenHash = url.searchParams.get('token_hash');
   const type = url.searchParams.get('type');
@@ -58,7 +69,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL('/signin?error=linkexpired', url.origin));
     }
   } else {
-    return NextResponse.redirect(new URL('/signin?error=linkexpired', url.origin));
+    // Reached with no credential at all — a bare visit, or a link that lost its
+    // query string in a redirect. Not an expiry, and saying so would be a guess.
+    return NextResponse.redirect(new URL('/signin?error=nocode', url.origin));
   }
 
   // A recovery link means the user still has to choose a new password; sending
