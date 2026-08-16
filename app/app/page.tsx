@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/primitives';
 import { Sparkline } from '@/components/charts';
 import { formatDate } from '@/lib/analytics/dates';
-import { costPerEngineer, formatCurrency, formatNumber } from '@/lib/analytics/financial';
+import { costPerEngineer, describeSpendHeadline, formatCurrency, formatNumber } from '@/lib/analytics/financial';
 import { computeForecast } from '@/lib/analytics/forecast';
 import { forecastPortfolioSpend } from '@/lib/analytics/forecast';
 import { monthlyPeakSeries } from '@/lib/analytics/concurrent';
@@ -44,6 +44,9 @@ export default async function IntelligencePage() {
   );
 
   const perEngineer = costPerEngineer(totals.annualSpend, dataset.organization.technicalHeadcount);
+  // What the headline figure actually measures. Served capacity and a signed
+  // commitment are different numbers and must not share a label.
+  const headline = describeSpendHeadline(totals);
   const topSignals = signals.slice(0, 6);
   const remaining = signals.length - topSignals.length;
 
@@ -73,9 +76,15 @@ export default async function IntelligencePage() {
       <section aria-label="Portfolio indicators">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <Kpi
-            label="Annual spend"
-            value={formatCurrency(totals.annualSpend)}
-            detail={perEngineer === null ? undefined : `${formatCurrency(perEngineer)} per technical employee`}
+            label={headline.label}
+            value={formatCurrency(headline.value)}
+            detail={
+              headline.contrast === null
+                ? perEngineer === null
+                  ? undefined
+                  : `${formatCurrency(perEngineer)} per technical employee`
+                : `${headline.contrast.label} ${formatCurrency(headline.contrast.value)}`
+            }
             href="/app/cost"
           />
           <Kpi

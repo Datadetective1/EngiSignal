@@ -19,7 +19,7 @@ import {
   allocateCostAutomatically,
   type AllocationMethod,
 } from '@/lib/analytics/allocation';
-import { costPerEngineer, formatCurrency, formatNumber, formatPercent } from '@/lib/analytics/financial';
+import { costPerEngineer, describeSpendHeadline, formatCurrency, formatNumber, formatPercent } from '@/lib/analytics/financial';
 import type { DimensionKey } from '@/lib/domain/types';
 import { loadWorkspace } from '@/lib/workspace';
 
@@ -95,6 +95,9 @@ export default async function CostPage({
     .sort((a, b) => b.value - a.value);
 
   const perEngineer = costPerEngineer(totals.annualSpend, dataset.organization.technicalHeadcount);
+  // What the headline figure actually measures. Served capacity and a signed
+  // commitment are different numbers and must not share a label.
+  const headline = describeSpendHeadline(totals);
   const activeUsers = new Set(
     dataset.activities.filter((a) => a.totalSessions > 0).map((a) => a.employeeId),
   ).size;
@@ -108,7 +111,15 @@ export default async function CostPage({
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Kpi label="Annual spend" value={formatCurrency(totals.annualSpend)} detail={`${totals.featureCount} features`} />
+        <Kpi
+          label={headline.label}
+          value={formatCurrency(headline.value)}
+          detail={
+            headline.contrast === null
+              ? `${totals.featureCount} features`
+              : `${headline.contrast.label} ${formatCurrency(headline.contrast.value)}`
+          }
+        />
         <Kpi
           label="Cost per technical employee"
           value={formatCurrency(perEngineer)}
@@ -125,6 +136,13 @@ export default async function CostPage({
           detail={`Largest vendor share of spend · ${vendorBars[0]?.label ?? '—'}`}
         />
       </div>
+
+      {/* One sentence naming what the headline figure measures. A customer
+          reading "$1.76M" needs to know whether that is what they signed for
+          or what their licence servers happen to serve. */}
+      <p className="text-[12.5px] leading-relaxed text-fg-muted">
+        <span className="font-medium text-fg">{headline.label}:</span> {headline.basis}
+      </p>
 
       {/* ── Methodology controls ────────────────────────────────────────── */}
       <Card>

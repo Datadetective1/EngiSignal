@@ -227,3 +227,68 @@ export function formatSignedPercent(value: number | null, decimals = 1): string 
   if (value === null || !Number.isFinite(value)) return '—';
   return `${value > 0 ? '+' : ''}${value.toFixed(decimals)}%`;
 }
+
+/**
+ * ── WHAT THE SPEND HEADLINE IS ACTUALLY MEASURING ───────────────────────────
+ *
+ * `annualSpend` values SERVED capacity: entitled quantity × unit price. That is
+ * the right basis for utilization, because demand was measured against what the
+ * licence server would actually issue.
+ *
+ * It is the wrong headline for a customer who bought more than the server
+ * serves. The Phase 2C acceptance estate has a contract for 440 seats against
+ * an entitlement of 350, so the served valuation is $1,759,000 while the
+ * signed commitment is $2,209,000 — and a dashboard reading "Annual spend
+ * $1.76M" understates by $450,000 what they are contractually bound to pay.
+ * On an executive brief carried into a renewal negotiation, that is a number
+ * that loses money.
+ *
+ * So the headline is described, not just formatted. Where procurement evidence
+ * exists it leads and is called a commitment; where only entitlement evidence
+ * exists the figure is called what it is.
+ */
+export interface SpendHeadline {
+  label: string;
+  value: number;
+  /** The other figure, when both exist and disagree. Null otherwise. */
+  contrast: { label: string; value: number } | null;
+  /** One plain sentence naming the basis. */
+  basis: string;
+}
+
+export function describeSpendHeadline(totals: PortfolioTotals): SpendHeadline {
+  const served = totals.annualSpend;
+  const purchased = totals.purchasedCommitment;
+
+  // `purchasedCommitment` is 0, not null, when nothing was priced from a
+  // contract — so the feature COUNT is the evidence check, not the amount. A
+  // zero commitment and an absent one look identical in the number alone.
+  if (totals.purchasedPricedFeatures === 0) {
+    return {
+      label: 'Served capacity value',
+      value: served,
+      contrast: null,
+      basis:
+        'Entitled quantity × unit price. No contract quantities were supplied, so this is what the licence servers are configured to serve — not a purchased commitment.',
+    };
+  }
+
+  if (Math.abs(totals.commitmentGap) < 1) {
+    return {
+      label: 'Committed annually',
+      value: purchased,
+      contrast: null,
+      basis: 'Contract quantity × unit price. Served capacity matches what was purchased.',
+    };
+  }
+
+  return {
+    label: 'Committed annually',
+    value: purchased,
+    contrast: { label: 'Served capacity value', value: served },
+    basis:
+      totals.commitmentGap > 0
+        ? `Contract quantity × unit price. The licence servers serve ${formatCurrency(Math.abs(totals.commitmentGap))} less than was purchased — capacity paid for and not deployed.`
+        : `Contract quantity × unit price. The licence servers serve ${formatCurrency(Math.abs(totals.commitmentGap))} more than was purchased — deployed capacity beyond the contract.`,
+  };
+}

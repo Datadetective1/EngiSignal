@@ -572,7 +572,7 @@ describe('the key a confirmation stores', () => {
     const queue = buildUserReviewQueue({
       identities,
       employees: [
-        employee('user:anon', { username: '', employeeCode: 'E1234', email: null, fullName: null }),
+        employee('user:anon', { username: '', employeeCode: 'E1234', email: null }),
       ],
     });
     for (const candidate of queue.users[0]!.candidates) {

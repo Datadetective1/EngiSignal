@@ -1,0 +1,3 @@
+feature,vendor,contract_number,po_number,quantity,unit_price,currency,license_type,renewal_date
+ANSYS_MECH_ENT,Ansys,CTR-2291,PO-88410,440,5000,USD,concurrent,2026-11-15
+MATLAB,MathWorks,CTR-2317,PO-88502,10,900,USD,named user,2027-01-31

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { buildPortfolio } from '@/lib/analytics/portfolio';
-import { computePortfolioTotals } from '@/lib/analytics/financial';
+import { computePortfolioTotals, describeSpendHeadline } from '@/lib/analytics/financial';
 import { reconcile } from '@/lib/analytics/reconciliation';
 import { buildDatasetFromCanonical } from '@/lib/ingestion/dataset';
 import { DEFAULT_ANALYSIS_OPTIONS } from '@/lib/domain/dataset';
+import type { PortfolioTotals } from '@/lib/analytics/financial';
 import type {
   CanonicalContractRecord,
   CanonicalEntitlementRecord,
@@ -212,5 +213,65 @@ describe('when only one source exists', () => {
     expect(row.commitment.purchasedAnnualCommitment).toBeNull();
     expect(row.commitment.servedCapacityValue).toBeNull();
     expect(row.commitment.basis).toContain('no unit price supplied');
+  });
+});
+
+/**
+ * The spend headline is a sentence, not just a number.
+ *
+ * On the Phase 2C acceptance estate the served valuation is $1,759,000 and the
+ * signed commitment is $2,209,000. A dashboard reading "Annual spend $1.76M"
+ * understates by $450,000 what the customer is bound to pay, and the executive
+ * brief carrying that figure goes into a renewal negotiation.
+ */
+describe('describing the spend headline', () => {
+  const totals = (over: Partial<PortfolioTotals>): PortfolioTotals =>
+    ({
+      annualSpend: 1_759_000,
+      purchasedCommitment: 2_209_000,
+      purchasedPricedFeatures: 2,
+      commitmentGap: 450_000,
+      ...over,
+    }) as PortfolioTotals;
+
+  it('leads with the commitment when procurement evidence exists', () => {
+    const headline = describeSpendHeadline(totals({}));
+    expect(headline.label).toBe('Committed annually');
+    expect(headline.value).toBe(2_209_000);
+  });
+
+  it('shows the served figure alongside rather than hiding it', () => {
+    const headline = describeSpendHeadline(totals({}));
+    expect(headline.contrast).toEqual({ label: 'Served capacity value', value: 1_759_000 });
+  });
+
+  it('names the gap as undeployed capacity, never as a saving', () => {
+    const headline = describeSpendHeadline(totals({}));
+    expect(headline.basis).toContain('paid for and not deployed');
+    expect(headline.basis.toLowerCase()).not.toContain('saving');
+  });
+
+  it('refuses to call an entitlement-derived figure a commitment', () => {
+    const headline = describeSpendHeadline(
+      totals({ purchasedCommitment: 0, purchasedPricedFeatures: 0, commitmentGap: 0 }),
+    );
+    expect(headline.label).toBe('Served capacity value');
+    expect(headline.value).toBe(1_759_000);
+    expect(headline.basis).toContain('not a purchased commitment');
+  });
+
+  it('drops the contrast when the two agree', () => {
+    const headline = describeSpendHeadline(
+      totals({ purchasedCommitment: 1_759_000, commitmentGap: 0 }),
+    );
+    expect(headline.label).toBe('Committed annually');
+    expect(headline.contrast).toBeNull();
+  });
+
+  it('reports over-deployment in the other direction', () => {
+    const headline = describeSpendHeadline(
+      totals({ purchasedCommitment: 1_300_000, commitmentGap: -459_000 }),
+    );
+    expect(headline.basis).toContain('beyond the contract');
   });
 });

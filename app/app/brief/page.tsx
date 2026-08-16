@@ -13,6 +13,7 @@ import {
   formatNumber,
   formatPercent,
   formatSignedPercent,
+  describeSpendHeadline,
 } from '@/lib/analytics/financial';
 import { computeForecast, forecastPortfolioSpend } from '@/lib/analytics/forecast';
 import { SIGNAL_LABELS } from '@/lib/analytics/signals';
@@ -49,6 +50,9 @@ export default async function ExecutiveBriefPage() {
   const reclaimTotal = portfolio.reduce((acc, row) => acc + (row.namedUser?.reclaimValue ?? 0), 0);
   const reclaimSeats = portfolio.reduce((acc, row) => acc + (row.namedUser?.reclaimCandidates ?? 0), 0);
   const perEngineer = costPerEngineer(totals.annualSpend, dataset.organization.technicalHeadcount);
+  // What the headline figure actually measures. Served capacity and a signed
+  // commitment are different numbers and must not share a label.
+  const headline = describeSpendHeadline(totals);
 
   const byProgram = new Map<string, number>();
   for (const activity of dataset.activities) {
@@ -103,7 +107,17 @@ export default async function ExecutiveBriefPage() {
         {/* ── Headline figures ──────────────────────────────────────────── */}
         <section className="print-avoid-break mb-9">
           <div className="grid gap-3 sm:grid-cols-3">
-            <BriefKpi label="Annual software spend" value={formatCurrency(totals.annualSpend)} sub={perEngineer === null ? undefined : `${formatCurrency(perEngineer)} per technical employee`} />
+            <BriefKpi
+              label={headline.label}
+              value={formatCurrency(headline.value)}
+              sub={
+                headline.contrast === null
+                  ? perEngineer === null
+                    ? undefined
+                    : `${formatCurrency(perEngineer)} per technical employee`
+                  : `${headline.contrast.label} ${formatCurrency(headline.contrast.value)}`
+              }
+            />
             <BriefKpi
               label="Optimization opportunity"
               value={formatCurrency(totals.optimizationOpportunity)}
@@ -284,7 +298,7 @@ export default async function ExecutiveBriefPage() {
         {/* ── 5. Forecast ───────────────────────────────────────────────── */}
         <BriefSection number="05" title="Forecast" subtitle="Where demand is heading over the next twelve months.">
           <div className="grid gap-4 sm:grid-cols-3">
-            <BriefKpi label="Current spend" value={formatCurrencyExact(totals.annualSpend)} />
+            <BriefKpi label={headline.label} value={formatCurrencyExact(headline.value)} />
             <BriefKpi label="Forecast spend" value={formatCurrencyExact(forecastSpend)} tone={forecastSpend > totals.annualSpend ? 'danger' : 'positive'} />
             <BriefKpi
               label="Features needing more capacity"
