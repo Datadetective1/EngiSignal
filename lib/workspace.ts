@@ -22,6 +22,7 @@ import { generateSignals } from '@/lib/analytics/signals';
 import { checkIntegrity, type IntegrityReport } from '@/lib/analytics/integrity';
 import { reconcile, type ReconciliationSummary } from '@/lib/analytics/reconciliation';
 import { requireSession, type AppSession } from '@/lib/auth';
+import { ensureOrganization } from '@/app/signin/actions';
 import { getDataProvider } from '@/lib/data';
 import { DEFAULT_ANALYSIS_OPTIONS, type AnalysisOptions, type AnalyticsDataset } from '@/lib/domain/dataset';
 import type {
@@ -61,7 +62,21 @@ export const loadWorkspace = cache(async (): Promise<Workspace> => {
   const session = await requireSession();
   const provider = getDataProvider();
 
-  const organizations = await provider.listOrganizations(session.userId);
+  let organizations = await provider.listOrganizations(session.userId);
+
+  // A signed-in user with no organization is a provisioning gap, not a missing
+  // page. It happened in production to every customer who confirmed their email
+  // address: they held a valid session, belonged to no tenant, and got a 404 on
+  // the first screen of the product.
+  //
+  // The callback now provisions on confirmation. This is the backstop for every
+  // other way into the app — a bookmark, a shared link, a retried request — and
+  // is idempotent, so it can never create a second tenant for the same person.
+  if (organizations.length === 0) {
+    await ensureOrganization();
+    organizations = await provider.listOrganizations(session.userId);
+  }
+
   const organization = organizations[0];
   if (organization === undefined) notFound();
 

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { supabaseEnabled } from '@/config/env';
 import { userClient } from '@/lib/supabase/server';
+import { ensureOrganization } from '@/app/signin/actions';
 
 export const runtime = 'nodejs';
 
@@ -79,6 +80,23 @@ export async function GET(request: NextRequest) {
   if (type === 'recovery') {
     return NextResponse.redirect(new URL('/auth/reset', url.origin));
   }
+
+  // PROVISION THE WORKSPACE BEFORE SENDING THEM INTO IT.
+  //
+  // Confirming an email address is the first moment a signed-up customer holds
+  // a session. Sign-up itself could not provision for them: with email
+  // confirmation enabled there is no session at that point, so the call was
+  // skipped. Sign-in provisions, but a confirmed user goes straight to the app
+  // without signing in again.
+  //
+  // The gap showed up in production as a 404 on /app — loadWorkspace calls
+  // notFound() when the user belongs to no organization, so a customer who did
+  // everything right saw "This page could not be found" one click after
+  // confirming their address.
+  //
+  // Idempotent: bootstrap_organization returns the existing membership when
+  // there is one, so this can never create a second tenant.
+  await ensureOrganization();
 
   return NextResponse.redirect(new URL(next, url.origin));
 }
