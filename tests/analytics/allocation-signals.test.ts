@@ -269,7 +269,7 @@ function portfolioRow(overrides: Partial<PortfolioRow> = {}): PortfolioRow {
     denials: null,
     rightSizing: null,
     financial: computeFinancial({ entitled: 400, recommended: 318, unitPrice: 5000 }),
-    confidence: { level: 'High', score: 92, reasons: [] },
+    confidence: { level: 'High', score: 92, reasons: [], evidence: null },
     risk: 'Low',
     renewalDate: '2026-08-27',
     daysToRenewal: 58,
@@ -307,7 +307,7 @@ function renewal(overrides: Partial<RenewalSummary> = {}): RenewalSummary {
     capacityExposure: 0,
     demandTrendPct: 3,
     headcountImpactPct: 5,
-    confidence: { level: 'High', score: 92, reasons: [] },
+    confidence: { level: 'High', score: 92, reasons: [], evidence: null },
     ...overrides,
   };
 }

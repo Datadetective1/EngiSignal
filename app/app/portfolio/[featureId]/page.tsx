@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { BulletChart, ChartLegend, DemandChart, RankedBars, UsageHeatmap } from '@/components/charts';
+import { ConfidenceExplainer } from '@/components/app/confidence-explainer';
 import { EvidenceDrawer } from '@/components/app/evidence-drawer';
 import {
   Badge,
@@ -178,6 +179,10 @@ export default async function FeatureDetailPage({
           />
         </div>
       </Card>
+
+      {/* Immediately under the recommendation it qualifies, before the reader
+          scrolls past it into the supporting detail. */}
+      <ConfidenceExplainer confidence={row.confidence} />
 
       <EvidenceDrawer evidence={evidence} />
 

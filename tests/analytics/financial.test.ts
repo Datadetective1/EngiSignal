@@ -77,7 +77,7 @@ function row(overrides: Partial<PortfolioRow>): PortfolioRow {
     denials: null,
     rightSizing: null,
     financial: computeFinancial({ entitled: 100, recommended: 80, unitPrice: 1000 }),
-    confidence: { level: 'High', score: 90, reasons: [] },
+    confidence: { level: 'High', score: 90, reasons: [], evidence: null },
     risk: 'Low',
     renewalDate: null,
     daysToRenewal: null,

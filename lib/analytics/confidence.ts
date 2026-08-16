@@ -10,7 +10,11 @@
  * explained to a customer in a single conversation.
  */
 
-import type { ConfidenceLevel, ConfidenceReason, ConfidenceResult } from '@/lib/domain/types';
+import type {
+  ConfidenceLevel,
+  ConfidenceReason,
+  ConfidenceResult,
+} from '@/lib/domain/types';
 import { clamp, round } from './stats';
 
 export const CONFIDENCE_THRESHOLDS = { high: 80, medium: 55 } as const;
@@ -195,7 +199,21 @@ export function computeConfidence(input: ConfidenceInput): ConfidenceResult {
 
   for (const d of deductions) reasons.push(d.reason);
 
-  return { level: levelFromScore(score), score, reasons };
+  return {
+    level: levelFromScore(score),
+    score,
+    reasons,
+    // The raw measurements, kept so the explanation can quote them back in the
+    // customer's own units instead of restating the badge.
+    evidence: {
+      observedDays: input.observedDays,
+      windowDays: input.windowDays,
+      hasPrice: input.hasPrice,
+      hasDenialData: input.hasDenialData,
+      employeeMappingRate: input.employeeMappingRate,
+      featureMappingRate: input.featureMappingRate,
+    },
+  };
 }
 
 export function levelFromScore(score: number): ConfidenceLevel {
@@ -223,6 +241,7 @@ export function aggregateConfidence(results: readonly ConfidenceResult[]): Confi
       level: 'Low',
       score: 0,
       reasons: [{ label: 'No data', detail: 'No analyzed features', impact: 'negative' }],
+      evidence: null,
     };
   }
 
@@ -246,5 +265,6 @@ export function aggregateConfidence(results: readonly ConfidenceResult[]): Confi
     });
   }
 
-  return { level: levelFromScore(score), score, reasons };
+  // An aggregate spans many windows, so there is no single one to report.
+  return { level: levelFromScore(score), score, reasons, evidence: null };
 }

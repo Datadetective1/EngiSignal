@@ -127,8 +127,8 @@ describe('confidenceWeight', () => {
 describe('aggregateConfidence', () => {
   it('averages component scores', () => {
     const result = aggregateConfidence([
-      { level: 'High', score: 100, reasons: [] },
-      { level: 'Medium', score: 60, reasons: [] },
+      { level: 'High', score: 100, reasons: [], evidence: null },
+      { level: 'Medium', score: 60, reasons: [], evidence: null },
     ]);
     expect(result.score).toBe(80);
     expect(result.level).toBe('High');
@@ -136,8 +136,8 @@ describe('aggregateConfidence', () => {
 
   it('calls out low-confidence members explicitly', () => {
     const result = aggregateConfidence([
-      { level: 'High', score: 90, reasons: [] },
-      { level: 'Low', score: 30, reasons: [] },
+      { level: 'High', score: 90, reasons: [], evidence: null },
+      { level: 'Low', score: 30, reasons: [], evidence: null },
     ]);
     expect(result.reasons.some((r) => r.label === 'Low-confidence features')).toBe(true);
   });

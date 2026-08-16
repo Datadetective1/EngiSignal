@@ -35,7 +35,7 @@ function row(overrides: Partial<PortfolioRow> & { featureId: string }): Portfoli
       savingsPct: 0,
       priced: true,
     },
-    confidence: { score: 50, level: 'Medium', reasons: [] },
+    confidence: { score: 50, level: 'Medium', reasons: [], evidence: null },
     risk: 'Low',
     renewalDate: '2026-11-15',
     daysToRenewal: 90,

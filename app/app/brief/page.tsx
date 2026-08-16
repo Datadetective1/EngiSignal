@@ -20,6 +20,7 @@ import { SIGNAL_LABELS } from '@/lib/analytics/signals';
 import { employeeIndex, loadWorkspace } from '@/lib/workspace';
 import { AnalyticsWithheld } from '@/components/app/data-integrity';
 import { analyticsAvailable } from '@/lib/analytics/integrity';
+import { ConfidenceQualification } from '@/components/app/confidence-explainer';
 
 export const metadata: Metadata = { title: 'Executive brief' };
 
@@ -109,6 +110,13 @@ export default async function ExecutiveBriefPage() {
             </p>
           </div>
         </header>
+
+        {/* The brief is printed and carried into a negotiation, so the
+            qualification travels with the numbers rather than staying on the
+            screen the reader has already left. */}
+        <section className="print-avoid-break mb-6">
+          <ConfidenceQualification confidence={confidence} />
+        </section>
 
         {/* ── Headline figures ──────────────────────────────────────────── */}
         <section className="print-avoid-break mb-9">

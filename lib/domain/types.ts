@@ -356,11 +356,30 @@ export interface ConfidenceReason {
   impact: 'positive' | 'neutral' | 'negative';
 }
 
+/**
+ * The measurements a confidence level was computed from.
+ *
+ * Carried alongside the score so a customer can be told WHY the level is what
+ * it is, in the units they supplied, rather than being handed a badge. Null on
+ * aggregates, where a single observation window does not exist.
+ */
+export interface ConfidenceEvidence {
+  /** Days in the analysis window that contain at least one observation. */
+  observedDays: number;
+  /** Calendar days the analysis asked for. */
+  windowDays: number;
+  hasPrice: boolean;
+  hasDenialData: boolean;
+  employeeMappingRate: number | null;
+  featureMappingRate: number | null;
+}
+
 export interface ConfidenceResult {
   level: ConfidenceLevel;
   /** 0–100. Exposed so ranking can use a continuous value. */
   score: number;
   reasons: ConfidenceReason[];
+  evidence: ConfidenceEvidence | null;
 }
 
 export type RiskLevel = 'Low' | 'Moderate' | 'High' | 'Critical';
