@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  MAX_CONCURRENT_PAGES,
   PAGE_SIZE,
   readAllRows,
+  readAllRowsByCursor,
   type RangeableQuery,
 } from '@/lib/ingestion/store/paging';
 
@@ -111,108 +111,120 @@ describe('reading every stored row', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Reading a ceiling-sized estate in a time a person will wait
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * ── AND READING THEM QUICKLY ─────────────────────────────────────────────────
+ * Phase 2D imported an estate at the stated ceiling and timed the corrected
+ * read in production: /app/renewals took 50.8 seconds. The analytics over the
+ * same 67,267 rows take 668 ms — all of it was the read, and the read was
+ * quadratic, because `range(60000, 60999)` makes the database walk 61,000 rows
+ * to reach the ones it returns.
  *
- * Phase 2D measured the corrected read at the stated ceiling: 67,267 rows is 68
- * pages, taken one after another, and the Renewals page took 50.8 seconds to
- * render in production. The analytics over those same rows take under a second.
+ * Making those requests concurrent made it worse rather than better. Measured
+ * against production, eight deep pages in flight exceeded Supabase's 8-second
+ * statement timeout and returned 52,000 rows of 67,267. Faster truncation is
+ * not an improvement.
  *
- * Pages are now requested in parallel batches, sized from the exact count the
- * integrity check already takes server-side. The count decides CONCURRENCY and
- * nothing else — the read still ends on a short page, so a count captured a
- * moment earlier can never shorten a read.
+ * Keyset paging seeks straight to the rows after the last id it saw. Measured
+ * on the same estate: 68 pages, all 67,267 rows, 8.6 seconds, no timeouts.
  */
 
-/** Records how many requests were open at the same moment. */
-function concurrentTable(totalRows: number) {
-  const all = Array.from({ length: totalRows }, (_, index) => ({ n: index }));
-  const calls: { from: number; to: number }[] = [];
-  let open = 0;
-  let peak = 0;
+/** A table that behaves the way PostgREST does, paged by cursor. */
+function cursorTable(totalRows: number, cap = PAGE_SIZE) {
+  const all = Array.from({ length: totalRows }, (_, index) => ({ id: index + 1 }));
+  const calls: { afterId: number; size: number }[] = [];
 
-  const build = (): RangeableQuery<{ n: number }> => ({
-    range(from, to) {
-      calls.push({ from, to });
-      open += 1;
-      peak = Math.max(peak, open);
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          open -= 1;
-          resolve({ data: all.slice(from, to + 1), error: null });
-        }, 1);
-      });
-    },
-  });
+  const fetchPage = (afterId: number, size: number) => {
+    calls.push({ afterId, size });
+    const found = all.findIndex((row) => row.id > afterId);
+    const start = found === -1 ? all.length : found;
+    return Promise.resolve({ data: all.slice(start, start + Math.min(size, cap)), error: null });
+  };
 
-  return { build, calls, peak: () => peak };
+  return { fetchPage, calls };
 }
 
-describe('reading a ceiling-sized estate without a queue of round trips', () => {
-  it('returns exactly the same rows as the sequential read', async () => {
-    const table = concurrentTable(67_267);
-    const rows = await readAllRows(table.build, { expected: 67_267 });
+describe('reading every stored row by cursor', () => {
+  it('returns all of them, in order, at ceiling volume', async () => {
+    const table = cursorTable(67_267);
+    const rows = await readAllRowsByCursor(table.fetchPage);
 
     expect(rows).toHaveLength(67_267);
-    expect(rows[0]!.n).toBe(0);
-    expect(rows[67_266]!.n).toBe(67_266);
     // Order matters: the analytics read dates out of these rows in sequence.
-    expect(rows.every((row, index) => row.n === index)).toBe(true);
+    expect(rows.every((row, index) => row.id === index + 1)).toBe(true);
   });
 
-  it('overlaps requests instead of waiting for each page', async () => {
-    const table = concurrentTable(67_267);
-    await readAllRows(table.build, { expected: 67_267 });
-    expect(table.peak()).toBeGreaterThan(1);
-    expect(table.peak()).toBeLessThanOrEqual(MAX_CONCURRENT_PAGES);
+  it('never asks the database to count past rows it does not want', async () => {
+    const table = cursorTable(67_267);
+    await readAllRowsByCursor(table.fetchPage);
+
+    // The quadratic term is gone: every page is a seek, not a scan-and-skip.
+    expect(table.calls[0]).toEqual({ afterId: 0, size: PAGE_SIZE });
+    expect(table.calls[1]).toEqual({ afterId: 1_000, size: PAGE_SIZE });
+    expect(table.calls.at(-1)?.afterId).toBe(67_000);
   });
 
-  it('never opens more connections than the bound allows', async () => {
-    // 68 simultaneous connections from a serverless function exhausts the pool.
-    const table = concurrentTable(5_000_000 / PAGE_SIZE);
-    await readAllRows(table.build, { expected: 5_000_000 });
-    expect(table.peak()).toBeLessThanOrEqual(MAX_CONCURRENT_PAGES);
+  it('does not lose a row when the total is an exact multiple of the page', async () => {
+    const table = cursorTable(2_000);
+    const rows = await readAllRowsByCursor(table.fetchPage);
+
+    expect(rows).toHaveLength(2_000);
+    expect(table.calls).toHaveLength(3);
   });
 
-  it('reads past a count that was taken before rows were added', async () => {
-    // The count is a hint. If the estate grew between counting and reading,
-    // the read must not stop at the stale number.
-    const table = concurrentTable(9_500);
-    const rows = await readAllRows(table.build, { expected: 4_000 });
-    expect(rows).toHaveLength(9_500);
-  });
-
-  it('does not use a stale high count to claim rows that are not there', async () => {
-    const table = concurrentTable(2_300);
-    const rows = await readAllRows(table.build, { expected: 40_000 });
-    // Short read, reported as a short read. The integrity check compares this
-    // against the stored count and withholds the analytics; it is not padded,
-    // and it does not throw.
-    expect(rows).toHaveLength(2_300);
-  });
-
-  it('refuses to assemble a result with a hole in it', async () => {
-    // A page that comes back short followed by a page with rows in it means
-    // the range we assembled is not contiguous. Returning it would be a
-    // partial read wearing the shape of a complete one.
-    const build = (): RangeableQuery<{ n: number }> => ({
-      range(from, to) {
-        const width = from === PAGE_SIZE ? 10 : to - from + 1;
-        return Promise.resolve({
-          data: Array.from({ length: width }, (_, i) => ({ n: from + i })),
-          error: null,
-        });
-      },
-    });
-
-    await expect(readAllRows(build, { expected: 8_000 })).rejects.toThrow(/gap in it/);
-  });
-
-  it('still honours a caller-supplied limit when a count is available', async () => {
-    const table = concurrentTable(67_267);
-    const rows = await readAllRows(table.build, { limit: 200, expected: 67_267 });
-    expect(rows).toHaveLength(200);
+  it('handles an empty table without a second request', async () => {
+    const table = cursorTable(0);
+    expect(await readAllRowsByCursor(table.fetchPage)).toHaveLength(0);
     expect(table.calls).toHaveLength(1);
+  });
+
+  it('honours a caller-supplied limit without over-fetching', async () => {
+    const table = cursorTable(67_267);
+    const rows = await readAllRowsByCursor(table.fetchPage, { limit: 1_500 });
+
+    expect(rows).toHaveLength(1_500);
+    expect(table.calls).toHaveLength(2);
+    expect(table.calls[1]).toEqual({ afterId: 1_000, size: 500 });
+  });
+
+  it('surfaces a timeout instead of returning a short estate', async () => {
+    // 57014 is what production returned when deep pages ran concurrently. It
+    // must never be mistaken for the end of the data.
+    let call = 0;
+    const fetchPage = (afterId: number, size: number) => {
+      call += 1;
+      if (call > 3) {
+        return Promise.resolve({
+          data: null,
+          error: { message: 'canceling statement due to statement timeout' },
+        });
+      }
+      return Promise.resolve({
+        data: Array.from({ length: size }, (_, i) => ({ id: afterId + i + 1 })),
+        error: null,
+      });
+    };
+
+    await expect(readAllRowsByCursor(fetchPage)).rejects.toThrow('statement timeout');
+  });
+
+  it('refuses to spin forever on a page that cannot advance the cursor', async () => {
+    // An unordered page re-reads the same rows until the request dies. Saying
+    // so is better than a request that never returns.
+    const fetchPage = (_afterId: number, size: number) =>
+      Promise.resolve({ data: Array.from({ length: size }, () => ({ id: 7 })), error: null });
+
+    await expect(readAllRowsByCursor(fetchPage)).rejects.toThrow('did not advance');
+  });
+
+  it('never asks for a page larger than the server will return', async () => {
+    // Measured against production: range(0, 9999) returns exactly 1,000 rows,
+    // silently. A page size above the server cap would read one page, see a
+    // "short" page, and call it the whole estate.
+    const table = cursorTable(67_267, PAGE_SIZE);
+    expect(await readAllRowsByCursor(table.fetchPage)).toHaveLength(67_267);
+    for (const call of table.calls) expect(call.size).toBeLessThanOrEqual(PAGE_SIZE);
   });
 });

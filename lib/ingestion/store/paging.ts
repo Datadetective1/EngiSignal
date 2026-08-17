@@ -15,38 +15,11 @@
  * That is the worst failure this product can have: not an error, but a
  * confident answer derived from a fraction of the data.
  *
- * ── AND READING THEM IN A TIME A PERSON WILL WAIT ────────────────────────────
- *
- * Phase 2D measured the fix at the stated ceiling. A 67,267-row estate is 68
- * pages, and every page was a separate round trip taken one after another:
- * the Renewals page took 50.8 seconds to render in production. The analytics
- * over those rows take under a second — the entire cost was the queue of
- * sequential requests.
- *
- * Pages are now issued in parallel batches. The caller usually already knows
- * the exact row count (the integrity check counts it server-side with
- * `head: true`), so it can say how many pages to expect and the whole read
- * becomes a handful of waves instead of a queue.
- *
- * The expected count is used ONLY to decide how many requests to have in flight.
- * It is never used to decide when to stop. Trusting a count taken at a
- * different instant to end the read would put the truncation defect back, just
- * with a more convincing justification for it.
- *
  * Lives in its own module, free of `server-only`, so the paging logic can be
  * tested directly rather than only through a live database.
  */
 
 export const PAGE_SIZE = 1000;
-
-/**
- * How many page requests may be in flight at once.
- *
- * Bounded rather than unlimited: an estate at the ceiling is 68 pages, and
- * opening 68 simultaneous connections to Postgres from a serverless function
- * trades a slow page for an exhausted connection pool.
- */
-export const MAX_CONCURRENT_PAGES = 8;
 
 /** The only part of a PostgREST query builder this needs. */
 export interface RangeableQuery<T> {
@@ -56,18 +29,8 @@ export interface RangeableQuery<T> {
   ): PromiseLike<{ data: T[] | null; error: { message: string } | null }>;
 }
 
-export interface ReadAllOptions {
-  /** Stop after this many rows. Used by the deliberately capped rejection list. */
-  limit?: number;
-  /**
-   * Exact row count from a server-side count, when the caller has one.
-   * A hint for parallelism only — never a termination condition.
-   */
-  expected?: number;
-}
-
 /**
- * Read every row a query matches.
+ * Read every row a query matches, one page at a time.
  *
  * `build` is called per page so the same filters are reapplied; PostgREST
  * builders are single-use. An error on any page throws rather than returning
@@ -76,73 +39,125 @@ export interface ReadAllOptions {
  */
 export async function readAllRows<T>(
   build: () => RangeableQuery<T>,
-  options?: number | ReadAllOptions,
+  limit?: number,
 ): Promise<T[]> {
-  const { limit, expected } = typeof options === 'number' ? { limit: options, expected: undefined } : (options ?? {});
-
   const rows: T[] = [];
-  let offset = 0;
-  // Pages the caller's count suggests are worth requesting up front. Only the
-  // first batch can use it; after that the data itself decides.
-  let plannedPages =
-    expected === undefined ? 1 : Math.max(1, Math.ceil(Math.min(expected, limit ?? expected) / PAGE_SIZE));
+
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    // Never ask for more than the caller wanted, when they capped it.
+    const remaining = limit === undefined ? PAGE_SIZE : Math.min(PAGE_SIZE, limit - rows.length);
+    if (remaining <= 0) break;
+
+    const { data, error } = await build().range(offset, offset + remaining - 1);
+    if (error !== null) throw new Error(error.message);
+
+    const page = data ?? [];
+    rows.push(...page);
+
+    // A short page means there is nothing after it. This is the only
+    // end-of-data signal PostgREST gives without a separate count request.
+    if (page.length < remaining) break;
+  }
+
+  return rows;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reading a full estate in a time a person will wait
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * ── WHY OFFSET PAGING IS NOT ENOUGH ──────────────────────────────────────────
+ *
+ * Phase 2D imported an estate at the ceiling the import page states — 68,008
+ * rows — and measured the corrected read in production:
+ *
+ *     /app/renewals   50.8 seconds
+ *
+ * The analytics are not the cost. The same 67,267 rows parse, project and build
+ * a full portfolio in 668 ms in-process. The cost is the read, and it is
+ * quadratic: `range(60000, 60999)` makes Postgres walk 61,000 rows to reach the
+ * ones it returns. Measured on the production table, page 61 took 141 ms of
+ * database time against 10 ms for page 1, and the shape only gets worse as a
+ * customer's history grows.
+ *
+ * Issuing those pages concurrently makes it worse rather than better. Measured
+ * against production with eight requests in flight, the deep pages exceeded
+ * Supabase's 8-second `statement_timeout` and came back
+ * `57014: canceling statement due to statement timeout` — 52,000 rows of 67,267,
+ * with errors. Faster truncation is not an improvement.
+ *
+ * Keyset paging removes the offset entirely: each page asks for the rows AFTER
+ * the last id it saw, which the index can seek to directly. Measured on the
+ * same estate: 68 pages, 67,267 rows, 8.6 seconds, no timeouts. It is
+ * deliberately sequential — each page needs the previous page's last key — and
+ * sequential-and-complete beats concurrent-and-truncated every time.
+ *
+ * The page size stays at 1,000 because that is what the server will give.
+ * Requesting more was measured too: `range(0, 9999)` returns exactly 1,000
+ * rows, silently. Asking for a bigger page is the truncation defect with extra
+ * steps.
+ */
+
+/** A row that can be paged by cursor. Every canonical table has a bigint id. */
+export interface CursorRow {
+  id: number;
+}
+
+export interface CursorReadOptions {
+  /** Stop after this many rows. Used by the deliberately capped rejection list. */
+  limit?: number;
+}
+
+/**
+ * Read every row a query matches, seeking by id rather than counting past rows.
+ *
+ * `fetchPage` is called per page so the same filters are reapplied; PostgREST
+ * builders are single-use. It must apply `.gt('id', afterId)`, `.order('id')`
+ * ascending and `.limit(size)` — the ordering is what makes the cursor
+ * meaningful, and a page returned in another order would skip rows.
+ *
+ * An error on any page throws rather than returning what arrived so far. A
+ * partial read that looks like a complete one is the defect this module exists
+ * to prevent, and a statement timeout on page 40 is exactly that.
+ */
+export async function readAllRowsByCursor<T extends CursorRow>(
+  fetchPage: (
+    afterId: number,
+    size: number,
+  ) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+  options?: CursorReadOptions,
+): Promise<T[]> {
+  const limit = options?.limit;
+  const rows: T[] = [];
+  let afterId = 0;
 
   for (;;) {
     // Never ask for more than the caller wanted, when they capped it.
-    const budget = limit === undefined ? Infinity : limit - rows.length;
-    if (budget <= 0) break;
+    const size = limit === undefined ? PAGE_SIZE : Math.min(PAGE_SIZE, limit - rows.length);
+    if (size <= 0) break;
 
-    const maxPages = budget === Infinity ? Infinity : Math.ceil(budget / PAGE_SIZE);
-    const batchSize = Math.max(1, Math.min(MAX_CONCURRENT_PAGES, plannedPages, maxPages));
+    const { data, error } = await fetchPage(afterId, size);
+    if (error !== null) throw new Error(error.message);
 
-    const requests: Promise<T[]>[] = [];
-    for (let page = 0; page < batchSize; page++) {
-      const from = offset + page * PAGE_SIZE;
-      const width =
-        limit === undefined ? PAGE_SIZE : Math.max(0, Math.min(PAGE_SIZE, limit - (from - 0)));
-      if (width <= 0) break;
-      requests.push(
-        Promise.resolve(build().range(from, from + width - 1)).then(({ data, error }) => {
-          if (error !== null) throw new Error(error.message);
-          return data ?? [];
-        }),
+    const page = data ?? [];
+    rows.push(...page);
+
+    // A short page means there is nothing after it. Because `size` is never
+    // above the server's own row cap, a full page can only mean "there may be
+    // more" and never "the server truncated this".
+    if (page.length < size) break;
+
+    const last = page[page.length - 1];
+    // Defensive: a page that cannot advance the cursor would loop forever,
+    // re-reading the same rows until the request died. Better to say so.
+    if (last === undefined || last.id <= afterId) {
+      throw new Error(
+        `Paged read did not advance past id ${afterId}. The page is not ordered by id ascending.`,
       );
     }
-    if (requests.length === 0) break;
-
-    // Promise.all rejects on the first failure, so a page that errored can
-    // never be mistaken for the end of the data.
-    const pages = await Promise.all(requests);
-
-    let ended = false;
-    for (const [index, page] of pages.entries()) {
-      const from = offset + index * PAGE_SIZE;
-      const requested = limit === undefined ? PAGE_SIZE : Math.min(PAGE_SIZE, limit - from);
-
-      if (ended) {
-        // Rows after a short page mean the range we just assembled has a hole
-        // in it. Returning it would be a silent partial read wearing the shape
-        // of a complete one, which is the whole thing this module exists to
-        // prevent.
-        if (page.length > 0) {
-          throw new Error(
-            `Paged read returned ${page.length} rows after a short page at offset ${from - PAGE_SIZE}. The result would have a gap in it.`,
-          );
-        }
-        continue;
-      }
-
-      rows.push(...page);
-      // A short page means there is nothing after it. This is the only
-      // end-of-data signal PostgREST gives without a separate count request.
-      if (page.length < requested) ended = true;
-    }
-
-    if (ended) break;
-
-    offset += requests.length * PAGE_SIZE;
-    plannedPages = Math.max(1, plannedPages - requests.length);
+    afterId = last.id;
   }
 
-  return limit === undefined ? rows : rows.slice(0, limit);
+  return rows;
 }
