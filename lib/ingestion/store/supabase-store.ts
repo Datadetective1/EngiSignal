@@ -396,28 +396,37 @@ export const supabaseIngestionStore: IngestionStore = {
     return (data ?? []).length > 0;
   },
   async countStoredRows(orgId: string): Promise<StoredRowCounts> {
-    const client = await db();
+    // Counted BY THE DATABASE, which is the whole point: counting the length of
+    // a read that might itself have been truncated is the Phase 2C defect
+    // reproduced inside its own detector.
+    //
+    // Done through count_canonical_rows rather than four `head: true` selects.
+    // Row Level Security evaluates the membership predicate PER ROW, so an
+    // exact count over 67,267 usage rows answered the same question 67,267
+    // times and cost 1,464 ms - measured in production, and the entire
+    // remaining cost of a page view. The function checks membership once, from
+    // auth.uid(), then counts: same numbers, ~150 ms, one round trip instead of
+    // four.
+    const { data, error } = await (await db()).rpc('count_canonical_rows', { org: orgId });
+    if (error !== null) throw new Error(`count_canonical_rows: ${error.message}`);
 
-    // `head: true` sends no rows at all and returns only the Content-Range
-    // count, so `db-max-rows` cannot affect the answer. Counting the length of
-    // a normal select would re-introduce the exact bug this detects.
-    const countOf = async (table: string): Promise<number> => {
-      const { count, error } = await client
-        .from(table)
-        .select('*', { count: 'exact', head: true })
-        .eq('organization_id', orgId);
-      if (error !== null) throw new Error(`${table}: ${error.message}`);
-      return count ?? 0;
+    const counts = (data ?? {}) as Partial<Record<keyof StoredRowCounts, number>>;
+    const required: (keyof StoredRowCounts)[] = ['usage', 'people', 'entitlements', 'contracts'];
+    for (const key of required) {
+      // A missing count must never read as zero. Zero stored rows and "the
+      // count did not come back" are different facts, and the integrity gate
+      // would report the second as a healthy empty estate.
+      if (typeof counts[key] !== 'number') {
+        throw new Error(`count_canonical_rows returned no ${key} count.`);
+      }
+    }
+
+    return {
+      usage: counts.usage as number,
+      people: counts.people as number,
+      entitlements: counts.entitlements as number,
+      contracts: counts.contracts as number,
     };
-
-    const [usage, people, entitlements, contracts] = await Promise.all([
-      countOf('ingestion_usage'),
-      countOf('ingestion_people'),
-      countOf('ingestion_entitlements'),
-      countOf('ingestion_contracts'),
-    ]);
-
-    return { usage, people, entitlements, contracts };
   },
   async listUsage(orgId, options): Promise<CanonicalUsageRecord[]> {
     const client = await db();
