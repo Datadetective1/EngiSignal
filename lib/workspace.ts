@@ -21,6 +21,7 @@ import {
 import { generateSignals } from '@/lib/analytics/signals';
 import { checkIntegrity, type IntegrityReport } from '@/lib/analytics/integrity';
 import type { ProjectionState } from '@/lib/analytics/projection';
+import type { CoverageSummary } from '@/lib/ingestion/store/types';
 import { reconcile, type ReconciliationSummary } from '@/lib/analytics/reconciliation';
 import { requireSession, type AppSession } from '@/lib/auth';
 import { ensureOrganization } from '@/app/signin/actions';
@@ -60,6 +61,14 @@ export interface Workspace {
    * 'projection' about numbers derived from evidence that has since changed.
    */
   projection: ProjectionState;
+  /**
+   * What the imported evidence covers, derived alongside the dataset.
+   *
+   * Carried on the workspace so the Data page can gate capabilities without
+   * re-reading the estate — which it did until Phase 2E, at the cost of two
+   * more full scans on the one page whose job is to report on them.
+   */
+  coverage: CoverageSummary;
   totals: ReturnType<typeof computePortfolioTotals>;
   unusedCapacity: ReturnType<typeof unusedCapacitySpend>;
   confidence: ConfidenceResult;
@@ -94,7 +103,7 @@ export const loadWorkspace = cache(async (): Promise<Workspace> => {
   // does not. Which of those happened is carried through to the Data page —
   // a cached answer that cannot say it is cached is how a stale number gets
   // presented as a current one.
-  const { dataset, projection, storedRows, acceptedRows } =
+  const { dataset, coverage, projection, storedRows, acceptedRows } =
     await provider.getDatasetWithProjection(organization.id);
   const options = DEFAULT_ANALYSIS_OPTIONS;
 
@@ -156,6 +165,7 @@ export const loadWorkspace = cache(async (): Promise<Workspace> => {
     signals,
     integrity,
     projection,
+    coverage,
     totals: computePortfolioTotals(portfolio),
     unusedCapacity: unusedCapacitySpend(portfolio),
     confidence: portfolioConfidence(portfolio),

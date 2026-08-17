@@ -591,22 +591,15 @@ export const supabaseIngestionStore: IngestionStore = {
   },
 
   async countConfirmations(orgId: string): Promise<{ count: number; latest: string | null }> {
-    const client = await db();
-    const { count, error } = await client
+    // One round trip, not two: the exact count and the newest decision come
+    // back together. Every extra query here is paid on every page view.
+    const { data, count, error } = await (await db())
       .from('identity_confirmations')
-      .select('*', { count: 'exact', head: true })
-      .eq('organization_id', orgId);
-    if (error !== null) throw new Error(`identity_confirmations: ${error.message}`);
-
-    // The newest decision, so an edit to an existing confirmation moves the key
-    // even though the count did not.
-    const { data, error: latestError } = await client
-      .from('identity_confirmations')
-      .select('decided_at')
+      .select('decided_at', { count: 'exact' })
       .eq('organization_id', orgId)
       .order('decided_at', { ascending: false })
       .limit(1);
-    if (latestError !== null) throw new Error(`identity_confirmations: ${latestError.message}`);
+    if (error !== null) throw new Error(`identity_confirmations: ${error.message}`);
 
     const latest = data?.[0]?.decided_at;
     return { count: count ?? 0, latest: typeof latest === 'string' ? latest : null };

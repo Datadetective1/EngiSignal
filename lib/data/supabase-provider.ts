@@ -17,7 +17,8 @@ import { buildDatasetFromCanonical } from '@/lib/ingestion/dataset';
 import { confirmedAliasMaps } from '@/lib/ingestion/confirmations';
 import { supabaseIngestionStore } from '@/lib/ingestion/store/supabase-store';
 import type { AnalyticsDataset } from '@/lib/domain/dataset';
-import type { ImportSummary } from '@/lib/ingestion/store/types';
+import type { CoverageSummary, ImportSummary } from '@/lib/ingestion/store/types';
+import { summarizeCoverage } from '@/lib/ingestion/store/types';
 import type {
   DecisionItem,
   DecisionStatus,
@@ -26,6 +27,7 @@ import type {
 } from '@/lib/domain/types';
 import {
   PROJECTION_VERSION,
+  type ProjectionPayload,
   deserializeDataset,
   evidenceKeyFor,
   projectionUsable,
@@ -259,7 +261,10 @@ export const supabaseProvider: DataProvider = {
  * The slow path, and the authoritative one. Everything the projection serves is
  * a saved result of exactly this function.
  */
-async function buildFromCanonical(orgId: string, organization: Organization) {
+async function buildFromCanonical(
+  orgId: string,
+  organization: Organization,
+): Promise<ProjectionPayload> {
   const [usage, entitlements, people, contracts, imports, aliases] = await Promise.all([
     supabaseIngestionStore.listUsage(orgId),
     supabaseIngestionStore.listEntitlements(orgId),
@@ -281,7 +286,7 @@ async function buildFromCanonical(orgId: string, organization: Organization) {
     userAliases: aliases.users,
   });
 
-  return {
+  const withImports = {
     ...dataset,
     imports: imports.map((record) => ({
       id: record.id,
@@ -304,10 +309,17 @@ async function buildFromCanonical(orgId: string, organization: Organization) {
       notes: null,
     })),
   };
+
+  return {
+    dataset: withImports,
+    coverage: summarizeCoverage(usage, entitlements, people, contracts),
+  };
 }
 
 export interface LoadedDataset {
   dataset: AnalyticsDataset;
+  /** Derived from the same evidence, carried so the Data page needs no second read. */
+  coverage: CoverageSummary;
   projection: ProjectionState;
   storedRows: StoredRowCounts;
   acceptedRows: StoredRowCounts;
@@ -362,8 +374,10 @@ async function loadDataset(orgId: string): Promise<LoadedDataset> {
 
   if (reason === null && stored !== null) {
     try {
+      const content = deserializeDataset(stored.payload);
       return {
-        dataset: deserializeDataset(stored.payload),
+        dataset: content.dataset,
+        coverage: content.coverage,
         storedRows,
         acceptedRows,
         projection: {
@@ -383,23 +397,24 @@ async function loadDataset(orgId: string): Promise<LoadedDataset> {
   }
 
   const startedAt = Date.now();
-  const dataset = await buildFromCanonical(orgId, organization);
+  const content = await buildFromCanonical(orgId, organization);
   const buildMs = Date.now() - startedAt;
 
-  const { payload, bytes } = serializeDataset(dataset);
+  const { payload, bytes } = serializeDataset(content);
   await supabaseIngestionStore.writeProjection(orgId, {
     version: PROJECTION_VERSION,
     evidenceKey,
     computedAt: new Date().toISOString(),
     buildMs,
     storedRows,
-    analyzedRows: dataset.analyzedRows,
+    analyzedRows: content.dataset.analyzedRows,
     payload,
     payloadBytes: bytes,
   });
 
   return {
-    dataset,
+    dataset: content.dataset,
+    coverage: content.coverage,
     storedRows,
     acceptedRows,
     projection: {

@@ -39,7 +39,20 @@
 
 import { gunzipSync, gzipSync } from 'node:zlib';
 import type { AnalyticsDataset } from '@/lib/domain/dataset';
+import type { CoverageSummary } from '@/lib/ingestion/store/types';
 import type { StoredRowCounts, AnalyzedRowCounts } from './integrity';
+
+/**
+ * What one projection holds.
+ *
+ * The coverage summary rides along because it is derived from exactly the same
+ * evidence and was otherwise costing the Data page a second full read of the
+ * estate — the very thing this module exists to stop.
+ */
+export interface ProjectionPayload {
+  dataset: AnalyticsDataset;
+  coverage: CoverageSummary;
+}
 
 /**
  * Serialized shape version.
@@ -50,7 +63,7 @@ import type { StoredRowCounts, AnalyzedRowCounts } from './integrity';
  * exactly the "absent evidence became zero" failure the product exists to
  * refuse.
  */
-export const PROJECTION_VERSION = 1;
+export const PROJECTION_VERSION = 2;
 
 export interface ProjectionRecord {
   version: number;
@@ -164,17 +177,23 @@ export function shortEvidenceKey(key: string): string {
  * here rather than a risk: this codebase uses `null` to mean "the evidence did
  * not say", everywhere, precisely so that absence survives a round trip.
  */
-export function serializeDataset(dataset: AnalyticsDataset): { payload: string; bytes: number } {
-  const json = JSON.stringify(dataset);
+export function serializeDataset(content: ProjectionPayload): { payload: string; bytes: number } {
+  const json = JSON.stringify(content);
   const compressed = gzipSync(Buffer.from(json, 'utf8'), { level: 6 });
   const payload = compressed.toString('base64');
   return { payload, bytes: payload.length };
 }
 
-export function deserializeDataset(payload: string): AnalyticsDataset {
+export function deserializeDataset(payload: string): ProjectionPayload {
   const compressed = Buffer.from(payload, 'base64');
   const json = gunzipSync(compressed).toString('utf8');
-  return JSON.parse(json) as AnalyticsDataset;
+  const parsed = JSON.parse(json) as ProjectionPayload;
+  // A payload missing either half is not usable. Returning a dataset with an
+  // absent coverage summary would render "no data imported" over a full estate.
+  if (parsed?.dataset === undefined || parsed?.coverage === undefined) {
+    throw new Error('Projection payload is missing the dataset or its coverage.');
+  }
+  return parsed;
 }
 
 /**

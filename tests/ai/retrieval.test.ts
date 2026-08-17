@@ -14,6 +14,7 @@ import { reconcile } from '@/lib/analytics/reconciliation';
 import { DEFAULT_ANALYSIS_OPTIONS } from '@/lib/domain/dataset';
 import { generateDemoDataset } from '@/lib/synthetic/generate';
 import type { Workspace } from '@/lib/workspace';
+import { summarizeCoverage } from '@/lib/ingestion/store/types';
 
 const dataset = generateDemoDataset();
 const portfolio = buildPortfolio(dataset, DEFAULT_ANALYSIS_OPTIONS);
@@ -42,6 +43,7 @@ const workspace = {
     stored: dataset.analyzedRows,
     analyzed: dataset.analyzedRows,
   }),
+  coverage: summarizeCoverage([], [], [], []),
   projection: {
     source: 'computed' as const,
     version: 1,

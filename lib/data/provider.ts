@@ -8,6 +8,7 @@
  */
 
 import type { ProjectionState } from '@/lib/analytics/projection';
+import type { CoverageSummary } from '@/lib/ingestion/store/types';
 import type { StoredRowCounts } from '@/lib/analytics/integrity';
 import type { AnalyticsDataset } from '@/lib/domain/dataset';
 import type {
@@ -47,6 +48,7 @@ export interface DataProvider {
    */
   getDatasetWithProjection(orgId: string): Promise<{
     dataset: AnalyticsDataset;
+    coverage: CoverageSummary;
     projection: ProjectionState;
     /** Exact server-side counts, already fetched to build the evidence key. */
     storedRows: StoredRowCounts;

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ingestFile } from '@/lib/ingestion';
+import { summarizeCoverage } from '@/lib/ingestion/store/types';
 import { buildDatasetFromCanonical } from '@/lib/ingestion/dataset';
 import { buildPortfolio } from '@/lib/analytics/portfolio';
 import { DEFAULT_ANALYSIS_OPTIONS } from '@/lib/domain/dataset';
@@ -108,10 +109,13 @@ async function measure(label: string, usageFiles: string[], stem: string, headco
   buildPortfolio(dataset, DEFAULT_ANALYSIS_OPTIONS);
   const buildMs = Date.now() - startedAt;
 
-  const serialized = serializeDataset(dataset);
+  const serialized = serializeDataset({
+    dataset,
+    coverage: summarizeCoverage(usage, entitlements, people, contracts),
+  });
 
   const inflateStart = Date.now();
-  const restored = deserializeDataset(serialized.payload);
+  const restored = deserializeDataset(serialized.payload).dataset;
   const inflateMs = Date.now() - inflateStart;
 
   // The measurement is worthless if the thing measured is not equivalent.

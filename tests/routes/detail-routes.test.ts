@@ -16,6 +16,7 @@ import {
 } from '@/lib/routes';
 import { ingestFile } from '@/lib/ingestion';
 import type { Organization } from '@/lib/domain/types';
+import { summarizeCoverage } from '@/lib/ingestion/store/types';
 
 /**
  * EVERY DETAIL PAGE IN THE PRODUCT ANSWERED 404.
@@ -177,6 +178,7 @@ const workspace = {
   totals: computePortfolioTotals(portfolio),
   unusedCapacity: unusedCapacitySpend(portfolio),
   confidence: portfolioConfidence(portfolio),
+  coverage: summarizeCoverage([], [], [], []),
   projection: {
     source: 'computed' as const,
     version: 1,

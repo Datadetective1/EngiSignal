@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { ingestFile } from '@/lib/ingestion';
+import { summarizeCoverage } from '@/lib/ingestion/store/types';
 import { buildDatasetFromCanonical } from '@/lib/ingestion/dataset';
 import { buildPortfolio, buildRenewals, portfolioConfidence } from '@/lib/analytics/portfolio';
 import { computePortfolioTotals, unusedCapacitySpend } from '@/lib/analytics/financial';
@@ -90,9 +91,12 @@ beforeAll(async () => {
     asOf: '2026-08-14',
   });
 
-  const serialized = serializeDataset(dataset);
+  const serialized = serializeDataset({
+    dataset,
+    coverage: summarizeCoverage(u.result.usage, e.result.entitlements, p.result.people, c.result.contracts),
+  });
   payloadBytes = serialized.bytes;
-  restored = deserializeDataset(serialized.payload);
+  restored = deserializeDataset(serialized.payload).dataset;
 }, 300_000);
 
 describe('a projection round trip', () => {

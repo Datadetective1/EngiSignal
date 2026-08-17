@@ -18,6 +18,7 @@ import type {
 import { DEMO_ORG_ID, generateDemoDataset } from '@/lib/synthetic/generate';
 import type { DataProvider, ReclaimOverride } from './provider';
 import { PROJECTION_VERSION } from '@/lib/analytics/projection';
+import { summarizeCoverage } from '@/lib/ingestion/store/types';
 
 let cachedDataset: AnalyticsDataset | null = null;
 
@@ -78,6 +79,7 @@ export const mockProvider: DataProvider = {
     const data = await this.getDataset(orgId);
     return {
       dataset: data,
+      coverage: summarizeCoverage([], [], [], []),
       storedRows: data.analyzedRows,
       acceptedRows: data.analyzedRows,
       projection: {

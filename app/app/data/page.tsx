@@ -25,22 +25,23 @@ import { DataIntegrityCard, ProjectionCard } from '@/components/app/data-integri
 export const metadata: Metadata = { title: 'Data' };
 
 export default async function DataPage() {
-  const { dataset, dataQuality, confidence, organization, integrity, projection } =
+  const { dataset, dataQuality, confidence, organization, integrity, projection, coverage } =
     await loadWorkspace();
 
   // Read directly rather than through the HTTP endpoint: this is a server
   // component, and the store is already tenant-scoped by argument.
   const store = getIngestionStore();
-  const [ingestedImports, ingestedCoverage, ingestedUsage] = await Promise.all([
-    store.listImports(organization.id),
-    store.getCoverage(organization.id),
-    store.listUsage(organization.id),
-  ]);
+  // Coverage comes from the projection, which was derived from exactly these
+  // rows. Reading the whole estate again — twice — to describe it was costing
+  // this page more than every other analytical surface combined.
+  const ingestedImports = await store.listImports(organization.id);
+  const ingestedCoverage = coverage;
 
   // Capability gating runs against what is actually stored, never a fixed list.
   const capabilityInput = {
     coverage: ingestedCoverage,
-    distinctDates: new Set(ingestedUsage.map((row) => row.date)).size,
+    // One row per feature per day, so distinct dates are the same set.
+    distinctDates: new Set(dataset.dailyUsage.map((row) => row.date)).size,
     // A licence export never carries price, so cost is only present once a
     // contract import supplies it.
     hasCost: dataset.contractItems.some((item) => item.unitPrice !== null),
