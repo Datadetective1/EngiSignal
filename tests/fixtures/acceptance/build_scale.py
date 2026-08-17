@@ -137,15 +137,19 @@ usernames = [p["username"] for p in people]
 # ── Features ─────────────────────────────────────────────────────────────────
 # (feature, vendor, model, entitled, contract_qty, unit_price, renewal,
 #  rows_per_slot, base_demand, first_day_offset)
+# Per-slot row counts are sized so the finished usage export lands at the
+# ceiling the import page states — ~68,000 rows inside 4 MB — rather than
+# comfortably below it. A load test that stops at 90% of the limit has not
+# tested the limit.
 FEATURES = [
     # THE MONEY TEST, carried forward: 440 bought vs 350 served.
-    ("ANSYS_MECH_ENT", "Ansys",             "concurrent", 350, 440, 5000, "2026-11-15", 13, 250, 0),
-    ("ANSYS_CFD",      "Ansys",             "concurrent", 120, 120, 6200, "2026-11-15", 7,  84, 0),
-    ("CATIA_V5",       "Dassault Systemes", "concurrent", 200, None, None, None,        11, 150, 0),
-    ("NX_DESIGN",      "Siemens",           "concurrent", 180, 180, 3400, "2027-03-31", 10, 128, 0),
+    ("ANSYS_MECH_ENT", "Ansys",             "concurrent", 350, 440, 5000, "2026-11-15", 15, 250, 0),
+    ("ANSYS_CFD",      "Ansys",             "concurrent", 120, 120, 6200, "2026-11-15", 8,  84, 0),
+    ("CATIA_V5",       "Dassault Systemes", "concurrent", 200, None, None, None,        12, 150, 0),
+    ("NX_DESIGN",      "Siemens",           "concurrent", 180, 180, 3400, "2027-03-31", 11, 128, 0),
     ("ABAQUS_STD",     "Dassault Systemes", "concurrent",  60,  60, 8500, "2026-10-02", 5,  41, 0),
     ("HYPERMESH",      "Altair",            "concurrent",  45,  45, 4800, "2027-01-20", 5,  30, 0),
-    ("LS_DYNA",        "Ansys",             "concurrent",  70,  70, 5600, "2027-02-14", 5,  44, 0),
+    ("LS_DYNA",        "Ansys",             "concurrent",  70,  70, 5600, "2027-02-14", 6,  44, 0),
     # Deployed late: only 60 days of history -> LOW confidence, by construction.
     ("STAR_CCM",       "Siemens",           "concurrent",  75,  90, 7100, "2026-12-05", 7,  52, 305),
 ]

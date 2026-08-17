@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { PAGE_SIZE, readAllRows, type RangeableQuery } from '@/lib/ingestion/store/paging';
+import {
+  MAX_CONCURRENT_PAGES,
+  PAGE_SIZE,
+  readAllRows,
+  type RangeableQuery,
+} from '@/lib/ingestion/store/paging';
 
 /**
  * PostgREST truncates silently.
@@ -103,5 +108,111 @@ describe('reading every stored row', () => {
     });
 
     await expect(readAllRows(build)).rejects.toThrow('timeout');
+  });
+});
+
+
+/**
+ * ── AND READING THEM QUICKLY ─────────────────────────────────────────────────
+ *
+ * Phase 2D measured the corrected read at the stated ceiling: 67,267 rows is 68
+ * pages, taken one after another, and the Renewals page took 50.8 seconds to
+ * render in production. The analytics over those same rows take under a second.
+ *
+ * Pages are now requested in parallel batches, sized from the exact count the
+ * integrity check already takes server-side. The count decides CONCURRENCY and
+ * nothing else — the read still ends on a short page, so a count captured a
+ * moment earlier can never shorten a read.
+ */
+
+/** Records how many requests were open at the same moment. */
+function concurrentTable(totalRows: number) {
+  const all = Array.from({ length: totalRows }, (_, index) => ({ n: index }));
+  const calls: { from: number; to: number }[] = [];
+  let open = 0;
+  let peak = 0;
+
+  const build = (): RangeableQuery<{ n: number }> => ({
+    range(from, to) {
+      calls.push({ from, to });
+      open += 1;
+      peak = Math.max(peak, open);
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          open -= 1;
+          resolve({ data: all.slice(from, to + 1), error: null });
+        }, 1);
+      });
+    },
+  });
+
+  return { build, calls, peak: () => peak };
+}
+
+describe('reading a ceiling-sized estate without a queue of round trips', () => {
+  it('returns exactly the same rows as the sequential read', async () => {
+    const table = concurrentTable(67_267);
+    const rows = await readAllRows(table.build, { expected: 67_267 });
+
+    expect(rows).toHaveLength(67_267);
+    expect(rows[0]!.n).toBe(0);
+    expect(rows[67_266]!.n).toBe(67_266);
+    // Order matters: the analytics read dates out of these rows in sequence.
+    expect(rows.every((row, index) => row.n === index)).toBe(true);
+  });
+
+  it('overlaps requests instead of waiting for each page', async () => {
+    const table = concurrentTable(67_267);
+    await readAllRows(table.build, { expected: 67_267 });
+    expect(table.peak()).toBeGreaterThan(1);
+    expect(table.peak()).toBeLessThanOrEqual(MAX_CONCURRENT_PAGES);
+  });
+
+  it('never opens more connections than the bound allows', async () => {
+    // 68 simultaneous connections from a serverless function exhausts the pool.
+    const table = concurrentTable(5_000_000 / PAGE_SIZE);
+    await readAllRows(table.build, { expected: 5_000_000 });
+    expect(table.peak()).toBeLessThanOrEqual(MAX_CONCURRENT_PAGES);
+  });
+
+  it('reads past a count that was taken before rows were added', async () => {
+    // The count is a hint. If the estate grew between counting and reading,
+    // the read must not stop at the stale number.
+    const table = concurrentTable(9_500);
+    const rows = await readAllRows(table.build, { expected: 4_000 });
+    expect(rows).toHaveLength(9_500);
+  });
+
+  it('does not use a stale high count to claim rows that are not there', async () => {
+    const table = concurrentTable(2_300);
+    const rows = await readAllRows(table.build, { expected: 40_000 });
+    // Short read, reported as a short read. The integrity check compares this
+    // against the stored count and withholds the analytics; it is not padded,
+    // and it does not throw.
+    expect(rows).toHaveLength(2_300);
+  });
+
+  it('refuses to assemble a result with a hole in it', async () => {
+    // A page that comes back short followed by a page with rows in it means
+    // the range we assembled is not contiguous. Returning it would be a
+    // partial read wearing the shape of a complete one.
+    const build = (): RangeableQuery<{ n: number }> => ({
+      range(from, to) {
+        const width = from === PAGE_SIZE ? 10 : to - from + 1;
+        return Promise.resolve({
+          data: Array.from({ length: width }, (_, i) => ({ n: from + i })),
+          error: null,
+        });
+      },
+    });
+
+    await expect(readAllRows(build, { expected: 8_000 })).rejects.toThrow(/gap in it/);
+  });
+
+  it('still honours a caller-supplied limit when a count is available', async () => {
+    const table = concurrentTable(67_267);
+    const rows = await readAllRows(table.build, { limit: 200, expected: 67_267 });
+    expect(rows).toHaveLength(200);
+    expect(table.calls).toHaveLength(1);
   });
 });

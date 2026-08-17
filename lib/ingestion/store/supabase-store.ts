@@ -64,6 +64,29 @@ async function insertChunked(table: string, rows: Record<string, unknown>[]): Pr
     if (error !== null) throw new Error(`${table}: ${error.message}`);
   }
 }
+/**
+ * Exact row count for one canonical table, with the same filters the read will
+ * use. `head: true` sends no rows, so `db-max-rows` cannot affect the answer.
+ *
+ * Used ONLY to decide how many page requests to have in flight. The read still
+ * ends when a page comes back short, so a count taken a moment earlier can
+ * never shorten a read.
+ */
+async function countRows(
+  client: Awaited<ReturnType<typeof db>>,
+  table: string,
+  orgId: string,
+  importId?: string,
+): Promise<number | undefined> {
+  let query = client.from(table).select('*', { count: 'exact', head: true }).eq('organization_id', orgId);
+  if (importId !== undefined) query = query.eq('import_id', importId);
+  const { count, error } = await query;
+  // A failed count is not a failed read. Fall back to sequential paging rather
+  // than turning a page that would have rendered into an error.
+  if (error !== null) return undefined;
+  return count ?? undefined;
+}
+
 export const supabaseIngestionStore: IngestionStore = {
   kind: 'supabase',
   async commitImport(input: CommitInput): Promise<ImportSummary> {
@@ -420,11 +443,12 @@ export const supabaseIngestionStore: IngestionStore = {
   },
   async listUsage(orgId, options): Promise<CanonicalUsageRecord[]> {
     const client = await db();
+    const expected = await countRows(client, 'ingestion_usage', orgId, options?.importId);
     const data = await readAllRows<Record<string, unknown>>(() => {
       let query = client.from('ingestion_usage').select('*').eq('organization_id', orgId);
       if (options?.importId !== undefined) query = query.eq('import_id', options.importId);
       return query;
-    }, options?.limit);
+    }, { limit: options?.limit, expected });
     return data.map((row) => ({
       date: row.usage_date as string,
       hour: row.hour as number | null,
@@ -459,11 +483,12 @@ export const supabaseIngestionStore: IngestionStore = {
   },
   async listEntitlements(orgId, options): Promise<CanonicalEntitlementRecord[]> {
     const client = await db();
+    const expected = await countRows(client, 'ingestion_entitlements', orgId, options?.importId);
     const data = await readAllRows<Record<string, unknown>>(() => {
       let query = client.from('ingestion_entitlements').select('*').eq('organization_id', orgId);
       if (options?.importId !== undefined) query = query.eq('import_id', options.importId);
       return query;
-    });
+    }, { expected });
     return data.map((row) => ({
       feature: row.raw_feature as string,
       product: row.raw_product as string | null,
@@ -486,11 +511,12 @@ export const supabaseIngestionStore: IngestionStore = {
   },
   async listPeople(orgId, options): Promise<CanonicalPersonRecord[]> {
     const client = await db();
+    const expected = await countRows(client, 'ingestion_people', orgId, options?.importId);
     const data = await readAllRows<Record<string, unknown>>(() => {
       let query = client.from('ingestion_people').select('*').eq('organization_id', orgId);
       if (options?.importId !== undefined) query = query.eq('import_id', options.importId);
       return query;
-    });
+    }, { expected });
     return data.map((row) => ({
       user: row.raw_user as string,
       employeeCode: row.employee_code as string | null,
@@ -522,11 +548,12 @@ export const supabaseIngestionStore: IngestionStore = {
   },
   async listContracts(orgId, options): Promise<CanonicalContractRecord[]> {
     const client = await db();
+    const expected = await countRows(client, 'ingestion_contracts', orgId, options?.importId);
     const data = await readAllRows<Record<string, unknown>>(() => {
       let query = client.from('ingestion_contracts').select('*').eq('organization_id', orgId);
       if (options?.importId !== undefined) query = query.eq('import_id', options.importId);
       return query;
-    });
+    }, { expected });
     return data.map((row) => ({
       feature: row.raw_feature as string,
       product: row.raw_product as string | null,
