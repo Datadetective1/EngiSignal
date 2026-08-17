@@ -13,11 +13,33 @@ export const runtime = 'nodejs';
  * Supabase's side but the person is left on an error page with no session and
  * no explanation, which reads as "the product is broken".
  *
- * Two link formats are handled because Supabase uses both depending on how the
- * email template and client flow are configured:
+ * ── A GET MUST NEVER SPEND A CONFIRMATION TOKEN ──────────────────────────────
  *
- *   ?code=…                     PKCE, exchanged for a session
- *   ?token_hash=…&type=…        one-time token, verified directly
+ * Phase 2C split confirmation into two steps so that no automated GET could
+ * consume a one-time token: the emailed link opens a page that reads the token
+ * and does nothing, and only an explicit POST verifies it. That was true of
+ * /auth/confirm and false of this route, which happily called verifyOtp on a
+ * bare GET — so the protection could be walked straight around, and the
+ * middleware's rescue of a misdirected token even routed callers here to do it.
+ *
+ * Reproduced against production during Phase 2D closure. One unauthenticated
+ * request, no cookie, no session, no click:
+ *
+ *   GET /auth/callback?token_hash=<from the email>&type=email
+ *     → 307 /app, email_confirmed_at set, session issued
+ *
+ * Anything that follows links — a scanner, a prefetcher, a preview generator,
+ * a shared inbox, anyone who sees the URL over someone's shoulder — could
+ * therefore confirm an address the recipient never acted on.
+ *
+ * So a `token_hash` is now HANDED ON rather than redeemed: it goes to the
+ * two-step page, which shows a button, and the token is spent only by the POST
+ * behind it.
+ *
+ * `code` is different and is still exchanged here. A PKCE code is worthless
+ * without the `code_verifier` cookie held by the browser that began the flow,
+ * so it cannot be redeemed by a third party who merely sees the URL. It is not
+ * a bearer credential in the way a token_hash is.
  *
  * Nothing here trusts a redirect target from the query string beyond a relative
  * path — an open redirect on an auth callback is how phishing links get
@@ -54,18 +76,20 @@ export async function GET(request: NextRequest) {
   const tokenHash = url.searchParams.get('token_hash');
   const type = url.searchParams.get('type');
 
+  // A bearer token arriving on a GET is handed to the two-step page unspent.
+  // This is the whole fix: the token leaves this route exactly as it arrived,
+  // and only the explicit POST behind the button can redeem it.
+  if (tokenHash !== null && tokenHash.length > 0) {
+    const forward = new URLSearchParams({ token_hash: tokenHash });
+    forward.set('type', type !== null && type.length > 0 ? type : 'email');
+    forward.set('next', next);
+    return NextResponse.redirect(new URL(`/auth/confirm?${forward.toString()}`, url.origin));
+  }
+
   const supabase = await userClient();
 
   if (code !== null) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (error !== null) {
-      return NextResponse.redirect(new URL('/signin?error=linkexpired', url.origin));
-    }
-  } else if (tokenHash !== null && type !== null) {
-    const { error } = await supabase.auth.verifyOtp({
-      token_hash: tokenHash,
-      type: type as 'email' | 'recovery' | 'invite' | 'email_change',
-    });
     if (error !== null) {
       return NextResponse.redirect(new URL('/signin?error=linkexpired', url.origin));
     }

@@ -35,7 +35,18 @@ function misdirectedAuthCode(request: NextRequest): URL | null {
   const tokenHash = url.searchParams.get('token_hash');
   if (code === null && tokenHash === null) return null;
 
-  const target = new URL('/auth/callback', url.origin);
+  // A token_hash is a bearer credential: whoever holds the URL can spend it.
+  // It goes to the two-step page, which shows a button and redeems nothing, so
+  // rescuing a misdirected link can never also confirm the address on behalf of
+  // whatever followed it. A PKCE code is safe to send to the callback because it
+  // cannot be exchanged without the code_verifier cookie from the browser that
+  // started the flow.
+  //
+  // This forwarded tokens to the callback until Phase 2E, which made the rescue
+  // itself a way to confirm an account with one unauthenticated GET.
+  const destination = tokenHash !== null ? '/auth/confirm' : '/auth/callback';
+
+  const target = new URL(destination, url.origin);
   for (const key of ['code', 'token_hash', 'type', 'next']) {
     const value = url.searchParams.get(key);
     if (value !== null) target.searchParams.set(key, value);

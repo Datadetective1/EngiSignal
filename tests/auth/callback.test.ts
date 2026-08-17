@@ -33,12 +33,14 @@ describe('an auth code that arrived at the wrong path', () => {
     expect(location).toBe('https://www.engisignal.com/auth/callback?code=abc123');
   });
 
-  it('forwards a one-time token and keeps its type', async () => {
+  it('forwards a one-time token to the two-step page, never the callback', async () => {
+    // A token_hash is a bearer credential. Sending it to the callback is how
+    // the rescue itself became a way to confirm an account with one GET.
     const location = await forwardOf(
       'https://www.engisignal.com/?token_hash=xyz&type=recovery',
     );
     expect(location).toBe(
-      'https://www.engisignal.com/auth/callback?token_hash=xyz&type=recovery',
+      'https://www.engisignal.com/auth/confirm?token_hash=xyz&type=recovery',
     );
   });
 
