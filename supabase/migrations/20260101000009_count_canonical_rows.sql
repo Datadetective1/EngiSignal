@@ -73,3 +73,11 @@ comment on function public.count_canonical_rows(uuid) is
 
 revoke all on function public.count_canonical_rows(uuid) from public;
 grant execute on function public.count_canonical_rows(uuid) to authenticated;
+
+-- Supabase's default grants make new functions in `public` reachable by `anon`
+-- as well. The function already refuses a caller who is not a member, and an
+-- anonymous caller is not a member of anything - verified in production, where
+-- it answers "not a member of this organization". Revoked anyway: a SECURITY
+-- DEFINER function that signed-out callers can reach at all is a larger surface
+-- than it needs, and it should be a decision rather than a default.
+revoke execute on function public.count_canonical_rows(uuid) from anon;
