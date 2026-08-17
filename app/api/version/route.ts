@@ -17,7 +17,10 @@ export const dynamic = 'force-dynamic';
  * against rather than inferring it from how a page happened to behave.
  *
  * Deliberately unauthenticated. A build identifier is not a secret, and a check
- * that needs a session is a check nobody runs from a deploy script.
+ * that needs a session is a check nobody runs from a deploy script. It reports
+ * the identifier and nothing else — the commit MESSAGE is deliberately not
+ * included, because "not a secret" is a statement about a SHA, not about
+ * whatever somebody happened to write in a commit body.
  *
  * The values come from Vercel's system environment variables, which are set at
  * BUILD time — so they describe the build that is answering, which is exactly
@@ -39,7 +42,6 @@ export function GET() {
       commit: sha,
       commitShort: sha === null ? null : sha.slice(0, 7),
       branch: value('VERCEL_GIT_COMMIT_REF'),
-      message: value('VERCEL_GIT_COMMIT_MESSAGE'),
       environment: value('VERCEL_ENV'),
       region: value('VERCEL_REGION'),
       // Absent locally, and absent is reported as absent.

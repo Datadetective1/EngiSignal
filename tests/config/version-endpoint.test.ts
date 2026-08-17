@@ -70,6 +70,18 @@ describe('the deployment stamp', () => {
     expect(result.deployed).toBe(false);
   });
 
+  it('does not publish the commit message', async () => {
+    // "A build identifier is not a secret" is a statement about a SHA. It is
+    // not a statement about whatever somebody wrote in a commit body, on an
+    // endpoint that anybody can read.
+    process.env.VERCEL_GIT_COMMIT_SHA = 'abc1234';
+    process.env.VERCEL_GIT_COMMIT_MESSAGE = 'Fix the thing before the customer sees it';
+
+    const result = await body();
+    expect(Object.keys(result)).not.toContain('message');
+    expect(JSON.stringify(result)).not.toContain('customer');
+  });
+
   it('is never cached, or it would report the build it was first asked on', async () => {
     process.env.VERCEL_GIT_COMMIT_SHA = 'abc1234';
     expect(GET().headers.get('Cache-Control')).toBe('no-store');
