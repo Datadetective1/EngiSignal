@@ -627,13 +627,23 @@ export const supabaseIngestionStore: IngestionStore = {
 
     return {
       version: Number(data.version),
-      evidenceKey: String(data.evidence_key),
-      computedAt: String(data.computed_at),
+      evidenceKey: data.evidence_key === null ? null : String(data.evidence_key),
+      computedAt: data.computed_at === null ? null : String(data.computed_at),
       buildMs: data.build_ms === null ? null : Number(data.build_ms),
       storedRows: data.stored_rows as ProjectionRecord['storedRows'],
       analyzedRows: data.analyzed_rows as ProjectionRecord['analyzedRows'],
-      payload: String(data.payload),
-      payloadBytes: Number(data.payload_bytes),
+      // Null while a first build is still in flight. Never coerced to '': an
+      // empty payload deserializes into an empty analysis, which is the
+      // absence-read-as-zero failure this product exists to refuse.
+      payload: data.payload === null ? null : String(data.payload),
+      payloadBytes: data.payload_bytes === null ? null : Number(data.payload_bytes),
+      state: (data.state ?? 'ready') as ProjectionRecord['state'],
+      buildingEvidenceKey: data.building_evidence_key === null ? null : String(data.building_evidence_key),
+      buildStartedAt: data.build_started_at === null ? null : String(data.build_started_at),
+      buildFinishedAt: data.build_finished_at === null ? null : String(data.build_finished_at),
+      buildAttempt: Number(data.build_attempt ?? 0),
+      buildError: data.build_error === null ? null : String(data.build_error),
+      heartbeatAt: data.heartbeat_at === null ? null : String(data.heartbeat_at),
     };
   },
 

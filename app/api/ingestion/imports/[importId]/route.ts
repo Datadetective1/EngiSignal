@@ -1,8 +1,8 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { z } from 'zod';
 import { resolveIngestionContext } from '@/lib/ingestion/session';
 import { getIngestionStore } from '@/lib/ingestion/store';
-import { getDataProvider } from '@/lib/data';
+import { startProjectionBuild } from '@/lib/data/supabase-provider';
 
 export const runtime = 'nodejs';
 
@@ -65,13 +65,17 @@ export async function DELETE(
   // The read path would catch this anyway — the evidence key no longer matches
   // once the rows are gone — but relying on that alone would mean the guarantee
   // rests on one mechanism instead of two.
-  try {
-    await getIngestionStore().clearProjection(auth.context.organizationId);
-    await getDataProvider().getDatasetWithProjection(auth.context.organizationId);
-  } catch {
-    // A projection that could not be rebuilt is a slow next page. The delete
-    // itself has already succeeded and the rows are gone.
-  }
+  // The rows are gone, which is what the caller asked for and is now true. The
+  // analysis that rested on them is rebuilt after the response, exactly as it
+  // is after an import — the read path would notice the evidence key had moved
+  // anyway, so this only decides who waits, not whether it happens.
+  after(async () => {
+    try {
+      await startProjectionBuild(auth.context.organizationId);
+    } catch {
+      // The runner records its own failures against the tenant.
+    }
+  });
 
   return NextResponse.json({ deleted: true, importId: parsed.data.importId });
 }

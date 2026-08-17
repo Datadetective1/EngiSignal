@@ -245,7 +245,7 @@ describe('the evidence key', () => {
 
 describe('deciding whether a stored projection may be used', () => {
   const key = 'v1|u10.p1.e1.c1|0@-|a:10';
-  const record = { version: PROJECTION_VERSION, evidenceKey: key };
+  const record = { version: PROJECTION_VERSION, evidenceKey: key, payload: 'gz' };
 
   it('uses it when the evidence matches exactly', () => {
     expect(projectionUsable(record, key)).toBeNull();

@@ -7,7 +7,7 @@
  * even if a database policy were misconfigured.
  */
 
-import type { ProjectionState } from '@/lib/analytics/projection';
+import type { ProjectionStatus } from '@/lib/analytics/projection';
 import type { CoverageSummary } from '@/lib/ingestion/store/types';
 import type { UserIdentity } from '@/lib/ingestion/identity';
 import type { StoredRowCounts } from '@/lib/analytics/integrity';
@@ -48,10 +48,11 @@ export interface DataProvider {
    * different facts about the same numbers.
    */
   getDatasetWithProjection(orgId: string): Promise<{
-    dataset: AnalyticsDataset;
+    /** Null while a tenant's first analysis is still being built. */
+    dataset: AnalyticsDataset | null;
     coverage: CoverageSummary;
     userIdentities: UserIdentity[];
-    projection: ProjectionState;
+    projection: ProjectionStatus;
     /** Exact server-side counts, already fetched to build the evidence key. */
     storedRows: StoredRowCounts;
     /** Accepted rows over completed imports, from the same fetch. */

@@ -10,6 +10,7 @@
 
 import 'server-only';
 import { cache } from 'react';
+import { after } from 'next/server';
 import { notFound } from 'next/navigation';
 import { computePortfolioTotals, unusedCapacitySpend } from '@/lib/analytics/financial';
 import {
@@ -20,13 +21,15 @@ import {
 } from '@/lib/analytics/portfolio';
 import { generateSignals } from '@/lib/analytics/signals';
 import { checkIntegrity, type IntegrityReport } from '@/lib/analytics/integrity';
-import type { ProjectionState } from '@/lib/analytics/projection';
+import type { ProjectionStatus } from '@/lib/analytics/projection';
 import type { CoverageSummary } from '@/lib/ingestion/store/types';
 import type { UserIdentity } from '@/lib/ingestion/identity';
 import { reconcile, type ReconciliationSummary } from '@/lib/analytics/reconciliation';
 import { requireSession, type AppSession } from '@/lib/auth';
 import { ensureOrganization } from '@/app/signin/actions';
 import { getDataProvider } from '@/lib/data';
+import { buildDatasetFromCanonical } from '@/lib/ingestion/dataset';
+import { startProjectionBuild, takePendingBuild } from '@/lib/data/supabase-provider';
 import { DEFAULT_ANALYSIS_OPTIONS, type AnalysisOptions, type AnalyticsDataset } from '@/lib/domain/dataset';
 import type {
   ConfidenceResult,
@@ -40,6 +43,16 @@ import type {
 export interface Workspace {
   session: AppSession;
   organization: Organization;
+  /**
+   * The analysis.
+   *
+   * Never null, so no surface has to null-check its way through a render — but
+   * when no analysis exists yet it is an EMPTY dataset, and
+   * `integrity.analysisCurrent` is false, which every analytical page already
+   * gates on. An empty dataset that reached a page ungated would print zeroes
+   * where "not analysed yet" belongs, so the gate is the load-bearing part and
+   * this is only the convenience.
+   */
   dataset: AnalyticsDataset;
   options: AnalysisOptions;
   portfolio: PortfolioRow[];
@@ -61,7 +74,7 @@ export interface Workspace {
    * evidence key matches the estate exactly, so this can never say
    * 'projection' about numbers derived from evidence that has since changed.
    */
-  projection: ProjectionState;
+  projection: ProjectionStatus;
   /**
    * What the imported evidence covers, derived alongside the dataset.
    *
@@ -110,6 +123,25 @@ export const loadWorkspace = cache(async (): Promise<Workspace> => {
     await provider.getDatasetWithProjection(organization.id);
   const options = DEFAULT_ANALYSIS_OPTIONS;
 
+  // ── A BUILD THIS REQUEST DECIDED WAS NEEDED ────────────────────────────────
+  //
+  // Started AFTER the response, so nobody waits inside an HTTP request for a
+  // computation that takes 22 seconds at 282k rows and grows from there. It
+  // runs with this caller's own session, so Row Level Security applies to it
+  // exactly as to everything else — no service-role key, no standing
+  // capability to read every tenant.
+  const pending = takePendingBuild(organization.id);
+  if (pending !== null) {
+    after(async () => {
+      try {
+        await startProjectionBuild(organization.id, pending);
+      } catch {
+        // The build records its own failure. An exception escaping here would
+        // only surface after the response has already been sent.
+      }
+    });
+  }
+
   // Three counts that must agree: what the import receipts promised, what the
   // database holds, and what this request actually read. Unchanged by the
   // projection: `analyzed` is still what the analytics consumed, and it is
@@ -118,20 +150,50 @@ export const loadWorkspace = cache(async (): Promise<Workspace> => {
   // The counts come back from the same fetch that decided whether the
   // projection could be used, rather than from a second round trip asking the
   // database the questions it was just asked.
+  // No analysis yet is not an analysis of nothing. An empty dataset stands in
+  // so rendering code stays simple; the gate below is what stops it being
+  // mistaken for a finished answer.
+  const analysis: AnalyticsDataset =
+    dataset ??
+    buildDatasetFromCanonical({
+      organization,
+      usage: [],
+      entitlements: [],
+      people: [],
+      contracts: [],
+    });
+
   const integrity = checkIntegrity({
     accepted: acceptedRows,
     stored: storedRows,
-    analyzed: dataset.analyzedRows,
+    // Reporting an empty analysis as "0 of 67,267 analysed" would fire the
+    // integrity alarm on a healthy tenant whose build is simply still running.
+    // The state of the build is reported by `analysis`, not by pretending the
+    // counts disagree.
+    analyzed: dataset?.analyzedRows ?? storedRows,
+    analysis:
+      projection.source === 'current'
+        ? 'current'
+        : projection.state === 'failed'
+          ? 'failed'
+          : projection.source === 'superseded'
+            ? 'superseded'
+            : projection.state === 'building'
+              ? 'building'
+              : 'absent',
   });
 
-  const portfolio = buildPortfolio(dataset, options);
-  const renewals = buildRenewals(dataset, portfolio);
-  const dataQuality = buildDataQualityIssues(dataset, portfolio);
+  // Nothing to analyse yet. Every derived collection is empty rather than
+  // wrong, and `projection.analyticsCurrent` is what surfaces use to decide
+  // whether they may render figures at all.
+  const portfolio = buildPortfolio(analysis, options);
+  const renewals = buildRenewals(analysis, portfolio);
+  const dataQuality = buildDataQualityIssues(analysis, portfolio);
 
   // Both quantity sources, compared rather than collapsed.
   const entitlementByFeature = new Map<string, number>();
   const contractByFeature = new Map<string, number>();
-  for (const source of dataset.quantitySources) {
+  for (const source of analysis.quantitySources) {
     if (source.entitlementQuantity !== null) {
       entitlementByFeature.set(source.featureId, source.entitlementQuantity);
     }
@@ -142,10 +204,10 @@ export const loadWorkspace = cache(async (): Promise<Workspace> => {
   const reconciliation = reconcile({ portfolio, entitlementByFeature, contractByFeature });
 
   const unmatchedPositions = {
-    count: dataset.contractReview.length,
+    count: analysis.contractReview.length,
     // Priced lines only. An unpriced position is still worth reviewing, but it
     // must not be added to a dollar figure as if it were zero.
-    value: dataset.contractReview.reduce((total, item) => total + (item.annualCost ?? 0), 0),
+    value: analysis.contractReview.reduce((total, item) => total + (item.annualCost ?? 0), 0),
   };
 
   const signals = generateSignals({
@@ -159,7 +221,7 @@ export const loadWorkspace = cache(async (): Promise<Workspace> => {
   return {
     session,
     organization,
-    dataset,
+    dataset: analysis,
     options,
     portfolio,
     renewals,

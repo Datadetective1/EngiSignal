@@ -71,6 +71,26 @@ export interface DatasetIntegrity {
   statement: string;
 }
 
+/**
+ * Why the analysis on this request may not describe the current evidence.
+ *
+ * Phase 2F made the build asynchronous, which introduced a state the product
+ * had never had: evidence is durably stored and correct, and the analysis of it
+ * does not exist yet. That is not an integrity failure — nothing disagrees —
+ * but it is equally not something to render zeroes for.
+ */
+export type AnalysisState =
+  /** The analysis describes exactly what is stored. */
+  | 'current'
+  /** A build is running. There may or may not be an older analysis to show. */
+  | 'building'
+  /** A complete analysis of an earlier evidence version is available. */
+  | 'superseded'
+  /** The last build failed. */
+  | 'failed'
+  /** Nothing has ever been built for this tenant. */
+  | 'absent';
+
 export interface IntegrityReport {
   datasets: DatasetIntegrity[];
   /** Every dataset agrees on all three counts. */
@@ -88,6 +108,17 @@ export interface IntegrityReport {
   usageIncomplete: boolean;
   /** Headline sentence for the banner. */
   headline: string;
+
+  /**
+   * Whether the analysis on this request describes the evidence that exists now.
+   *
+   * Separate from `complete`, which is about whether the rows reconcile. Both
+   * must hold before a figure may be shown: numbers computed from evidence that
+   * has since changed are wrong in exactly the way numbers computed from a
+   * truncated read are wrong.
+   */
+  analysisCurrent: boolean;
+  analysisState: AnalysisState;
 }
 
 const LABELS: Record<IntegrityDataset, string> = {
@@ -131,6 +162,12 @@ export interface IntegrityInput {
   stored: StoredRowCounts;
   /** What the analytics pipeline consumed this request. */
   analyzed: AnalyzedRowCounts;
+  /**
+   * Where the analysis stands. Defaults to `current` so that callers with no
+   * asynchronous build — the local provider, and every existing test — keep
+   * meaning exactly what they meant before.
+   */
+  analysis?: AnalysisState;
 }
 
 export function checkIntegrity(input: IntegrityInput): IntegrityReport {
@@ -161,10 +198,14 @@ export function checkIntegrity(input: IntegrityInput): IntegrityReport {
   const sum = (pick: (entry: DatasetIntegrity) => number) =>
     datasets.reduce((total, entry) => total + pick(entry), 0);
 
+  const analysisState = input.analysis ?? 'current';
+
   return {
     datasets,
     complete,
     incomplete,
+    analysisCurrent: analysisState === 'current',
+    analysisState,
     totalAccepted: sum((entry) => entry.accepted),
     totalStored: sum((entry) => entry.stored),
     totalAnalyzed: sum((entry) => entry.analyzed),
@@ -184,5 +225,14 @@ export function checkIntegrity(input: IntegrityInput): IntegrityReport {
  * position when usage is short is that no usage-derived figure is defensible.
  */
 export function analyticsAvailable(report: IntegrityReport): boolean {
-  return !report.usageIncomplete;
+  // Two separate ways to be wrong, and both disqualify a figure.
+  //
+  //   usageIncomplete   the rows we read are not the rows that are stored
+  //   analysisCurrent   the analysis we hold is not of the evidence that exists
+  //
+  // The second was introduced by Phase 2F, when the build stopped happening
+  // inside the request. A page that rendered a superseded analysis as though it
+  // were current would be the confident-wrong-answer failure arriving by a new
+  // route.
+  return !report.usageIncomplete && report.analysisCurrent;
 }

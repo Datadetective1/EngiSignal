@@ -26,3 +26,7 @@ next-env.d.ts
 
 # Phase specs and closure reports, kept locally
 *.pdf
+
+# Closure reports saved locally from the artifact viewer.
+*.html
+*_files/

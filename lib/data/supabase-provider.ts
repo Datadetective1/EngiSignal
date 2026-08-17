@@ -29,12 +29,13 @@ import type {
 import {
   PROJECTION_VERSION,
   type ProjectionPayload,
+  type ProjectionStatus,
+  buildNeeded,
   deserializeDataset,
   evidenceKeyFor,
   projectionUsable,
-  serializeDataset,
-  type ProjectionState,
 } from '@/lib/analytics/projection';
+import { runProjectionBuild, type BuildClient } from '@/lib/analytics/build-runner';
 import type { StoredRowCounts } from '@/lib/analytics/integrity';
 import type { DataProvider, ReclaimOverride } from './provider';
 
@@ -162,7 +163,20 @@ export const supabaseProvider: DataProvider = {
    * analytics_projections costs one slow page and nothing else.
    */
   async getDataset(orgId: string): Promise<AnalyticsDataset> {
-    return (await loadDataset(orgId)).dataset;
+    const loaded = await loadDataset(orgId);
+    if (loaded.dataset !== null) return loaded.dataset;
+    // No analysis yet. Callers of the bare getDataset have no way to express
+    // "still building", so they get an empty dataset — and every analytical
+    // surface goes through getDatasetWithProjection, which can say so.
+    const organization = await supabaseProvider.getOrganization(orgId);
+    if (organization === null) throw new Error(`Unknown organization: ${orgId}`);
+    return buildDatasetFromCanonical({
+      organization,
+      usage: [],
+      entitlements: [],
+      people: [],
+      contracts: [],
+    });
   },
 
   /** The dataset plus where it came from, for surfaces that report on it. */
@@ -320,11 +334,18 @@ async function buildFromCanonical(
 }
 
 export interface LoadedDataset {
-  dataset: AnalyticsDataset;
+  /**
+   * The analysis, or null when there is none that can honestly be shown.
+   *
+   * Null on a tenant whose first build has not finished. Every analytical
+   * surface renders "your data is being analysed" rather than a dataset full of
+   * zeroes, because zero features and no features look identical on a page and
+   * only one of them is true.
+   */
+  dataset: AnalyticsDataset | null;
   userIdentities: UserIdentity[];
-  /** Derived from the same evidence, carried so the Data page needs no second read. */
   coverage: CoverageSummary;
-  projection: ProjectionState;
+  projection: ProjectionStatus;
   storedRows: StoredRowCounts;
   acceptedRows: StoredRowCounts;
 }
@@ -346,24 +367,60 @@ function acceptedFrom(imports: readonly ImportSummary[]): StoredRowCounts {
 }
 
 /**
- * Read the dataset, preferring a projection that provably matches the evidence.
+ * Start a build unless one is already running, and do not wait for it.
  *
- * Order matters. The evidence key is computed FIRST, from the database, so the
- * decision to trust a payload is made against what is stored now rather than
- * against what the payload claims about itself.
+ * Called from `after()`, so it runs once the response has been sent. The caller
+ * gets its page; the estate gets analysed; nobody watches a spinner inside an
+ * HTTP request that might time out.
+ */
+export async function startProjectionBuild(orgId: string, evidenceKey?: string): Promise<void> {
+  const organization = await supabaseProvider.getOrganization(orgId);
+  if (organization === null) return;
+
+  // The import path does not know the key — it just finished changing the very
+  // evidence the key describes — so it is computed here from what is now stored.
+  const key = evidenceKey ?? (await currentEvidenceKey(orgId));
+  const client = await db();
+
+  await runProjectionBuild({
+    client: client as unknown as BuildClient,
+    organizationId: orgId,
+    evidenceKey: key,
+    build: () => buildFromCanonical(orgId, organization),
+    countStoredRows: () => supabaseIngestionStore.countStoredRows(orgId),
+  });
+}
+
+/** The fingerprint of the evidence that exists right now. */
+export async function currentEvidenceKey(orgId: string): Promise<string> {
+  const [storedRows, imports, confirmations] = await Promise.all([
+    supabaseIngestionStore.countStoredRows(orgId),
+    supabaseIngestionStore.listImports(orgId),
+    supabaseIngestionStore.countConfirmations(orgId),
+  ]);
+  return evidenceKeyFor({
+    storedRows,
+    imports: imports
+      .filter((record) => record.status === 'complete')
+      .map((record) => ({ id: record.id, fingerprint: String(record.acceptedRows) })),
+    confirmations,
+  });
+}
+
+/**
+ * Read the analysis, and say exactly what it is.
+ *
+ * The evidence key is computed FIRST, from the database, so the decision about
+ * a stored payload is made against what exists now rather than against what the
+ * payload claims about itself. Nothing here blocks on a build: a page either
+ * has an analysis of the current evidence, an analysis of a NAMED earlier
+ * version, or nothing at all — and it is told which.
  */
 async function loadDataset(orgId: string): Promise<LoadedDataset> {
-  // ── ONE WAVE, NOT THREE ────────────────────────────────────────────────────
-  //
-  // Everything needed to decide whether the projection can be trusted is
-  // fetched at once, including the projection itself. The stored payload is
-  // read BEFORE the evidence key is known and simply discarded if it does not
-  // match — a wasted 130 KB on the rare rebuild is cheaper than making every
-  // page view wait for a second and third round trip to Supabase.
-  //
-  // Measured on the deployed product: three sequential waves cost about 1.6
-  // seconds of pure latency on top of a 0.25 second framework floor, on every
-  // authenticated page, regardless of what the page showed.
+  // One wave. Everything needed to decide what may be shown, including the
+  // payload itself, which is discarded if it turns out not to match. A wasted
+  // 130 KB on the occasional rebuild is cheaper than a second round trip on
+  // every page view — measured at about 1.6 seconds when it was three waves.
   const [organization, storedRows, imports, confirmations, stored] = await Promise.all([
     supabaseProvider.getOrganization(orgId),
     supabaseIngestionStore.countStoredRows(orgId),
@@ -386,61 +443,94 @@ async function loadDataset(orgId: string): Promise<LoadedDataset> {
   const acceptedRows = acceptedFrom(imports);
   const reason = projectionUsable(stored, evidenceKey);
 
-  if (reason === null && stored !== null) {
+  // Kick a build when one is needed and nobody live is doing it. Deliberately
+  // not awaited by the caller — see startProjectionBuild.
+  const needsBuild = reason !== null && buildNeeded(stored, evidenceKey);
+
+  const base = {
+    storedRows,
+    acceptedRows,
+    coverage: summarizeCoverage([], [], [], []),
+    userIdentities: [] as UserIdentity[],
+  };
+
+  const status = (over: Partial<ProjectionStatus>): ProjectionStatus => ({
+    source: 'none',
+    state: stored?.state ?? null,
+    version: stored?.version ?? PROJECTION_VERSION,
+    computedAt: stored?.computedAt ?? null,
+    buildMs: stored?.buildMs ?? null,
+    payloadBytes: stored?.payloadBytes ?? null,
+    evidenceKey: stored?.evidenceKey ?? null,
+    currentEvidenceKey: evidenceKey,
+    stale: (stored?.evidenceKey ?? null) !== evidenceKey,
+    buildingEvidenceKey: stored?.buildingEvidenceKey ?? null,
+    buildStartedAt: stored?.buildStartedAt ?? null,
+    buildFinishedAt: stored?.buildFinishedAt ?? null,
+    buildAttempt: stored?.buildAttempt ?? 0,
+    buildError: stored?.buildError ?? null,
+    startedBecause: needsBuild ? reason : null,
+    analyticsCurrent: false,
+    ...over,
+  });
+
+  if (needsBuild) pendingBuilds.set(orgId, evidenceKey);
+
+  // The happy path: a payload that describes exactly what is stored.
+  if (reason === null && stored?.payload != null) {
     try {
       const content = deserializeDataset(stored.payload);
       return {
+        ...base,
         dataset: content.dataset,
         coverage: content.coverage,
         userIdentities: content.userIdentities,
-        storedRows,
-        acceptedRows,
-        projection: {
-          source: 'projection',
-          version: stored.version,
-          computedAt: stored.computedAt,
-          buildMs: stored.buildMs,
-          rebuiltBecause: null,
-          payloadBytes: stored.payloadBytes,
-          evidenceKey,
-        },
+        projection: status({ source: 'current', stale: false, analyticsCurrent: true }),
       };
     } catch {
       // A payload that will not inflate is a corrupt cache, not a corrupt
-      // estate. Fall through and rebuild from the rows.
+      // estate. Fall through: a build is already queued above.
     }
   }
 
-  const startedAt = Date.now();
-  const content = await buildFromCanonical(orgId, organization);
-  const buildMs = Date.now() - startedAt;
+  // A complete analysis of an EARLIER evidence version. Shown, because it is
+  // internally consistent and useful, and because withholding everything for
+  // twenty seconds after each import teaches people the product is broken. But
+  // never as current: analyticsCurrent stays false and the UI names the
+  // evidence it describes.
+  if (stored?.payload != null && stored.evidenceKey !== null) {
+    try {
+      const content = deserializeDataset(stored.payload);
+      return {
+        ...base,
+        dataset: content.dataset,
+        coverage: content.coverage,
+        userIdentities: content.userIdentities,
+        projection: status({ source: 'superseded', stale: true, analyticsCurrent: false }),
+      };
+    } catch {
+      // Fall through to nothing-to-show.
+    }
+  }
 
-  const { payload, bytes } = serializeDataset(content);
-  await supabaseIngestionStore.writeProjection(orgId, {
-    version: PROJECTION_VERSION,
-    evidenceKey,
-    computedAt: new Date().toISOString(),
-    buildMs,
-    storedRows,
-    analyzedRows: content.dataset.analyzedRows,
-    payload,
-    payloadBytes: bytes,
-  });
+  // Nothing readable. The first import of a tenant's life, still building.
+  return { ...base, dataset: null, projection: status({ source: 'none' }) };
+}
 
-  return {
-    dataset: content.dataset,
-    coverage: content.coverage,
-    userIdentities: content.userIdentities,
-    storedRows,
-    acceptedRows,
-    projection: {
-      source: 'computed',
-      version: PROJECTION_VERSION,
-      computedAt: null,
-      buildMs,
-      rebuiltBecause: reason ?? 'unreadable',
-      payloadBytes: bytes,
-      evidenceKey,
-    },
-  };
+/**
+ * Builds this request decided are needed, drained by the caller after the
+ * response is sent.
+ *
+ * A module-level map rather than a return value because `loadDataset` is
+ * reached through a cached workspace that many components share, and the build
+ * must be started once per request, not once per component that happens to read
+ * the workspace.
+ */
+const pendingBuilds = new Map<string, string>();
+
+/** Take and clear whatever build this request decided was needed. */
+export function takePendingBuild(orgId: string): string | null {
+  const key = pendingBuilds.get(orgId) ?? null;
+  pendingBuilds.delete(orgId);
+  return key;
 }

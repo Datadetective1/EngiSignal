@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { Badge, Card, CardHeader, TableShell, Td, Th } from '@/components/ui/primitives';
 import { formatNumber } from '@/lib/analytics/financial';
 import type { IntegrityReport } from '@/lib/analytics/integrity';
-import type { ProjectionState } from '@/lib/analytics/projection';
+import { shortEvidenceKey, type ProjectionStatus } from '@/lib/analytics/projection';
 
 /**
  * The row-completeness statement.
@@ -75,65 +75,133 @@ export function DataIntegrityCard({ integrity }: { integrity: IntegrityReport })
   );
 }
 
-const REBUILD_REASON: Record<string, string> = {
-  absent: 'no projection was stored yet',
-  'version-changed': 'the projection format changed in a release',
-  'evidence-changed': 'your evidence changed since the last one was built',
-  unreadable: 'the stored projection could not be read',
-  disabled: 'this deployment computes on every request',
+const STARTED_BECAUSE: Record<string, string> = {
+  absent: 'nothing had been analysed yet',
+  'version-changed': 'the analysis format changed in a release',
+  'evidence-changed': 'your evidence changed',
+  unreadable: 'the stored analysis could not be read',
+  disabled: 'this deployment analyses on every request',
 };
 
+function ago(iso: string | null): string | null {
+  if (iso === null) return null;
+  const seconds = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
+  if (seconds < 60) return seconds + 's ago';
+  if (seconds < 3600) return Math.round(seconds / 60) + 'm ago';
+  return Math.round(seconds / 3600) + 'h ago';
+}
+
 /**
- * Where the numbers on this page came from.
+ * Where the numbers on this page came from, and whether they are finished.
  *
- * A cache that cannot say it is a cache is how a stale figure gets presented as
- * a current one. This states which of the two happened, and the check behind
- * it is exact rather than time-based: a stored projection is used only when a
- * fingerprint of the evidence that exists RIGHT NOW matches the fingerprint it
- * was built from. There is no staleness window, because there is no staleness.
+ * Phase 2F made the analysis asynchronous, which means a page can now be in a
+ * state the product never had before: the evidence is durably stored and
+ * correct, and the analysis of it does not exist yet. A card that could only
+ * say "cached" or "computed" would have no way to express that, and the
+ * difference between "no features" and "not analysed yet" is the whole
+ * question a customer is asking.
  */
 export function ProjectionCard({
   projection,
   analyzedUsage,
   storedUsage,
 }: {
-  projection: ProjectionState;
+  projection: ProjectionStatus;
   analyzedUsage: number;
   storedUsage: number;
 }) {
-  const fromProjection = projection.source === 'projection';
+  const building = projection.state === 'building';
+  const failed = projection.state === 'failed';
+
+  const tone = projection.analyticsCurrent
+    ? 'positive'
+    : failed
+      ? 'danger'
+      : building
+        ? 'accent'
+        : 'warning';
+
+  const label = projection.analyticsCurrent
+    ? 'Current'
+    : failed
+      ? 'Last build failed'
+      : projection.source === 'superseded'
+        ? 'Superseded'
+        : building
+          ? 'Being analysed'
+          : 'Not analysed yet';
 
   return (
     <Card className="overflow-hidden">
       <CardHeader
         title="How this analysis was produced"
-        description="Derived figures are computed once when your evidence changes, then reused. Reuse is allowed only when the evidence still matches exactly."
+        description="Your evidence is analysed once when it changes, then reused. Reuse is allowed only while the evidence still matches exactly."
       />
 
       <div className="es-scroll overflow-x-auto">
         <TableShell>
           <tbody>
             <tr>
-              <Td className="font-medium text-fg">Source</Td>
-              <Td>
-                <Badge tone={fromProjection ? 'positive' : 'accent'}>
-                  {fromProjection ? 'Stored projection' : 'Computed on this request'}
-                </Badge>
-              </Td>
+              <Td className="font-medium text-fg">State</Td>
+              <Td><Badge tone={tone}>{label}</Badge></Td>
             </tr>
             <tr>
-              <Td className="font-medium text-fg">Built</Td>
+              <Td className="font-medium text-fg">Evidence shown</Td>
               <Td className="text-fg-muted">
-                {projection.computedAt === null
-                  ? 'Just now, on this request'
-                  : new Date(projection.computedAt).toLocaleString('en-GB')}
-                {projection.buildMs !== null && ` · took ${formatNumber(projection.buildMs)} ms`}
+                {projection.evidenceKey === null ? (
+                  <span className="text-fg-subtle">None yet</span>
+                ) : (
+                  <>
+                    <code className="text-[11.5px]">{shortEvidenceKey(projection.evidenceKey)}</code>
+                    {projection.stale && (
+                      <span className="ml-2 text-warning">
+                        &middot; your evidence has since changed to{' '}
+                        <code className="text-[11.5px]">
+                          {shortEvidenceKey(projection.currentEvidenceKey)}
+                        </code>
+                      </span>
+                    )}
+                  </>
+                )}
+              </Td>
+            </tr>
+            {building && (
+              <tr>
+                <Td className="font-medium text-fg">Building</Td>
+                <Td className="text-fg-muted">
+                  <code className="text-[11.5px]">
+                    {shortEvidenceKey(projection.buildingEvidenceKey ?? projection.currentEvidenceKey)}
+                  </code>
+                  {projection.buildStartedAt !== null && ' · started ' + ago(projection.buildStartedAt)}
+                  {projection.buildAttempt > 1 && ' · attempt ' + projection.buildAttempt}
+                </Td>
+              </tr>
+            )}
+            <tr>
+              <Td className="font-medium text-fg">Last finished</Td>
+              <Td className="text-fg-muted">
+                {projection.buildFinishedAt === null && projection.computedAt === null ? (
+                  <span className="text-fg-subtle">Never</span>
+                ) : (
+                  <>
+                    {new Date(
+                      projection.buildFinishedAt ?? (projection.computedAt as string),
+                    ).toLocaleString('en-GB')}
+                    {projection.buildMs !== null &&
+                      ' · took ' + formatNumber(projection.buildMs) + ' ms'}
+                  </>
+                )}
               </Td>
             </tr>
             <tr>
-              <Td className="font-medium text-fg">Rows analysed</Td>
+              <Td className="font-medium text-fg">Rows</Td>
               <Td className="tnum text-fg-muted">
-                {formatNumber(analyzedUsage)} of {formatNumber(storedUsage)} usage rows stored
+                {formatNumber(storedUsage)} usage rows stored{' · '}
+                {projection.analyticsCurrent ? (
+                  <>{formatNumber(analyzedUsage)} analysed</>
+                ) : (
+                  <span className="text-fg-subtle">analysis pending</span>
+                )}
               </Td>
             </tr>
             <tr>
@@ -142,10 +210,16 @@ export function ProjectionCard({
             </tr>
             {projection.payloadBytes !== null && (
               <tr>
-                <Td className="font-medium text-fg">Projection size</Td>
+                <Td className="font-medium text-fg">Analysis size</Td>
                 <Td className="tnum text-fg-muted">
                   {formatNumber(Math.round(projection.payloadBytes / 1024))} KB
                 </Td>
+              </tr>
+            )}
+            {projection.buildError !== null && (
+              <tr>
+                <Td className="font-medium text-danger">Last error</Td>
+                <Td className="text-danger">{projection.buildError}</Td>
               </tr>
             )}
           </tbody>
@@ -154,18 +228,27 @@ export function ProjectionCard({
 
       <div className="border-t border-border px-5 py-3.5">
         <p className="text-[12px] leading-relaxed text-fg-subtle">
-          {fromProjection ? (
+          {projection.analyticsCurrent ? (
             <>
               These figures were computed earlier and reused because a fingerprint of your imports,
               row counts and identity decisions still matches the one they were built from. Import,
               delete or confirm anything and the fingerprint stops matching, and the analysis is
-              rebuilt before any page renders from it.
+              rebuilt before any page presents it as current.
+            </>
+          ) : failed ? (
+            <>
+              The last attempt to analyse your evidence did not finish. Your imported rows are
+              unaffected &mdash; they are stored and complete. Reload this page, or import anything,
+              and the analysis will be attempted again.
             </>
           ) : (
             <>
-              These figures were computed from your canonical rows on this request, because{' '}
-              {REBUILD_REASON[projection.rebuiltBecause ?? 'absent'] ?? 'the stored one did not match'}.
-              The result has been saved, so the next read will be faster.
+              Your evidence is stored and complete; the analysis of it is still being built
+              {projection.startedBecause !== null &&
+                ', because ' +
+                  (STARTED_BECAUSE[projection.startedBecause] ?? 'it was out of date')}
+              . Figures are withheld rather than shown from a version that no longer matches what
+              you imported. Reload the page to see whether it has finished.
             </>
           )}
         </p>
@@ -212,13 +295,55 @@ export function IntegrityBanner({ integrity }: { integrity: IntegrityReport }) {
 }
 
 /**
- * What an analytical surface renders INSTEAD of numbers when usage is short.
+ * What an analytical surface renders INSTEAD of numbers.
  *
- * Coarse on purpose: a truncated read gives no way to know which rows are
- * missing, so no usage-derived figure on the page can be defended.
+ * Two different reasons, and they must not be worded the same. A truncated read
+ * means the numbers cannot be trusted; a build in flight means they do not
+ * exist yet. Telling somebody their data "did not reconcile" when their import
+ * is simply still being analysed would send them to delete and re-import a
+ * perfectly good estate.
  */
 export function AnalyticsWithheld({ integrity }: { integrity: IntegrityReport }) {
   const usage = integrity.datasets.find((entry) => entry.dataset === 'usage');
+  const storedUsage = usage?.stored ?? 0;
+
+  // Rows do reconcile; the analysis of them is not finished.
+  if (!integrity.usageIncomplete && !integrity.analysisCurrent) {
+    const failed = integrity.analysisState === 'failed';
+    const superseded = integrity.analysisState === 'superseded';
+
+    return (
+      <Card>
+        <CardHeader
+          title={failed ? 'This analysis could not be completed' : 'Your data is being analysed'}
+          description={
+            failed
+              ? 'Your imported rows are stored and complete. The analysis of them did not finish.'
+              : 'Your imported rows are stored and complete. The figures derived from them are still being built.'
+          }
+        />
+        <div className="px-5 pb-5">
+          <p className="max-w-[70ch] text-[13px] leading-relaxed text-fg-muted">
+            {storedUsage > 0
+              ? `${formatNumber(storedUsage)} usage rows are stored and accounted for.`
+              : 'Your evidence is stored and accounted for.'}{' '}
+            {superseded
+              ? 'A complete analysis of an earlier version of your evidence exists, and is shown elsewhere clearly labelled — but it is not an analysis of what you have just imported, so no figure on this page is derived from it.'
+              : 'Nothing on this page is shown as zero, because zero and "not yet counted" are different answers and only one of them is true.'}
+          </p>
+          <p className="mt-3 max-w-[70ch] text-[13px] leading-relaxed text-fg-muted">
+            {failed
+              ? 'Reload this page to try again, or import anything to trigger a fresh attempt. '
+              : 'This usually takes a few seconds; a very large estate takes longer. Reload the page to see whether it has finished. '}
+            <Link href="/app/data" className="text-accent underline underline-offset-2">
+              Data
+            </Link>{' '}
+            shows what is building, which evidence version it is building, and when it started.
+          </p>
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <Card>

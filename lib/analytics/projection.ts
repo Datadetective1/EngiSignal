@@ -80,21 +80,62 @@ export const PROJECTION_VERSION = 3;
 
 export interface ProjectionRecord {
   version: number;
-  evidenceKey: string;
-  computedAt: string;
+  /** Null before a tenant's first build has ever published. */
+  evidenceKey: string | null;
+  computedAt: string | null;
   buildMs: number | null;
-  storedRows: StoredRowCounts;
-  analyzedRows: AnalyzedRowCounts;
-  payload: string;
-  payloadBytes: number;
+  storedRows: StoredRowCounts | null;
+  analyzedRows: AnalyzedRowCounts | null;
+  /** Null while a first build is still in flight. */
+  payload: string | null;
+  payloadBytes: number | null;
+
+  state: ProjectionBuildState;
+  buildingEvidenceKey: string | null;
+  buildStartedAt: string | null;
+  buildFinishedAt: string | null;
+  buildAttempt: number;
+  buildError: string | null;
+  heartbeatAt: string | null;
 }
 
-/** Where the dataset on this request came from. Never inferred, always recorded. */
+/**
+ * ── THE BUILD LIFECYCLE ──────────────────────────────────────────────────────
+ *
+ * Phase 2F moved the build off the request that commits an import. Three states
+ * are stored, and no more:
+ *
+ *   building   a build is in flight for a named evidence key
+ *   ready      the payload is a complete analysis of `evidence_key`
+ *   failed     the last attempt did not finish, and said why
+ *
+ * UPLOADING and VALIDATING are deliberately absent. They already exist on the
+ * import itself — public.import_status has uploaded, analyzed, mapping_review,
+ * validated, importing, complete and failed — and an import is `complete` at
+ * exactly the moment its canonical rows are durable. Restating that here would
+ * be two sources of truth for one fact.
+ *
+ * STALE is deliberately absent too, and this one matters more. A projection is
+ * stale exactly when the evidence it was built from is not the evidence that
+ * exists now, which the reader computes on every request by comparison. Storing
+ * a staleness flag would create a second version of that fact, which could
+ * disagree with the first — and the entire point of the evidence key is that
+ * staleness is not a matter of opinion.
+ */
+export type ProjectionBuildState = 'building' | 'ready' | 'failed';
+
+/** What the reader is actually looking at. */
 export type ProjectionSource =
-  /** Read from a stored projection whose evidence key matched. */
-  | 'projection'
-  /** Built from canonical rows on this request, because none matched. */
-  | 'computed';
+  /** A stored projection whose evidence key matches the estate exactly. */
+  | 'current'
+  /**
+   * A stored, complete projection of a PREVIOUS evidence version, shown while
+   * its replacement builds. Never presented as current: the caller is told
+   * which evidence it describes and what is being built.
+   */
+  | 'superseded'
+  /** No usable projection yet. There is nothing honest to show. */
+  | 'none';
 
 export type ProjectionRebuildReason =
   | 'absent'
@@ -103,19 +144,42 @@ export type ProjectionRebuildReason =
   | 'unreadable'
   | 'disabled';
 
-export interface ProjectionState {
+export interface ProjectionStatus {
   source: ProjectionSource;
+  /** The stored lifecycle state, when a row exists. */
+  state: ProjectionBuildState | null;
   version: number;
-  /** When the payload was computed. Null when it was computed on this request. */
+  /** When the readable payload was computed. Null when there is none. */
   computedAt: string | null;
-  /** How long the build took, when this request did it or the stored row recorded it. */
   buildMs: number | null;
-  /** Set when the dataset had to be rebuilt, naming why. */
-  rebuiltBecause: ProjectionRebuildReason | null;
-  /** Size on the wire, so a projection that has quietly grown is visible. */
   payloadBytes: number | null;
-  /** Short form of the evidence fingerprint, for support and for the Data page. */
-  evidenceKey: string;
+
+  /** The evidence the readable payload describes. Null when there is none. */
+  evidenceKey: string | null;
+  /** The evidence that exists right now. Always known. */
+  currentEvidenceKey: string;
+  /** True when those two differ — computed, never stored. */
+  stale: boolean;
+
+  /** The evidence a build is working towards, when one is in flight. */
+  buildingEvidenceKey: string | null;
+  buildStartedAt: string | null;
+  buildFinishedAt: string | null;
+  buildAttempt: number;
+  buildError: string | null;
+
+  /** Why a build was started on this request, when one was. */
+  startedBecause: ProjectionRebuildReason | null;
+
+  /**
+   * Whether analytical figures may be rendered from this.
+   *
+   * False whenever the readable payload does not describe the current evidence.
+   * A superseded projection is complete and internally consistent, so it is
+   * still shown — labelled with the evidence version it describes — but no page
+   * may present it as the analysis of what the customer just imported.
+   */
+  analyticsCurrent: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -221,11 +285,35 @@ export function deserializeDataset(payload: string): ProjectionPayload {
  * a fact worth being able to explain.
  */
 export function projectionUsable(
-  record: Pick<ProjectionRecord, 'version' | 'evidenceKey'> | null,
+  record: Pick<ProjectionRecord, 'version' | 'evidenceKey' | 'payload'> | null,
   evidenceKey: string,
 ): ProjectionRebuildReason | null {
-  if (record === null) return 'absent';
+  if (record === null || record.payload === null || record.evidenceKey === null) return 'absent';
   if (record.version !== PROJECTION_VERSION) return 'version-changed';
   if (record.evidenceKey !== evidenceKey) return 'evidence-changed';
   return null;
+}
+
+/** How long a claim may go silent before another worker may take it. */
+export const BUILD_LEASE_SECONDS = 90;
+
+/**
+ * Is there work to do, and is anybody doing it?
+ *
+ * Separated from `projectionUsable` because they answer different questions. A
+ * superseded projection is unusable as current AND may already have a live
+ * build working on its replacement, in which case starting another is waste.
+ */
+export function buildNeeded(
+  record: Pick<ProjectionRecord, 'state' | 'buildingEvidenceKey' | 'heartbeatAt'> | null,
+  evidenceKey: string,
+  now: number = Date.now(),
+): boolean {
+  if (record === null) return true;
+  if (record.state !== 'building') return true;
+  // Building something else entirely — the estate moved again mid-build.
+  if (record.buildingEvidenceKey !== evidenceKey) return true;
+  // Building the right thing, but the worker has gone quiet.
+  const beat = record.heartbeatAt === null ? 0 : Date.parse(record.heartbeatAt);
+  return now - beat > BUILD_LEASE_SECONDS * 1000;
 }

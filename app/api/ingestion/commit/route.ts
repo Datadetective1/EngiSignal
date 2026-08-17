@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { z } from 'zod';
 import {
   EmptyFileError,
@@ -10,7 +10,7 @@ import {
 } from '@/lib/ingestion';
 import { resolveIngestionContext } from '@/lib/ingestion/session';
 import { getIngestionStore } from '@/lib/ingestion/store';
-import { getDataProvider } from '@/lib/data';
+import { startProjectionBuild } from '@/lib/data/supabase-provider';
 import { DuplicateImportError } from '@/lib/ingestion/store/types';
 import { fingerprintImport } from '@/lib/ingestion/fingerprint';
 
@@ -199,24 +199,29 @@ export async function POST(request: Request) {
     );
   }
 
-  // ── THE PROJECTION IS THE IMPORT'S RESPONSIBILITY ──────────────────────────
+  // ── THE ROWS ARE DURABLE; THE ANALYSIS IS NOT THIS REQUEST'S JOB ───────────
   //
-  // Invalidate first, so that a failure anywhere after this point leaves the
-  // next reader rebuilding rather than reading a projection of the estate as it
-  // was before this file landed. Dropping it is always safe: the canonical rows
-  // are the source of truth and a missing projection costs one slow page.
+  // Phase 2E rebuilt the projection here, inside the request. Measured in
+  // production that took 21.9 seconds at 282k rows, and it grows with the
+  // estate while the function timeout does not.
   //
-  // Then rebuild eagerly, so the cost lands on the import that caused it
-  // instead of on whoever opens the dashboard next. Best-effort on purpose: if
-  // this fails or the request runs out of time, the import itself is already
-  // committed and correct, and the next read will rebuild.
-  try {
-    await getIngestionStore().clearProjection(auth.context.organizationId);
-    await getDataProvider().getDatasetWithProjection(auth.context.organizationId);
-  } catch {
-    // A projection that could not be built is a slow next page, never a failed
-    // import. The rows are in.
-  }
+  // The response now returns as soon as the canonical rows are committed, which
+  // is the only thing the customer actually needs to be certain of, and the
+  // analysis runs after it. `after()` keeps the caller's own session, so the
+  // build is governed by exactly the same Row Level Security as every other
+  // statement — no service-role key, no standing capability to read every
+  // tenant, introduced to solve a latency problem.
+  //
+  // Best-effort by design: if the platform cuts the invocation short, the build
+  // records nothing, the claim's lease expires, and the next read takes it
+  // over. Nothing waits for a human to notice.
+  after(async () => {
+    try {
+      await startProjectionBuild(auth.context.organizationId);
+    } catch {
+      // The runner records its own failures against the tenant.
+    }
+  });
 
   return NextResponse.json({
     import: summary,
