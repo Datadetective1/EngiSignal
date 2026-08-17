@@ -12,6 +12,7 @@ import { computeRightSizing, describeMethodology } from '@/lib/analytics/rightsi
 import { ceilPrecise, percentile, round, trendPercentPerYear } from '@/lib/analytics/stats';
 import type { RiskLevel } from '@/lib/domain/types';
 import { cn } from '@/lib/utils';
+import { featureHref } from '@/lib/routes';
 
 /**
  * The Scenario Lab.
@@ -446,7 +447,7 @@ export function ScenarioLab({
             {rollup.atRisk} feature{rollup.atRisk === 1 ? '' : 's'} above 92% utilization at this percentile
           </Badge>
           <Link
-            href={`/app/portfolio/${selected.featureId}`}
+            href={featureHref(selected.featureId)}
             className="text-[12.5px] font-medium text-accent underline-offset-4 hover:underline"
           >
             Open full evidence for {selected.productName}

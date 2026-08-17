@@ -18,6 +18,7 @@ import { computeForecast, forecastPortfolioSpend, forecastSeries, trendClampNote
 import { loadWorkspace } from '@/lib/workspace';
 import { AnalyticsWithheld } from '@/components/app/data-integrity';
 import { analyticsAvailable } from '@/lib/analytics/integrity';
+import { encodeRouteId, featureHref } from '@/lib/routes';
 
 export const metadata: Metadata = { title: 'Forecast' };
 
@@ -110,7 +111,7 @@ export default async function ForecastPage({
             description="Monthly maximum demand observed, then projected forward twelve months."
             action={
               <Link
-                href={`/app/portfolio/${selected.row.featureId}`}
+                href={featureHref(selected.row.featureId)}
                 className="text-[12.5px] font-medium text-accent hover:underline"
               >
                 Feature detail
@@ -183,7 +184,7 @@ export default async function ForecastPage({
             {forecasts.map(({ row, forecast }) => (
               <tr key={row.featureId} className="hover:bg-surface-2">
                 <Td>
-                  <Link href={`/app/forecast?feature=${row.featureId}`} className="group block min-w-[180px]">
+                  <Link href={`/app/forecast?feature=${encodeRouteId(row.featureId)}`} className="group block min-w-[180px]">
                     <span className="block truncate text-[12.5px] font-medium text-fg group-hover:text-accent">
                       {row.productName}
                     </span>

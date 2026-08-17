@@ -14,6 +14,7 @@ import {
   shareOfSpend,
 } from '@/lib/analytics/financial';
 import { computeForecast } from '@/lib/analytics/forecast';
+import { decodeRouteId, renewalHref } from '@/lib/routes';
 import { employeeIndex, loadWorkspace } from '@/lib/workspace';
 
 export const metadata: Metadata = { title: 'Negotiation brief' };
@@ -23,7 +24,9 @@ export default async function NegotiationBriefPage({
 }: {
   params: Promise<{ contractId: string }>;
 }) {
-  const { contractId } = await params;
+  // Pages receive dynamic segments percent-encoded; identities are not. See
+  // lib/routes.ts — comparing the two directly 404s every detail page.
+  const contractId = decodeRouteId((await params).contractId);
   const workspace = await loadWorkspace();
 
   const renewal = workspace.renewals.find((r) => r.contractId === contractId);
@@ -69,7 +72,7 @@ export default async function NegotiationBriefPage({
   return (
     <div className="mx-auto max-w-[900px]">
       <div className="no-print mb-6 flex flex-wrap items-center justify-between gap-3">
-        <Link href={`/app/renewals/${contractId}`} className="text-[12.5px] text-fg-muted hover:text-fg">
+        <Link href={renewalHref(contractId)} className="text-[12.5px] text-fg-muted hover:text-fg">
           ← Back to renewal
         </Link>
         <PrintButton />

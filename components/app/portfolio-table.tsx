@@ -6,6 +6,7 @@ import { Badge, ConfidenceBadge, RiskBadge, TableShell, Td, Th } from '@/compone
 import { formatCurrency, formatNumber, formatPercent } from '@/lib/analytics/financial';
 import type { ConfidenceLevel, LicenseModel, RiskLevel } from '@/lib/domain/types';
 import { cn } from '@/lib/utils';
+import { featureHref } from '@/lib/routes';
 
 export interface PortfolioTableRow {
   featureId: string;
@@ -220,7 +221,7 @@ export function PortfolioTable({
               return (
                 <tr key={row.featureId} className="transition-colors hover:bg-surface-2">
                   <Td>
-                    <Link href={`/app/portfolio/${row.featureId}`} className="group block min-w-[190px]">
+                    <Link href={featureHref(row.featureId)} className="group block min-w-[190px]">
                       <span className="block truncate text-[12.5px] font-medium text-fg group-hover:text-accent">
                         {row.productName}
                       </span>

@@ -13,6 +13,7 @@ import {
 import { formatDate } from '@/lib/analytics/dates';
 import { formatNumber } from '@/lib/analytics/financial';
 import { loadWorkspace } from '@/lib/workspace';
+import { featureHref } from '@/lib/routes';
 
 export const metadata: Metadata = { title: 'Unmapped features' };
 
@@ -113,7 +114,7 @@ export default async function UnmappedFeaturesPage() {
                     <span className="text-[12px] text-fg-subtle">No confident match</span>
                   ) : (
                     <Link
-                      href={`/app/portfolio/${suggestion.featureId}`}
+                      href={featureHref(suggestion.featureId)}
                       className="text-[12px] text-accent hover:underline"
                     >
                       {suggestion.label}

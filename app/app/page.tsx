@@ -25,6 +25,7 @@ import { monthlyPeakSeries } from '@/lib/analytics/concurrent';
 import { loadWorkspace } from '@/lib/workspace';
 import { AnalyticsWithheld } from '@/components/app/data-integrity';
 import { analyticsAvailable } from '@/lib/analytics/integrity';
+import { featureHref, renewalHref } from '@/lib/routes';
 
 export const metadata: Metadata = { title: 'Intelligence' };
 
@@ -189,7 +190,7 @@ export default async function IntelligencePage() {
               return (
                 <li key={renewal.contractId}>
                   <Link
-                    href={`/app/renewals/${renewal.contractId}`}
+                    href={renewalHref(renewal.contractId)}
                     className="flex items-center gap-4 px-5 py-3 transition-colors hover:bg-surface-2"
                   >
                     <div className="min-w-0 flex-1">
@@ -243,7 +244,7 @@ export default async function IntelligencePage() {
               return (
                 <li key={row.featureId}>
                   <Link
-                    href={`/app/portfolio/${row.featureId}`}
+                    href={featureHref(row.featureId)}
                     className="flex items-center gap-4 px-5 py-3 transition-colors hover:bg-surface-2"
                   >
                     <div className="min-w-0 flex-1">

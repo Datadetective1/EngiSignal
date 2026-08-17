@@ -25,6 +25,7 @@ import {
   formatSignedPercent,
 } from '@/lib/analytics/financial';
 import { buildRecommendationEvidence } from '@/lib/analytics/evidence';
+import { decodeRouteId, encodeRouteId, renewalHref } from '@/lib/routes';
 import { employeeIndex, loadWorkspace } from '@/lib/workspace';
 
 export const metadata: Metadata = { title: 'Feature detail' };
@@ -34,7 +35,9 @@ export default async function FeatureDetailPage({
 }: {
   params: Promise<{ featureId: string }>;
 }) {
-  const { featureId } = await params;
+  // Pages receive dynamic segments percent-encoded; identities are not. See
+  // lib/routes.ts — comparing the two directly 404s every detail page.
+  const featureId = decodeRouteId((await params).featureId);
   const workspace = await loadWorkspace();
   const row = workspace.portfolio.find((r) => r.featureId === featureId);
   if (row === undefined) notFound();
@@ -125,14 +128,14 @@ export default async function FeatureDetailPage({
           </div>
 
           <div className="flex gap-2">
-            <LinkButton href={`/app/scenario?feature=${row.featureId}`} size="sm">
+            <LinkButton href={`/app/scenario?feature=${encodeRouteId(row.featureId)}`} size="sm">
               Model scenario
             </LinkButton>
-            <LinkButton href={`/app/users?feature=${row.featureId}`} size="sm">
+            <LinkButton href={`/app/users?feature=${encodeRouteId(row.featureId)}`} size="sm">
               Users
             </LinkButton>
             {row.contractId !== null && (
-              <LinkButton href={`/app/renewals/${row.contractId}`} size="sm" variant="primary">
+              <LinkButton href={renewalHref(row.contractId)} size="sm" variant="primary">
                 Renewal
               </LinkButton>
             )}
@@ -266,7 +269,7 @@ export default async function FeatureDetailPage({
               title="Named user position"
               description={`Seats idle for ${row.namedUser.reclaimThresholdDays}+ days are reclaim candidates.`}
               action={
-                <LinkButton href={`/app/reclaim?feature=${row.featureId}`} size="sm">
+                <LinkButton href={`/app/reclaim?feature=${encodeRouteId(row.featureId)}`} size="sm">
                   Reclaim queue
                 </LinkButton>
               }

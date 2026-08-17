@@ -24,6 +24,7 @@ import { loadWorkspace } from '@/lib/workspace';
 import { AnalyticsWithheld } from '@/components/app/data-integrity';
 import { analyticsAvailable } from '@/lib/analytics/integrity';
 import type { RenewalStage } from '@/lib/domain/types';
+import { renewalHref } from '@/lib/routes';
 
 export const metadata: Metadata = { title: 'Renewals' };
 
@@ -307,7 +308,7 @@ export default async function RenewalsPage() {
                           .map((r) => (
                             <li key={r.contractId}>
                               <Link
-                                href={`/app/renewals/${r.contractId}`}
+                                href={renewalHref(r.contractId)}
                                 className="block truncate rounded-sm bg-accent-soft px-2 py-1 text-[11.5px] font-medium text-accent hover:brightness-110"
                               >
                                 {r.vendorName} · {r.daysRemaining}d
@@ -348,7 +349,7 @@ export default async function RenewalsPage() {
               return (
                 <tr key={renewal.contractId} className="transition-colors hover:bg-surface-2">
                   <Td>
-                    <Link href={`/app/renewals/${renewal.contractId}`} className="group block min-w-[210px]">
+                    <Link href={renewalHref(renewal.contractId)} className="group block min-w-[210px]">
                       <span className="block truncate text-[12.5px] font-medium text-fg group-hover:text-accent">
                         {renewal.vendorName}
                       </span>

@@ -19,6 +19,7 @@ import type { ReclaimStatus } from '@/lib/domain/types';
 import { employeeIndex, loadWorkspace } from '@/lib/workspace';
 import { AnalyticsWithheld } from '@/components/app/data-integrity';
 import { analyticsAvailable } from '@/lib/analytics/integrity';
+import { encodeRouteId, featureHref } from '@/lib/routes';
 
 export const metadata: Metadata = { title: 'Reclaim campaigns' };
 
@@ -147,7 +148,7 @@ export default async function ReclaimPage({
         {namedFeatures.map((row) => (
           <FilterLink
             key={row.featureId}
-            href={`/app/reclaim?feature=${row.featureId}`}
+            href={`/app/reclaim?feature=${encodeRouteId(row.featureId)}`}
             active={params.feature === row.featureId}
           >
             {row.productName}{' '}
@@ -182,7 +183,7 @@ export default async function ReclaimPage({
                 <Td className="text-fg-muted">{candidate.department ?? '—'}</Td>
                 <Td className="text-fg-muted">{candidate.program ?? '—'}</Td>
                 <Td>
-                  <Link href={`/app/portfolio/${candidate.featureId}`} className="hover:text-accent">
+                  <Link href={featureHref(candidate.featureId)} className="hover:text-accent">
                     {candidate.productName}
                   </Link>
                 </Td>
@@ -244,7 +245,7 @@ export default async function ReclaimPage({
               : `${formatNumber(candidates.length)} candidates.`}
           </p>
           <a
-            href={`/api/export/reclaim${params.feature === undefined ? '' : `?feature=${params.feature}`}`}
+            href={`/api/export/reclaim${params.feature === undefined ? '' : `?feature=${encodeRouteId(params.feature)}`}`}
             className="inline-flex h-8 items-center rounded-md border border-border px-2.5 text-[12px] font-medium text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
           >
             Export campaign CSV

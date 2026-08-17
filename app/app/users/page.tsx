@@ -16,6 +16,7 @@ import { daysInactive } from '@/lib/analytics/named-user';
 import { employeeIndex, loadWorkspace } from '@/lib/workspace';
 import { AnalyticsWithheld } from '@/components/app/data-integrity';
 import { analyticsAvailable } from '@/lib/analytics/integrity';
+import { encodeRouteId, featureHref } from '@/lib/routes';
 
 export const metadata: Metadata = { title: 'Users' };
 
@@ -120,7 +121,7 @@ export default async function UsersPage({
             Apply
           </button>
           <a
-            href={`/api/export/users${params.feature === undefined ? '' : `?feature=${params.feature}`}`}
+            href={`/api/export/users${params.feature === undefined ? '' : `?feature=${encodeRouteId(params.feature)}`}`}
             className="ml-auto inline-flex h-8 items-center rounded-md border border-border px-2.5 text-[12px] font-medium text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
           >
             Export CSV
@@ -131,7 +132,7 @@ export default async function UsersPage({
           <div className="border-b border-border bg-surface-2 px-4 py-2.5 text-[12px] text-fg-muted">
             Showing <span className="font-medium text-fg">{selectedFeature.productName}</span> ·{' '}
             {selectedFeature.featureName} ·{' '}
-            <Link href={`/app/portfolio/${selectedFeature.featureId}`} className="text-accent hover:underline">
+            <Link href={featureHref(selectedFeature.featureId)} className="text-accent hover:underline">
               open feature detail
             </Link>
           </div>
@@ -180,7 +181,7 @@ export default async function UsersPage({
                   <Td className="text-fg-muted">{employee?.discipline ?? '—'}</Td>
                   <Td>
                     <Link
-                      href={`/app/portfolio/${activity.featureId}`}
+                      href={featureHref(activity.featureId)}
                       className="block truncate hover:text-accent"
                     >
                       {feature?.productName ?? activity.featureId}

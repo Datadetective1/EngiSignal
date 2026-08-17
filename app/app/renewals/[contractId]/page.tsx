@@ -25,6 +25,7 @@ import {
   formatPercent,
   formatSignedPercent,
 } from '@/lib/analytics/financial';
+import { decodeRouteId, featureHref, renewalBriefHref } from '@/lib/routes';
 import { loadWorkspace } from '@/lib/workspace';
 
 export const metadata: Metadata = { title: 'Renewal' };
@@ -34,7 +35,9 @@ export default async function RenewalDetailPage({
 }: {
   params: Promise<{ contractId: string }>;
 }) {
-  const { contractId } = await params;
+  // Pages receive dynamic segments percent-encoded; identities are not. See
+  // lib/routes.ts — comparing the two directly 404s every detail page.
+  const contractId = decodeRouteId((await params).contractId);
   const workspace = await loadWorkspace();
 
   const renewal = workspace.renewals.find((r) => r.contractId === contractId);
@@ -83,7 +86,7 @@ export default async function RenewalDetailPage({
             </div>
           </div>
 
-          <LinkButton href={`/app/renewals/${contractId}/brief`} variant="primary">
+          <LinkButton href={renewalBriefHref(contractId)} variant="primary">
             Generate negotiation brief
           </LinkButton>
         </div>
@@ -152,7 +155,7 @@ export default async function RenewalDetailPage({
               return (
                 <tr key={row.featureId} className="transition-colors hover:bg-surface-2">
                   <Td>
-                    <Link href={`/app/portfolio/${row.featureId}`} className="group block min-w-[180px]">
+                    <Link href={featureHref(row.featureId)} className="group block min-w-[180px]">
                       <span className="block truncate text-[12.5px] font-medium text-fg group-hover:text-accent">
                         {row.productName}
                       </span>
