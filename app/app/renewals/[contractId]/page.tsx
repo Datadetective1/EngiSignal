@@ -25,6 +25,8 @@ import {
   formatPercent,
   formatSignedPercent,
 } from '@/lib/analytics/financial';
+import { AnalyticsWithheld } from '@/components/app/data-integrity';
+import { analyticsAvailable } from '@/lib/analytics/integrity';
 import { decodeRouteId, featureHref, renewalBriefHref } from '@/lib/routes';
 import { loadWorkspace } from '@/lib/workspace';
 
@@ -39,6 +41,14 @@ export default async function RenewalDetailPage({
   // lib/routes.ts — comparing the two directly 404s every detail page.
   const contractId = decodeRouteId((await params).contractId);
   const workspace = await loadWorkspace();
+
+  // Every quantity below is demand-backed, and demand comes from usage. If the
+  // analysis did not read all of the stored usage, this page has no defensible
+  // version of itself — least of all the one a customer takes into a
+  // negotiation.
+  if (!analyticsAvailable(workspace.integrity)) {
+    return <AnalyticsWithheld integrity={workspace.integrity} />;
+  }
 
   const renewal = workspace.renewals.find((r) => r.contractId === contractId);
   const contract = workspace.dataset.contracts.find((c) => c.id === contractId);

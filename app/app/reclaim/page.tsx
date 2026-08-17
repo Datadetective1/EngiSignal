@@ -258,6 +258,14 @@ export default async function ReclaimPage({
         immediately if it has never been used since assignment. Nothing is reclaimed automatically —
         EngiSignal produces the queue and the evidence; the decision stays with the manager who owns the
         person&rsquo;s work.
+        {' '}
+        {/* Days idle counts to the end of the evidence, not to today. Anything
+            after the export ended is unobserved, and counting it would report
+            idleness nobody measured. Stated here because the difference is
+            invisible in the number itself. */}
+        <strong className="font-medium text-fg">Days idle is counted to {formatDate(dataset.asOf)}</strong>
+        , the last date your imported usage covers — not to today. Time after the export ends is
+        unobserved, so it is not counted as idle.
         {workspace.usingMockData && ' Decisions recorded here persist for this session only.'}
       </MethodologyNote>
     </div>

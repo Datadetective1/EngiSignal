@@ -3,6 +3,7 @@ import { buildDatasetFromCanonical } from '@/lib/ingestion/dataset';
 import { buildPortfolio, buildRenewals, buildDataQualityIssues, portfolioConfidence } from '@/lib/analytics/portfolio';
 import { computePortfolioTotals, unusedCapacitySpend } from '@/lib/analytics/financial';
 import { checkIntegrity } from '@/lib/analytics/integrity';
+import { AnalyticsWithheld } from '@/components/app/data-integrity';
 import { reconcile } from '@/lib/analytics/reconciliation';
 import { generateSignals } from '@/lib/analytics/signals';
 import { DEFAULT_ANALYSIS_OPTIONS } from '@/lib/domain/dataset';
@@ -181,8 +182,11 @@ const workspace = {
 
 vi.mock('server-only', () => ({}));
 
+/** Swapped per test so a page can be driven under a short read. */
+let loaded = workspace;
+
 vi.mock('@/lib/workspace', () => ({
-  loadWorkspace: async () => workspace,
+  loadWorkspace: async () => loaded,
   employeeIndex: (data: { employees: { id: string }[] }) =>
     new Map(data.employees.map((employee) => [employee.id, employee])),
   recompute: () => {
@@ -289,5 +293,64 @@ describe('the renewal detail and negotiation brief', () => {
     expect(
       await renders(RenewalDetailPage, { contractId: encodeRouteId(`contract:${ORG_ID}:nope`) }),
     ).toBe(false);
+  });
+});
+
+/**
+ * THE DRILL-DOWN THAT WOULD STILL HAVE ANSWERED.
+ *
+ * The list pages have withheld their figures since Phase 2C whenever the
+ * analysis did not read every stored usage row. The detail pages behind them
+ * did not — so a truncated read produced a Portfolio that said "figures
+ * withheld" and a feature page one click away that cheerfully showed a P95, a
+ * recommended quantity and an annual opportunity computed from the fraction
+ * that happened to arrive. The negotiation brief did the same.
+ *
+ * Found by reading the code during Phase 2D rather than by a failure, because
+ * nothing in the suite covered a detail page under a short read.
+ */
+describe('a detail page under a truncated read', () => {
+  const short = {
+    ...workspace,
+    integrity: checkIntegrity({
+      accepted: counts,
+      stored: counts,
+      analyzed: { ...counts, usage: counts.usage - 1 },
+    }),
+  };
+
+  /** Did the page render the withheld notice instead of its numbers? */
+  async function withheld(page: (props: never) => Promise<unknown>, params: Record<string, string>) {
+    const element = (await page({ params: Promise.resolve(params) } as never)) as {
+      type?: unknown;
+    };
+    return element?.type === AnalyticsWithheld;
+  }
+
+  it('is reported incomplete before any of this runs', () => {
+    expect(short.integrity.usageIncomplete).toBe(true);
+  });
+
+  it('withholds the feature detail rather than sizing from part of the evidence', async () => {
+    loaded = short;
+    expect(await withheld(FeatureDetailPage, { featureId: 'feature%3Aansys_mech_ent' })).toBe(true);
+  });
+
+  it('withholds the renewal detail', async () => {
+    loaded = short;
+    const params = { contractId: segment(renewalHref(renewals[0]!.contractId)) };
+    expect(await withheld(RenewalDetailPage, params)).toBe(true);
+  });
+
+  it('withholds the negotiation brief, which is the one that goes into the room', async () => {
+    loaded = short;
+    const params = { contractId: segment(renewalHref(renewals[0]!.contractId)) };
+    expect(await withheld(NegotiationBriefPage, params)).toBe(true);
+  });
+
+  it('shows the numbers again once the counts reconcile', async () => {
+    loaded = workspace;
+    expect(await withheld(FeatureDetailPage, { featureId: 'feature%3Aansys_mech_ent' })).toBe(false);
+    expect(await renders(FeatureDetailPage, { featureId: 'feature%3Aansys_mech_ent' })).toBe(true);
   });
 });

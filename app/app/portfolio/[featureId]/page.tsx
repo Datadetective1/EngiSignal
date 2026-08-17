@@ -25,6 +25,8 @@ import {
   formatSignedPercent,
 } from '@/lib/analytics/financial';
 import { buildRecommendationEvidence } from '@/lib/analytics/evidence';
+import { AnalyticsWithheld } from '@/components/app/data-integrity';
+import { analyticsAvailable } from '@/lib/analytics/integrity';
 import { decodeRouteId, encodeRouteId, renewalHref } from '@/lib/routes';
 import { employeeIndex, loadWorkspace } from '@/lib/workspace';
 
@@ -39,6 +41,14 @@ export default async function FeatureDetailPage({
   // lib/routes.ts — comparing the two directly 404s every detail page.
   const featureId = decodeRouteId((await params).featureId);
   const workspace = await loadWorkspace();
+  // Every figure below is computed from usage. The list pages withhold when the
+  // analysis did not read all of it; a drill-down that kept showing a P95 and a
+  // recommended quantity would be the one screen in the product still willing
+  // to answer from an unknown fraction of the evidence.
+  if (!analyticsAvailable(workspace.integrity)) {
+    return <AnalyticsWithheld integrity={workspace.integrity} />;
+  }
+
   const row = workspace.portfolio.find((r) => r.featureId === featureId);
   if (row === undefined) notFound();
 
