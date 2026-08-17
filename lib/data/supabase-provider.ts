@@ -349,14 +349,25 @@ function acceptedFrom(imports: readonly ImportSummary[]): StoredRowCounts {
  * against what the payload claims about itself.
  */
 async function loadDataset(orgId: string): Promise<LoadedDataset> {
-  const organization = await supabaseProvider.getOrganization(orgId);
-  if (organization === null) throw new Error(`Unknown organization: ${orgId}`);
-
-  const [storedRows, imports, confirmations] = await Promise.all([
+  // ── ONE WAVE, NOT THREE ────────────────────────────────────────────────────
+  //
+  // Everything needed to decide whether the projection can be trusted is
+  // fetched at once, including the projection itself. The stored payload is
+  // read BEFORE the evidence key is known and simply discarded if it does not
+  // match — a wasted 130 KB on the rare rebuild is cheaper than making every
+  // page view wait for a second and third round trip to Supabase.
+  //
+  // Measured on the deployed product: three sequential waves cost about 1.6
+  // seconds of pure latency on top of a 0.25 second framework floor, on every
+  // authenticated page, regardless of what the page showed.
+  const [organization, storedRows, imports, confirmations, stored] = await Promise.all([
+    supabaseProvider.getOrganization(orgId),
     supabaseIngestionStore.countStoredRows(orgId),
     supabaseIngestionStore.listImports(orgId),
     supabaseIngestionStore.countConfirmations(orgId),
+    supabaseIngestionStore.readProjection(orgId),
   ]);
+  if (organization === null) throw new Error(`Unknown organization: ${orgId}`);
 
   const evidenceKey = evidenceKeyFor({
     storedRows,
@@ -369,7 +380,6 @@ async function loadDataset(orgId: string): Promise<LoadedDataset> {
   });
 
   const acceptedRows = acceptedFrom(imports);
-  const stored = await supabaseIngestionStore.readProjection(orgId);
   const reason = projectionUsable(stored, evidenceKey);
 
   if (reason === null && stored !== null) {
