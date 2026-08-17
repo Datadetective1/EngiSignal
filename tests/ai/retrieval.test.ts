@@ -42,6 +42,15 @@ const workspace = {
     stored: dataset.analyzedRows,
     analyzed: dataset.analyzedRows,
   }),
+  projection: {
+    source: 'computed' as const,
+    version: 1,
+    computedAt: null,
+    buildMs: null,
+    rebuiltBecause: 'disabled' as const,
+    payloadBytes: null,
+    evidenceKey: 'test',
+  },
   usingMockData: true,
 } satisfies Workspace;
 

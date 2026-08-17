@@ -20,6 +20,7 @@ import {
 } from '@/lib/analytics/portfolio';
 import { generateSignals } from '@/lib/analytics/signals';
 import { checkIntegrity, type IntegrityReport } from '@/lib/analytics/integrity';
+import type { ProjectionState } from '@/lib/analytics/projection';
 import { reconcile, type ReconciliationSummary } from '@/lib/analytics/reconciliation';
 import { requireSession, type AppSession } from '@/lib/auth';
 import { ensureOrganization } from '@/app/signin/actions';
@@ -51,6 +52,14 @@ export interface Workspace {
    * have withheld.
    */
   integrity: IntegrityReport;
+  /**
+   * Where this request's dataset came from, and why.
+   *
+   * Reported rather than assumed. A projection is only ever used when its
+   * evidence key matches the estate exactly, so this can never say
+   * 'projection' about numbers derived from evidence that has since changed.
+   */
+  projection: ProjectionState;
   totals: ReturnType<typeof computePortfolioTotals>;
   unusedCapacity: ReturnType<typeof unusedCapacitySpend>;
   confidence: ConfidenceResult;
@@ -80,15 +89,26 @@ export const loadWorkspace = cache(async (): Promise<Workspace> => {
   const organization = organizations[0];
   if (organization === undefined) notFound();
 
-  const dataset = await provider.getDataset(organization.id);
+  // The dataset comes from a stored projection when one provably matches the
+  // evidence that exists right now, and is rebuilt from canonical rows when it
+  // does not. Which of those happened is carried through to the Data page —
+  // a cached answer that cannot say it is cached is how a stale number gets
+  // presented as a current one.
+  const { dataset, projection, storedRows, acceptedRows } =
+    await provider.getDatasetWithProjection(organization.id);
   const options = DEFAULT_ANALYSIS_OPTIONS;
 
   // Three counts that must agree: what the import receipts promised, what the
-  // database holds, and what this request actually read.
-  const accounting = await provider.countRowAccounting(organization.id);
+  // database holds, and what this request actually read. Unchanged by the
+  // projection: `analyzed` is still what the analytics consumed, and it is
+  // still compared against a count the database performed, so a projection
+  // built from a truncated read is caught by exactly the same gate.
+  // The counts come back from the same fetch that decided whether the
+  // projection could be used, rather than from a second round trip asking the
+  // database the questions it was just asked.
   const integrity = checkIntegrity({
-    accepted: accounting.accepted,
-    stored: accounting.stored,
+    accepted: acceptedRows,
+    stored: storedRows,
     analyzed: dataset.analyzedRows,
   });
 
@@ -135,6 +155,7 @@ export const loadWorkspace = cache(async (): Promise<Workspace> => {
     reconciliation,
     signals,
     integrity,
+    projection,
     totals: computePortfolioTotals(portfolio),
     unusedCapacity: unusedCapacitySpend(portfolio),
     confidence: portfolioConfidence(portfolio),

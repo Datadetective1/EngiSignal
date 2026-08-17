@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { resolveIngestionContext } from '@/lib/ingestion/session';
 import { getIngestionStore } from '@/lib/ingestion/store';
+import { getDataProvider } from '@/lib/data';
 
 export const runtime = 'nodejs';
 
@@ -55,5 +56,22 @@ export async function DELETE(
   );
 
   if (!removed) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
+
+  // Deleting an import changes every derived number that rested on its rows.
+  // Drop the projection before answering, so no reader can be served a summary
+  // of an estate that no longer exists, then rebuild so the cost lands here
+  // rather than on the next person to open the dashboard.
+  //
+  // The read path would catch this anyway — the evidence key no longer matches
+  // once the rows are gone — but relying on that alone would mean the guarantee
+  // rests on one mechanism instead of two.
+  try {
+    await getIngestionStore().clearProjection(auth.context.organizationId);
+    await getDataProvider().getDatasetWithProjection(auth.context.organizationId);
+  } catch {
+    // A projection that could not be rebuilt is a slow next page. The delete
+    // itself has already succeeded and the rows are gone.
+  }
+
   return NextResponse.json({ deleted: true, importId: parsed.data.importId });
 }

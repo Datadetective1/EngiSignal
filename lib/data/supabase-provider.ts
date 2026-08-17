@@ -17,12 +17,22 @@ import { buildDatasetFromCanonical } from '@/lib/ingestion/dataset';
 import { confirmedAliasMaps } from '@/lib/ingestion/confirmations';
 import { supabaseIngestionStore } from '@/lib/ingestion/store/supabase-store';
 import type { AnalyticsDataset } from '@/lib/domain/dataset';
+import type { ImportSummary } from '@/lib/ingestion/store/types';
 import type {
   DecisionItem,
   DecisionStatus,
   Organization,
   PilotRequest,
 } from '@/lib/domain/types';
+import {
+  PROJECTION_VERSION,
+  deserializeDataset,
+  evidenceKeyFor,
+  projectionUsable,
+  serializeDataset,
+  type ProjectionState,
+} from '@/lib/analytics/projection';
+import type { StoredRowCounts } from '@/lib/analytics/integrity';
 import type { DataProvider, ReclaimOverride } from './provider';
 
 // Single definition, in config/env.ts, where blank is treated as absent.
@@ -132,54 +142,29 @@ export const supabaseProvider: DataProvider = {
     return { accepted, stored };
   },
 
+  /**
+   * ── THE DATASET, COMPUTED ONCE ──────────────────────────────────────────────
+   *
+   * Phase 2D measured this method at the stated ceiling: 6.9 seconds to read
+   * 67,267 rows, then 12 milliseconds to analyse them, on every page view, for
+   * an answer that had not changed since the last import.
+   *
+   * The dataset is now read from a stored projection when one matches the
+   * evidence, and rebuilt from canonical rows when one does not. The check is
+   * not "is it recent" — a cache that goes stale quietly is the confident-wrong-
+   * answer failure this codebase exists to refuse. It is an exact comparison
+   * against the evidence that exists right now, on every request.
+   *
+   * The canonical tables remain the only source of truth. Deleting every row in
+   * analytics_projections costs one slow page and nothing else.
+   */
   async getDataset(orgId: string): Promise<AnalyticsDataset> {
-    const organization = await this.getOrganization(orgId);
-    if (organization === null) throw new Error(`Unknown organization: ${orgId}`);
+    return (await loadDataset(orgId)).dataset;
+  },
 
-    const [usage, entitlements, people, contracts, imports, aliases] = await Promise.all([
-      supabaseIngestionStore.listUsage(orgId),
-      supabaseIngestionStore.listEntitlements(orgId),
-      supabaseIngestionStore.listPeople(orgId),
-      supabaseIngestionStore.listContracts(orgId),
-      supabaseIngestionStore.listImports(orgId),
-      // Customer-confirmed merges. The only thing that combines two strings the
-      // matching rules would refuse to combine, and scoped to this tenant.
-      confirmedAliasMaps(orgId),
-    ]);
-
-    const dataset = buildDatasetFromCanonical({
-      organization,
-      usage,
-      entitlements,
-      people,
-      contracts,
-      featureAliases: aliases.features,
-      userAliases: aliases.users,
-    });
-
-    return {
-      ...dataset,
-      imports: imports.map((record) => ({
-        id: record.id,
-        organizationId: record.organizationId,
-        kind:
-          record.dataset === 'people'
-            ? 'employees'
-            : record.dataset === 'entitlements' || record.dataset === 'contracts'
-              ? 'contracts'
-              : 'usage',
-        fileName: record.fileName,
-        fileBytes: record.fileBytes,
-        rowCount: record.totalRows,
-        acceptedRows: record.acceptedRows,
-        rejectedRows: record.rejectedRows,
-        status: record.status === 'complete' ? 'complete' : 'failed',
-        createdAt: record.uploadedAt,
-        createdBy: null,
-        mappingId: null,
-        notes: null,
-      })),
-    };
+  /** The dataset plus where it came from, for surfaces that report on it. */
+  async getDatasetWithProjection(orgId: string): Promise<LoadedDataset> {
+    return loadDataset(orgId);
   },
 
   async getReclaimOverrides(orgId: string): Promise<Map<string, ReclaimOverride>> {
@@ -267,3 +252,164 @@ export const supabaseProvider: DataProvider = {
     return { ...request, id: data.id, createdAt: data.created_at };
   },
 };
+
+/**
+ * Build the analytical dataset from canonical rows.
+ *
+ * The slow path, and the authoritative one. Everything the projection serves is
+ * a saved result of exactly this function.
+ */
+async function buildFromCanonical(orgId: string, organization: Organization) {
+  const [usage, entitlements, people, contracts, imports, aliases] = await Promise.all([
+    supabaseIngestionStore.listUsage(orgId),
+    supabaseIngestionStore.listEntitlements(orgId),
+    supabaseIngestionStore.listPeople(orgId),
+    supabaseIngestionStore.listContracts(orgId),
+    supabaseIngestionStore.listImports(orgId),
+    // Customer-confirmed merges. The only thing that combines two strings the
+    // matching rules would refuse to combine, and scoped to this tenant.
+    confirmedAliasMaps(orgId),
+  ]);
+
+  const dataset = buildDatasetFromCanonical({
+    organization,
+    usage,
+    entitlements,
+    people,
+    contracts,
+    featureAliases: aliases.features,
+    userAliases: aliases.users,
+  });
+
+  return {
+    ...dataset,
+    imports: imports.map((record) => ({
+      id: record.id,
+      organizationId: record.organizationId,
+      kind:
+        record.dataset === 'people'
+          ? ('employees' as const)
+          : record.dataset === 'entitlements' || record.dataset === 'contracts'
+            ? ('contracts' as const)
+            : ('usage' as const),
+      fileName: record.fileName,
+      fileBytes: record.fileBytes,
+      rowCount: record.totalRows,
+      acceptedRows: record.acceptedRows,
+      rejectedRows: record.rejectedRows,
+      status: (record.status === 'complete' ? 'complete' : 'failed') as 'complete' | 'failed',
+      createdAt: record.uploadedAt,
+      createdBy: null,
+      mappingId: null,
+      notes: null,
+    })),
+  };
+}
+
+export interface LoadedDataset {
+  dataset: AnalyticsDataset;
+  projection: ProjectionState;
+  storedRows: StoredRowCounts;
+  acceptedRows: StoredRowCounts;
+}
+
+/** Accepted rows over COMPLETED imports only. */
+function acceptedFrom(imports: readonly ImportSummary[]): StoredRowCounts {
+  const accepted = { usage: 0, people: 0, entitlements: 0, contracts: 0 };
+  for (const record of imports) {
+    // An import still in flight has promised nothing, and a failed one was
+    // rolled back. Counting either fires the integrity check on a healthy
+    // system and trains people to ignore it.
+    if (record.status !== 'complete') continue;
+    accepted.usage += record.usageRecords;
+    accepted.people += record.peopleRecords;
+    accepted.entitlements += record.entitlementRecords;
+    accepted.contracts += record.contractRecords;
+  }
+  return accepted;
+}
+
+/**
+ * Read the dataset, preferring a projection that provably matches the evidence.
+ *
+ * Order matters. The evidence key is computed FIRST, from the database, so the
+ * decision to trust a payload is made against what is stored now rather than
+ * against what the payload claims about itself.
+ */
+async function loadDataset(orgId: string): Promise<LoadedDataset> {
+  const organization = await supabaseProvider.getOrganization(orgId);
+  if (organization === null) throw new Error(`Unknown organization: ${orgId}`);
+
+  const [storedRows, imports, confirmations] = await Promise.all([
+    supabaseIngestionStore.countStoredRows(orgId),
+    supabaseIngestionStore.listImports(orgId),
+    supabaseIngestionStore.countConfirmations(orgId),
+  ]);
+
+  const evidenceKey = evidenceKeyFor({
+    storedRows,
+    imports: imports
+      .filter((record) => record.status === 'complete')
+      // id changes when an import is added, disappears when one is deleted, and
+      // the accepted count moves if a row is ever rewritten in place.
+      .map((record) => ({ id: record.id, fingerprint: String(record.acceptedRows) })),
+    confirmations,
+  });
+
+  const acceptedRows = acceptedFrom(imports);
+  const stored = await supabaseIngestionStore.readProjection(orgId);
+  const reason = projectionUsable(stored, evidenceKey);
+
+  if (reason === null && stored !== null) {
+    try {
+      return {
+        dataset: deserializeDataset(stored.payload),
+        storedRows,
+        acceptedRows,
+        projection: {
+          source: 'projection',
+          version: stored.version,
+          computedAt: stored.computedAt,
+          buildMs: stored.buildMs,
+          rebuiltBecause: null,
+          payloadBytes: stored.payloadBytes,
+          evidenceKey,
+        },
+      };
+    } catch {
+      // A payload that will not inflate is a corrupt cache, not a corrupt
+      // estate. Fall through and rebuild from the rows.
+    }
+  }
+
+  const startedAt = Date.now();
+  const dataset = await buildFromCanonical(orgId, organization);
+  const buildMs = Date.now() - startedAt;
+
+  const { payload, bytes } = serializeDataset(dataset);
+  await supabaseIngestionStore.writeProjection(orgId, {
+    version: PROJECTION_VERSION,
+    evidenceKey,
+    computedAt: new Date().toISOString(),
+    buildMs,
+    storedRows,
+    analyzedRows: dataset.analyzedRows,
+    payload,
+    payloadBytes: bytes,
+  });
+
+  return {
+    dataset,
+    storedRows,
+    acceptedRows,
+    projection: {
+      source: 'computed',
+      version: PROJECTION_VERSION,
+      computedAt: null,
+      buildMs,
+      rebuiltBecause: reason ?? 'unreadable',
+      payloadBytes: bytes,
+      evidenceKey,
+    },
+  };
+}

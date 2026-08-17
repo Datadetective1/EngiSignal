@@ -39,6 +39,7 @@ import type {
   IngestionStore,
   StoredRowCounts,
 } from './types';
+import type { ProjectionRecord } from '@/lib/analytics/projection';
 import { DuplicateImportError, summarizeCoverage } from './types';
 import { isDuplicateImportError } from '../fingerprint';
 import { readAllRows, readAllRowsByCursor } from './paging';
@@ -587,6 +588,76 @@ export const supabaseIngestionStore: IngestionStore = {
       this.listContracts(orgId),
     ]);
     return summarizeCoverage(usage, entitlements, people, contracts);
+  },
+
+  async countConfirmations(orgId: string): Promise<{ count: number; latest: string | null }> {
+    const client = await db();
+    const { count, error } = await client
+      .from('identity_confirmations')
+      .select('*', { count: 'exact', head: true })
+      .eq('organization_id', orgId);
+    if (error !== null) throw new Error(`identity_confirmations: ${error.message}`);
+
+    // The newest decision, so an edit to an existing confirmation moves the key
+    // even though the count did not.
+    const { data, error: latestError } = await client
+      .from('identity_confirmations')
+      .select('decided_at')
+      .eq('organization_id', orgId)
+      .order('decided_at', { ascending: false })
+      .limit(1);
+    if (latestError !== null) throw new Error(`identity_confirmations: ${latestError.message}`);
+
+    const latest = data?.[0]?.decided_at;
+    return { count: count ?? 0, latest: typeof latest === 'string' ? latest : null };
+  },
+
+  async readProjection(orgId: string): Promise<ProjectionRecord | null> {
+    const { data, error } = await (await db())
+      .from('analytics_projections')
+      .select('*')
+      .eq('organization_id', orgId)
+      .maybeSingle();
+
+    // A projection that cannot be read is a cache miss, never a page failure:
+    // the canonical rows are still there and still authoritative.
+    if (error !== null || data === null) return null;
+
+    return {
+      version: Number(data.version),
+      evidenceKey: String(data.evidence_key),
+      computedAt: String(data.computed_at),
+      buildMs: data.build_ms === null ? null : Number(data.build_ms),
+      storedRows: data.stored_rows as ProjectionRecord['storedRows'],
+      analyzedRows: data.analyzed_rows as ProjectionRecord['analyzedRows'],
+      payload: String(data.payload),
+      payloadBytes: Number(data.payload_bytes),
+    };
+  },
+
+  async writeProjection(orgId: string, record: ProjectionRecord): Promise<void> {
+    const { error } = await (await db()).from('analytics_projections').upsert(
+      {
+        organization_id: orgId,
+        version: record.version,
+        evidence_key: record.evidenceKey,
+        computed_at: record.computedAt,
+        build_ms: record.buildMs,
+        stored_rows: record.storedRows,
+        analyzed_rows: record.analyzedRows,
+        payload: record.payload,
+        payload_bytes: record.payloadBytes,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'organization_id' },
+    );
+    // Failing to STORE a projection must not fail the request that computed it.
+    // The answer is already correct; only the next read is slower.
+    if (error !== null) return;
+  },
+
+  async clearProjection(orgId: string): Promise<void> {
+    await (await db()).from('analytics_projections').delete().eq('organization_id', orgId);
   },
 };
 function numberOrNull(value: unknown): number | null {

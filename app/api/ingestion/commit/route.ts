@@ -10,6 +10,7 @@ import {
 } from '@/lib/ingestion';
 import { resolveIngestionContext } from '@/lib/ingestion/session';
 import { getIngestionStore } from '@/lib/ingestion/store';
+import { getDataProvider } from '@/lib/data';
 import { DuplicateImportError } from '@/lib/ingestion/store/types';
 import { fingerprintImport } from '@/lib/ingestion/fingerprint';
 
@@ -196,6 +197,25 @@ export async function POST(request: Request) {
       },
       { status: 500 },
     );
+  }
+
+  // ── THE PROJECTION IS THE IMPORT'S RESPONSIBILITY ──────────────────────────
+  //
+  // Invalidate first, so that a failure anywhere after this point leaves the
+  // next reader rebuilding rather than reading a projection of the estate as it
+  // was before this file landed. Dropping it is always safe: the canonical rows
+  // are the source of truth and a missing projection costs one slow page.
+  //
+  // Then rebuild eagerly, so the cost lands on the import that caused it
+  // instead of on whoever opens the dashboard next. Best-effort on purpose: if
+  // this fails or the request runs out of time, the import itself is already
+  // committed and correct, and the next read will rebuild.
+  try {
+    await getIngestionStore().clearProjection(auth.context.organizationId);
+    await getDataProvider().getDatasetWithProjection(auth.context.organizationId);
+  } catch {
+    // A projection that could not be built is a slow next page, never a failed
+    // import. The rows are in.
   }
 
   return NextResponse.json({

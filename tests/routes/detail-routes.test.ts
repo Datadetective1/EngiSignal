@@ -177,6 +177,15 @@ const workspace = {
   totals: computePortfolioTotals(portfolio),
   unusedCapacity: unusedCapacitySpend(portfolio),
   confidence: portfolioConfidence(portfolio),
+  projection: {
+    source: 'computed' as const,
+    version: 1,
+    computedAt: null,
+    buildMs: null,
+    rebuiltBecause: 'disabled' as const,
+    payloadBytes: null,
+    evidenceKey: 'test',
+  },
   usingMockData: false,
 };
 

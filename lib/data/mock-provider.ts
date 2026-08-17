@@ -17,6 +17,7 @@ import type {
 } from '@/lib/domain/types';
 import { DEMO_ORG_ID, generateDemoDataset } from '@/lib/synthetic/generate';
 import type { DataProvider, ReclaimOverride } from './provider';
+import { PROJECTION_VERSION } from '@/lib/analytics/projection';
 
 let cachedDataset: AnalyticsDataset | null = null;
 
@@ -65,6 +66,30 @@ export const mockProvider: DataProvider = {
       throw new Error(`Unknown organization: ${orgId}`);
     }
     return data;
+  },
+
+  /**
+   * The local path has no transport between the store and the reader, so there
+   * is nothing to project and nothing to go stale. It reports 'computed'
+   * honestly rather than claiming a projection it does not have — a stub that
+   * said 'projection' here would make the Data page lie during development.
+   */
+  async getDatasetWithProjection(orgId: string) {
+    const data = await this.getDataset(orgId);
+    return {
+      dataset: data,
+      storedRows: data.analyzedRows,
+      acceptedRows: data.analyzedRows,
+      projection: {
+        source: 'computed' as const,
+        version: PROJECTION_VERSION,
+        computedAt: null,
+        buildMs: null,
+        rebuiltBecause: 'disabled' as const,
+        payloadBytes: null,
+        evidenceKey: 'local',
+      },
+    };
   },
 
   async getReclaimOverrides(orgId: string): Promise<Map<string, ReclaimOverride>> {

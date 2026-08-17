@@ -26,6 +26,7 @@ import type {
   StoredRowCounts,
 } from './types';
 import { DuplicateImportError, summarizeCoverage } from './types';
+import type { ProjectionRecord } from '@/lib/analytics/projection';
 
 interface TenantBucket {
   imports: Map<string, ImportDetail>;
@@ -214,6 +215,25 @@ export const memoryIngestionStore: IngestionStore = {
       entitlements: store.entitlements.length,
       contracts: store.contracts.length,
     };
+  },
+
+  // The local path has no transport to save and nothing to invalidate against,
+  // so it always reports "computed". Pretending to cache here would hide the
+  // projection's real behaviour behind a stub during development.
+  async countConfirmations(): Promise<{ count: number; latest: string | null }> {
+    return { count: 0, latest: null };
+  },
+
+  async readProjection(): Promise<ProjectionRecord | null> {
+    return null;
+  },
+
+  async writeProjection(): Promise<void> {
+    /* nothing to persist */
+  },
+
+  async clearProjection(): Promise<void> {
+    /* nothing to clear */
   },
 };
 

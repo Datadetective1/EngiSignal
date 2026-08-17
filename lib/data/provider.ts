@@ -7,6 +7,7 @@
  * even if a database policy were misconfigured.
  */
 
+import type { ProjectionState } from '@/lib/analytics/projection';
 import type { StoredRowCounts } from '@/lib/analytics/integrity';
 import type { AnalyticsDataset } from '@/lib/domain/dataset';
 import type {
@@ -35,6 +36,23 @@ export interface DataProvider {
 
   /** The complete analytical dataset for one organization. */
   getDataset(orgId: string): Promise<AnalyticsDataset>;
+
+  /**
+   * The dataset, plus where this request got it from.
+   *
+   * Separate from getDataset because the answer must be reportable: a page that
+   * renders a projection has to be able to say so, and "it was computed fresh"
+   * and "it came from a stored projection whose evidence key matched" are
+   * different facts about the same numbers.
+   */
+  getDatasetWithProjection(orgId: string): Promise<{
+    dataset: AnalyticsDataset;
+    projection: ProjectionState;
+    /** Exact server-side counts, already fetched to build the evidence key. */
+    storedRows: StoredRowCounts;
+    /** Accepted rows over completed imports, from the same fetch. */
+    acceptedRows: StoredRowCounts;
+  }>;
 
   /**
    * What the import receipts promised, and what the database actually holds.

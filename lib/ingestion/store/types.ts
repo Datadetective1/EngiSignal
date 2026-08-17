@@ -22,6 +22,7 @@ import type {
   QualityReport,
   SourceSystem,
 } from '../canonical/types';
+import type { ProjectionRecord } from '@/lib/analytics/projection';
 import type { StoredRowCounts } from '@/lib/analytics/integrity';
 
 export type { StoredRowCounts };
@@ -170,6 +171,25 @@ export interface IngestionStore {
    * detector. This asks the server for a count instead.
    */
   countStoredRows(orgId: string): Promise<StoredRowCounts>;
+
+  /**
+   * Everything besides the canonical rows that can change a derived number.
+   *
+   * Confirming that two usernames are one person changes allocation, reclaim
+   * and manager rollups without touching a single canonical row. A projection
+   * keyed only on row counts would keep serving the pre-decision answer, which
+   * is the stale-cache failure this product cannot afford.
+   */
+  countConfirmations(orgId: string): Promise<{ count: number; latest: string | null }>;
+
+  /** The stored analytical projection, or null when there is none. */
+  readProjection(orgId: string): Promise<ProjectionRecord | null>;
+
+  /** Write (or replace) the stored analytical projection. */
+  writeProjection(orgId: string, record: ProjectionRecord): Promise<void>;
+
+  /** Drop the stored projection, so the next read rebuilds it. */
+  clearProjection(orgId: string): Promise<void>;
 }
 
 /** Coverage from canonical records. Shared by both store implementations. */

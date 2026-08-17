@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Badge, Card, CardHeader, TableShell, Td, Th } from '@/components/ui/primitives';
 import { formatNumber } from '@/lib/analytics/financial';
 import type { IntegrityReport } from '@/lib/analytics/integrity';
+import type { ProjectionState } from '@/lib/analytics/projection';
 
 /**
  * The row-completeness statement.
@@ -69,6 +70,105 @@ export function DataIntegrityCard({ integrity }: { integrity: IntegrityReport })
               </li>
             ))}
         </ul>
+      </div>
+    </Card>
+  );
+}
+
+const REBUILD_REASON: Record<string, string> = {
+  absent: 'no projection was stored yet',
+  'version-changed': 'the projection format changed in a release',
+  'evidence-changed': 'your evidence changed since the last one was built',
+  unreadable: 'the stored projection could not be read',
+  disabled: 'this deployment computes on every request',
+};
+
+/**
+ * Where the numbers on this page came from.
+ *
+ * A cache that cannot say it is a cache is how a stale figure gets presented as
+ * a current one. This states which of the two happened, and the check behind
+ * it is exact rather than time-based: a stored projection is used only when a
+ * fingerprint of the evidence that exists RIGHT NOW matches the fingerprint it
+ * was built from. There is no staleness window, because there is no staleness.
+ */
+export function ProjectionCard({
+  projection,
+  analyzedUsage,
+  storedUsage,
+}: {
+  projection: ProjectionState;
+  analyzedUsage: number;
+  storedUsage: number;
+}) {
+  const fromProjection = projection.source === 'projection';
+
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader
+        title="How this analysis was produced"
+        description="Derived figures are computed once when your evidence changes, then reused. Reuse is allowed only when the evidence still matches exactly."
+      />
+
+      <div className="es-scroll overflow-x-auto">
+        <TableShell>
+          <tbody>
+            <tr>
+              <Td className="font-medium text-fg">Source</Td>
+              <Td>
+                <Badge tone={fromProjection ? 'positive' : 'accent'}>
+                  {fromProjection ? 'Stored projection' : 'Computed on this request'}
+                </Badge>
+              </Td>
+            </tr>
+            <tr>
+              <Td className="font-medium text-fg">Built</Td>
+              <Td className="text-fg-muted">
+                {projection.computedAt === null
+                  ? 'Just now, on this request'
+                  : new Date(projection.computedAt).toLocaleString('en-GB')}
+                {projection.buildMs !== null && ` · took ${formatNumber(projection.buildMs)} ms`}
+              </Td>
+            </tr>
+            <tr>
+              <Td className="font-medium text-fg">Rows analysed</Td>
+              <Td className="tnum text-fg-muted">
+                {formatNumber(analyzedUsage)} of {formatNumber(storedUsage)} usage rows stored
+              </Td>
+            </tr>
+            <tr>
+              <Td className="font-medium text-fg">Format version</Td>
+              <Td className="tnum text-fg-muted">{projection.version}</Td>
+            </tr>
+            {projection.payloadBytes !== null && (
+              <tr>
+                <Td className="font-medium text-fg">Projection size</Td>
+                <Td className="tnum text-fg-muted">
+                  {formatNumber(Math.round(projection.payloadBytes / 1024))} KB
+                </Td>
+              </tr>
+            )}
+          </tbody>
+        </TableShell>
+      </div>
+
+      <div className="border-t border-border px-5 py-3.5">
+        <p className="text-[12px] leading-relaxed text-fg-subtle">
+          {fromProjection ? (
+            <>
+              These figures were computed earlier and reused because a fingerprint of your imports,
+              row counts and identity decisions still matches the one they were built from. Import,
+              delete or confirm anything and the fingerprint stops matching, and the analysis is
+              rebuilt before any page renders from it.
+            </>
+          ) : (
+            <>
+              These figures were computed from your canonical rows on this request, because{' '}
+              {REBUILD_REASON[projection.rebuiltBecause ?? 'absent'] ?? 'the stored one did not match'}.
+              The result has been saved, so the next read will be faster.
+            </>
+          )}
+        </p>
       </div>
     </Card>
   );
