@@ -15,6 +15,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { userClient } from '@/lib/supabase/server';
 import { buildDatasetFromCanonical } from '@/lib/ingestion/dataset';
 import { confirmedAliasMaps } from '@/lib/ingestion/confirmations';
+import { resolveUsers, type UserIdentity } from '@/lib/ingestion/identity';
 import { supabaseIngestionStore } from '@/lib/ingestion/store/supabase-store';
 import type { AnalyticsDataset } from '@/lib/domain/dataset';
 import type { CoverageSummary, ImportSummary } from '@/lib/ingestion/store/types';
@@ -313,11 +314,14 @@ async function buildFromCanonical(
   return {
     dataset: withImports,
     coverage: summarizeCoverage(usage, entitlements, people, contracts),
+    // Deliberately un-aliased; see ProjectionPayload.
+    userIdentities: resolveUsers(usage, people),
   };
 }
 
 export interface LoadedDataset {
   dataset: AnalyticsDataset;
+  userIdentities: UserIdentity[];
   /** Derived from the same evidence, carried so the Data page needs no second read. */
   coverage: CoverageSummary;
   projection: ProjectionState;
@@ -388,6 +392,7 @@ async function loadDataset(orgId: string): Promise<LoadedDataset> {
       return {
         dataset: content.dataset,
         coverage: content.coverage,
+        userIdentities: content.userIdentities,
         storedRows,
         acceptedRows,
         projection: {
@@ -425,6 +430,7 @@ async function loadDataset(orgId: string): Promise<LoadedDataset> {
   return {
     dataset: content.dataset,
     coverage: content.coverage,
+    userIdentities: content.userIdentities,
     storedRows,
     acceptedRows,
     projection: {

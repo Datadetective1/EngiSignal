@@ -44,6 +44,7 @@ const workspace = {
     analyzed: dataset.analyzedRows,
   }),
   coverage: summarizeCoverage([], [], [], []),
+  userIdentities: [],
   projection: {
     source: 'computed' as const,
     version: 1,

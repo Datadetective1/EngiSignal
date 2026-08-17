@@ -7,28 +7,23 @@ import { rollUpByManager } from '@/lib/analytics/manager-rollup';
 import { formatCurrency, formatNumber } from '@/lib/analytics/financial';
 import { listConfirmations } from '@/lib/ingestion/confirmations';
 import { resolveIngestionContext } from '@/lib/ingestion/session';
-import { resolveUsers } from '@/lib/ingestion/identity';
-import { getIngestionStore } from '@/lib/ingestion/store';
 import { loadWorkspace } from '@/lib/workspace';
 
 export const metadata: Metadata = { title: 'Identity review' };
 
 export default async function UserIdentityPage() {
-  const { dataset, portfolio, options } = await loadWorkspace();
+  const { dataset, portfolio, options, userIdentities } = await loadWorkspace();
   const auth = await resolveIngestionContext();
   if (!auth.ok) return null;
 
-  const store = getIngestionStore();
-  const [usage, people, confirmations] = await Promise.all([
-    store.listUsage(auth.context.organizationId),
-    store.listPeople(auth.context.organizationId),
-    listConfirmations(auth.context.organizationId, 'user'),
-  ]);
+  const confirmations = await listConfirmations(auth.context.organizationId, 'user');
 
   // Resolved WITHOUT the confirmed aliases, so a username a customer has
   // already decided about still shows its decision rather than vanishing from
-  // the queue with no trace of what was done.
-  const identities = resolveUsers(usage, people);
+  // the queue with no trace of what was done. Computed once with the projection
+  // rather than by re-reading the whole estate on every visit, which cost this
+  // page 7.4 seconds against 0.5 for every other analytical surface.
+  const identities = userIdentities;
 
   const decisions = new Map(
     confirmations.map((entry) => [entry.rawValue, entry.decision] as const),

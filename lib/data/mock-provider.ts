@@ -80,6 +80,7 @@ export const mockProvider: DataProvider = {
     return {
       dataset: data,
       coverage: summarizeCoverage([], [], [], []),
+      userIdentities: [],
       storedRows: data.analyzedRows,
       acceptedRows: data.analyzedRows,
       projection: {

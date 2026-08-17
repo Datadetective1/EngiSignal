@@ -40,6 +40,7 @@
 import { gunzipSync, gzipSync } from 'node:zlib';
 import type { AnalyticsDataset } from '@/lib/domain/dataset';
 import type { CoverageSummary } from '@/lib/ingestion/store/types';
+import type { UserIdentity } from '@/lib/ingestion/identity';
 import type { StoredRowCounts, AnalyzedRowCounts } from './integrity';
 
 /**
@@ -52,6 +53,18 @@ import type { StoredRowCounts, AnalyzedRowCounts } from './integrity';
 export interface ProjectionPayload {
   dataset: AnalyticsDataset;
   coverage: CoverageSummary;
+  /**
+   * User identities resolved WITHOUT the customer's confirmed aliases.
+   *
+   * The identity review queue needs these: resolving with aliases applied makes
+   * a username the customer has already decided about vanish from the queue,
+   * with no trace of what was decided. It was reading the whole raw estate to
+   * get them, which cost that one page 7.4 seconds against 0.5 for every other.
+   *
+   * Bounded by distinct users, not observations - about 400 at the 68k estate
+   * and 1,200 at 300k - so it belongs here like everything else.
+   */
+  userIdentities: UserIdentity[];
 }
 
 /**
@@ -63,7 +76,7 @@ export interface ProjectionPayload {
  * exactly the "absent evidence became zero" failure the product exists to
  * refuse.
  */
-export const PROJECTION_VERSION = 2;
+export const PROJECTION_VERSION = 3;
 
 export interface ProjectionRecord {
   version: number;
@@ -190,8 +203,12 @@ export function deserializeDataset(payload: string): ProjectionPayload {
   const parsed = JSON.parse(json) as ProjectionPayload;
   // A payload missing either half is not usable. Returning a dataset with an
   // absent coverage summary would render "no data imported" over a full estate.
-  if (parsed?.dataset === undefined || parsed?.coverage === undefined) {
-    throw new Error('Projection payload is missing the dataset or its coverage.');
+  if (
+    parsed?.dataset === undefined ||
+    parsed?.coverage === undefined ||
+    parsed?.userIdentities === undefined
+  ) {
+    throw new Error('Projection payload is incomplete.');
   }
   return parsed;
 }

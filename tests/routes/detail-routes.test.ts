@@ -179,6 +179,7 @@ const workspace = {
   unusedCapacity: unusedCapacitySpend(portfolio),
   confidence: portfolioConfidence(portfolio),
   coverage: summarizeCoverage([], [], [], []),
+  userIdentities: [],
   projection: {
     source: 'computed' as const,
     version: 1,

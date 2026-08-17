@@ -3,6 +3,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ingestFile } from '@/lib/ingestion';
 import { summarizeCoverage } from '@/lib/ingestion/store/types';
+import { resolveUsers } from '@/lib/ingestion/identity';
 import { buildDatasetFromCanonical } from '@/lib/ingestion/dataset';
 import { buildPortfolio } from '@/lib/analytics/portfolio';
 import { DEFAULT_ANALYSIS_OPTIONS } from '@/lib/domain/dataset';
@@ -112,6 +113,7 @@ async function measure(label: string, usageFiles: string[], stem: string, headco
   const serialized = serializeDataset({
     dataset,
     coverage: summarizeCoverage(usage, entitlements, people, contracts),
+    userIdentities: resolveUsers(usage, people),
   });
 
   const inflateStart = Date.now();

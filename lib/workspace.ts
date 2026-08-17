@@ -22,6 +22,7 @@ import { generateSignals } from '@/lib/analytics/signals';
 import { checkIntegrity, type IntegrityReport } from '@/lib/analytics/integrity';
 import type { ProjectionState } from '@/lib/analytics/projection';
 import type { CoverageSummary } from '@/lib/ingestion/store/types';
+import type { UserIdentity } from '@/lib/ingestion/identity';
 import { reconcile, type ReconciliationSummary } from '@/lib/analytics/reconciliation';
 import { requireSession, type AppSession } from '@/lib/auth';
 import { ensureOrganization } from '@/app/signin/actions';
@@ -69,6 +70,8 @@ export interface Workspace {
    * more full scans on the one page whose job is to report on them.
    */
   coverage: CoverageSummary;
+  /** Identities resolved without confirmed aliases, for the review queue. */
+  userIdentities: UserIdentity[];
   totals: ReturnType<typeof computePortfolioTotals>;
   unusedCapacity: ReturnType<typeof unusedCapacitySpend>;
   confidence: ConfidenceResult;
@@ -103,7 +106,7 @@ export const loadWorkspace = cache(async (): Promise<Workspace> => {
   // does not. Which of those happened is carried through to the Data page —
   // a cached answer that cannot say it is cached is how a stale number gets
   // presented as a current one.
-  const { dataset, coverage, projection, storedRows, acceptedRows } =
+  const { dataset, coverage, userIdentities, projection, storedRows, acceptedRows } =
     await provider.getDatasetWithProjection(organization.id);
   const options = DEFAULT_ANALYSIS_OPTIONS;
 
@@ -166,6 +169,7 @@ export const loadWorkspace = cache(async (): Promise<Workspace> => {
     integrity,
     projection,
     coverage,
+    userIdentities,
     totals: computePortfolioTotals(portfolio),
     unusedCapacity: unusedCapacitySpend(portfolio),
     confidence: portfolioConfidence(portfolio),
