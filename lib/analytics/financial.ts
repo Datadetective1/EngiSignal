@@ -172,10 +172,19 @@ export function describeSpendShare(
   return share === null ? 'No spend data yet' : `${formatPercent(share)} ${suffix}`;
 }
 
-/** Annual spend per technical employee. Null when headcount is unknown. */
+/**
+ * Annual spend per technical employee. Null when headcount is unknown.
+ *
+ * The guard tests for a usable number rather than for `null` specifically. It
+ * was written as `=== null`, which `undefined` walks straight past: the division
+ * then produced NaN, and `round` returns 0 for anything non-finite, so an
+ * unknown headcount was published as "$0" -- the one failure this function
+ * exists to prevent, wearing the costume of a real answer.
+ */
 export function costPerEngineer(annualSpend: number, technicalHeadcount: number | null): number | null {
-  if (technicalHeadcount === null || technicalHeadcount <= 0) return null;
-  return round(annualSpend / technicalHeadcount, 2);
+  if (!Number.isFinite(technicalHeadcount) || (technicalHeadcount as number) <= 0) return null;
+  if (!Number.isFinite(annualSpend)) return null;
+  return round(annualSpend / (technicalHeadcount as number), 2);
 }
 
 /** Annual spend per distinct active user. Null when no active users observed. */

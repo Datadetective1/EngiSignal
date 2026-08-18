@@ -141,10 +141,33 @@ export async function runProjectionJob(sql: WorkerSql): Promise<ProjectionJobOut
     const people = peopleRows.map(toPersonRecord);
     const contracts = contractRows.map(toContractRecord);
 
+    // ── THE WORKER DOES NOT KNOW THE ORGANIZATION ───────────────────────────
+    //
+    // It holds zero table privileges by design, so it cannot read
+    // `organizations`. Only `id` and `name` travel on the job row.
+    //
+    // This used to be written as `{ id, name } as Organization`, and the cast
+    // was the whole defect: every remaining field was `undefined` at runtime
+    // while the type claimed otherwise. `technicalHeadcount: undefined` slipped
+    // past a `=== null` guard, `spend / undefined` produced NaN, and `round`
+    // turned that into a real-looking zero -- so a $5.7M portfolio reported
+    // "Cost per technical employee $0" next to "— employees".
+    //
+    // Every field is now stated explicitly, so absent means null rather than
+    // undefined, and adding a column to Organization breaks this line loudly
+    // instead of shipping another undefined. The reader replaces this wholesale
+    // with the authoritative row -- see `withAuthoritativeOrganization`.
     const organization: Organization = {
       id: job.organization_id,
       name: job.organization_name,
-    } as Organization;
+      slug: '',
+      industry: null,
+      technicalHeadcount: null,
+      headcountGrowthRate: null,
+      currency: 'USD',
+      isDemo: false,
+      createdAt: new Date(0).toISOString(),
+    };
 
     // Customer-confirmed merges, applied by exactly the same rules the reader
     // uses -- the `confirmed` filter and the key normalization are both

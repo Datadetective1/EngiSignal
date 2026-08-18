@@ -450,13 +450,29 @@ async function loadDataset(orgId: string): Promise<LoadedDataset> {
   // reader the analysis on screen is not current.
   void needsBuild;
 
+  // ── WHO OWNS THE ORGANIZATION ─────────────────────────────────────────────
+  //
+  // The projection worker cannot read `organizations` -- it holds no table
+  // privileges -- so the payload carries only the id and name it was handed on
+  // the job row. The authoritative row is read on every request above, and it
+  // is the one every page must see.
+  //
+  // Returning the payload's copy shipped a fabricated number: headcount was
+  // absent, so the cost page printed "Cost per technical employee $0" beside
+  // "— employees" on a $5.7M portfolio. Merging here also means an edit to the
+  // organization applies on the next render rather than waiting for a rebuild.
+  const withAuthoritativeOrganization = (content: AnalyticsDataset): AnalyticsDataset => ({
+    ...content,
+    organization,
+  });
+
   // The happy path: a payload that describes exactly what is stored.
   if (reason === null && stored?.payload != null) {
     try {
       const content = deserializeDataset(stored.payload);
       return {
         ...base,
-        dataset: content.dataset,
+        dataset: withAuthoritativeOrganization(content.dataset),
         coverage: content.coverage,
         userIdentities: content.userIdentities,
         projection: status({ source: 'current', stale: false, analyticsCurrent: true }),
@@ -477,7 +493,7 @@ async function loadDataset(orgId: string): Promise<LoadedDataset> {
       const content = deserializeDataset(stored.payload);
       return {
         ...base,
-        dataset: content.dataset,
+        dataset: withAuthoritativeOrganization(content.dataset),
         coverage: content.coverage,
         userIdentities: content.userIdentities,
         projection: status({ source: 'superseded', stale: true, analyticsCurrent: false }),
