@@ -6,6 +6,7 @@ import { brand } from '@/config/brand';
 import { getSession, isSupabaseAuth } from '@/lib/auth';
 import { DEMO_ORG } from '@/lib/synthetic/organization';
 import {
+  MINIMUM_PASSWORD_LENGTH,
   requestPasswordResetAction,
   resendConfirmationAction,
   signInAction,
@@ -17,7 +18,11 @@ export const metadata: Metadata = { title: 'Sign in' };
 const ERRORS: Record<string, string> = {
   email: 'Enter a valid email address.',
   password: 'Enter your password.',
-  weak: 'Choose a password of at least 8 characters.',
+  weak: `Choose a password of at least ${MINIMUM_PASSWORD_LENGTH} characters.`,
+  // Distinct from `weak`, because the fix is different: a longer version of a
+  // breached password is still breached.
+  breached:
+    'That password appears in a known data breach, so it cannot be used here. Choose one you have not used on another site.',
   invalid: 'That email and password do not match an account.',
   linkexpired: 'That link has expired or was already used. Request a new one.',
   authfailed:
@@ -136,7 +141,7 @@ export default async function SignInPage({
                     name="password"
                     type="password"
                     required
-                    minLength={signup ? 8 : undefined}
+                    minLength={signup ? MINIMUM_PASSWORD_LENGTH : undefined}
                     autoComplete={signup ? 'new-password' : 'current-password'}
                     className="mt-1.5 h-11 w-full rounded-md border border-border bg-surface px-3.5 text-[14px] text-fg focus:border-accent focus:outline-none"
                   />

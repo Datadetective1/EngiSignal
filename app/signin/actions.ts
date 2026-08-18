@@ -44,6 +44,26 @@ function messageFor(error: { message: string; status?: number; code?: string }):
     }
     return 'ratelimited';
   }
+  // ── SPECIFIC PASSWORD FAULTS BEFORE THE GENERIC ONE ───────────────────────
+  //
+  // Supabase reports both "this password is in a breach corpus" and "this
+  // password is too short" through the same weak_password code, and both
+  // messages contain the word "password" -- which the generic branch below
+  // used to swallow, telling someone who had just typed a password to "enter
+  // your password". Verified in production: signing up with Password123! was
+  // correctly refused and then explained with the one message that could not
+  // help, so the only way forward was to guess.
+  if (
+    text.includes('known to be weak') ||
+    text.includes('easy to guess') ||
+    text.includes('pwned') ||
+    text.includes('leaked') ||
+    text.includes('data breach')
+  ) {
+    return 'breached';
+  }
+  if (text.includes('at least') || code.includes('weak_password')) return 'weak';
+
   if (text.includes('invalid login credentials')) return 'invalid';
   if (text.includes('already registered') || text.includes('already been registered')) return 'exists';
   if (text.includes('not confirmed') || code.includes('email_not_confirmed')) return 'unconfirmed';
@@ -51,6 +71,15 @@ function messageFor(error: { message: string; status?: number; code?: string }):
   if (text.includes('invalid') && text.includes('email')) return 'email';
   return 'failed';
 }
+
+/**
+ * The shortest password this product will accept.
+ *
+ * Must match the project's Auth setting. When the two disagree the shorter one
+ * is useless: the form accepts what the database then refuses, and the customer
+ * is told something generic about a password they already typed.
+ */
+export const MINIMUM_PASSWORD_LENGTH = 10;
 
 export async function signInAction(formData: FormData) {
   const email = String(formData.get('email') ?? '').trim();
@@ -79,7 +108,7 @@ export async function signUpAction(formData: FormData) {
   const organization = String(formData.get('organization') ?? '').trim();
 
   if (email.length === 0 || !email.includes('@')) redirect('/signin?error=email&mode=signup');
-  if (password.length < 8) redirect('/signin?error=weak&mode=signup');
+  if (password.length < MINIMUM_PASSWORD_LENGTH) redirect('/signin?error=weak&mode=signup');
 
   if (!isSupabaseAuth()) {
     await createSession(email);
