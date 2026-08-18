@@ -78,6 +78,8 @@ export const mockProvider: DataProvider = {
   async getDatasetWithProjection(orgId: string) {
     const data = await this.getDataset(orgId);
     return {
+      // The synthetic provider counts nothing, so nothing is unverified.
+      countsVerified: true,
       dataset: data,
       coverage: summarizeCoverage([], [], [], []),
       userIdentities: [],

@@ -117,7 +117,7 @@ export const loadWorkspace = cache(async (): Promise<Workspace> => {
   // does not. Which of those happened is carried through to the Data page —
   // a cached answer that cannot say it is cached is how a stale number gets
   // presented as a current one.
-  const { dataset, coverage, userIdentities, projection, storedRows, acceptedRows } =
+  const { dataset, coverage, userIdentities, projection, storedRows, acceptedRows, countsVerified } =
     await provider.getDatasetWithProjection(organization.id);
   const options = DEFAULT_ANALYSIS_OPTIONS;
 
@@ -155,8 +155,11 @@ export const loadWorkspace = cache(async (): Promise<Workspace> => {
     // not, the honest report is "the analysis is not finished", which is what
     // `analysis` below carries and what every surface gates on.
     analyzed: projection.analyticsCurrent && dataset !== null ? dataset.analyzedRows : storedRows,
-    analysis:
-      projection.source === 'current'
+    analysis: !countsVerified
+      ? // The comparison could not be made at all, so no state that asserts
+        // agreement may be reported. See AnalysisState.unverified.
+        'unverified'
+      : projection.source === 'current'
         ? 'current'
         : projection.state === 'failed'
           ? 'failed'

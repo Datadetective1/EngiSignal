@@ -57,6 +57,14 @@ export interface DataProvider {
     storedRows: StoredRowCounts;
     /** Accepted rows over completed imports, from the same fetch. */
     acceptedRows: StoredRowCounts;
+    /**
+     * Whether `storedRows` was actually read from the database.
+     *
+     * False when the count could not be taken. Nothing may then report that
+     * the analysis agrees with storage: "we could not check" and "we checked
+     * and it matched" are different answers.
+     */
+    countsVerified: boolean;
   }>;
 
   /**

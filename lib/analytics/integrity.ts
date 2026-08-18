@@ -89,7 +89,19 @@ export type AnalysisState =
   /** The last build failed. */
   | 'failed'
   /** Nothing has ever been built for this tenant. */
-  | 'absent';
+  | 'absent'
+  /**
+   * The stored row counts could not be read just now.
+   *
+   * Distinct from every state above, all of which describe the ANALYSIS. This
+   * one says the comparison itself could not be made: counting a tenant's rows
+   * degrades while a large import is being written, and a count that is
+   * cancelled leaves us unable to say whether the analysis matches storage.
+   *
+   * It must not be reported as agreement. "We could not check" and "we checked
+   * and it matched" are different answers, and only one of them is true here.
+   */
+  | 'unverified';
 
 export interface IntegrityReport {
   datasets: DatasetIntegrity[];

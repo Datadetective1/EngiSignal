@@ -312,6 +312,36 @@ export function AnalyticsWithheld({ integrity }: { integrity: IntegrityReport })
   if (!integrity.usageIncomplete && !integrity.analysisCurrent) {
     const failed = integrity.analysisState === 'failed';
     const superseded = integrity.analysisState === 'superseded';
+    const unverified = integrity.analysisState === 'unverified';
+
+    // The counts could not be read at all, which is a different thing from an
+    // analysis that is merely out of date. Saying "still being built" here
+    // would be a guess about a state nobody checked.
+    if (unverified) {
+      return (
+        <Card>
+          <CardHeader
+            title="Your row counts could not be confirmed just now"
+            description="Your data is safe. EngiSignal could not finish counting it, so nothing on this page is presented as verified."
+          />
+          <div className="px-5 pb-5">
+            <p className="max-w-[70ch] text-[13px] leading-relaxed text-fg-muted">
+              Every figure here is checked against the rows actually stored before it is shown.
+              That check did not complete — which happens while a large import is still being
+              written — so the check is reported as not done rather than as passed.
+            </p>
+            <p className="mt-3 max-w-[70ch] text-[13px] leading-relaxed text-fg-muted">
+              Nothing has been lost and no import has failed. Reload in a moment and the check
+              will normally complete.{' '}
+              <Link href="/app/data" className="text-accent underline underline-offset-2">
+                Data
+              </Link>{' '}
+              shows what is stored and what is still being written.
+            </p>
+          </div>
+        </Card>
+      );
+    }
 
     return (
       <Card>

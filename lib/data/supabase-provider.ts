@@ -284,6 +284,14 @@ export interface LoadedDataset {
   projection: ProjectionStatus;
   storedRows: StoredRowCounts;
   acceptedRows: StoredRowCounts;
+  /**
+   * Whether the stored counts above were actually read from the database.
+   *
+   * False when the count could not be taken -- it degrades badly while a large
+   * import is being written -- in which case `storedRows` carries what the last
+   * completed analysis described, and nothing may claim the two agree.
+   */
+  countsVerified: boolean;
 }
 
 /** Accepted rows over COMPLETED imports only. */
@@ -346,14 +354,36 @@ async function loadDataset(orgId: string): Promise<LoadedDataset> {
   // payload itself, which is discarded if it turns out not to match. A wasted
   // 130 KB on the occasional rebuild is cheaper than a second round trip on
   // every page view — measured at about 1.6 seconds when it was three waves.
-  const [organization, storedRows, imports, confirmations, stored] = await Promise.all([
+  const [organization, countedRows, imports, confirmations, stored] = await Promise.all([
     supabaseProvider.getOrganization(orgId),
-    supabaseIngestionStore.countStoredRows(orgId),
+    // ── A COUNT THAT FAILS MUST NOT TAKE THE PAGE WITH IT ─────────────────
+    //
+    // This count proves the analysis describes the rows that exist. It is
+    // about 75 ms at rest, and far slower while a large import is being
+    // written, because the freshly inserted pages have no visibility map and
+    // the index-only scan falls back to the heap.
+    //
+    // Measured against a 466,000-row import it was cancelled by the statement
+    // timeout, and the customer got a 500 while watching their own import.
+    // Raising the timeout only made the failure slower -- 31 seconds of blank
+    // page and then the same error, which is worse.
+    //
+    // So a failure here is treated as what it is: we could not check. The
+    // analysis is still shown, and it is labelled unverified rather than
+    // presented as agreeing with storage.
+    supabaseIngestionStore.countStoredRows(orgId).catch(() => null),
     supabaseIngestionStore.listImports(orgId),
     supabaseIngestionStore.countConfirmations(orgId),
     supabaseIngestionStore.readProjection(orgId),
   ]);
   if (organization === null) throw new Error(`Unknown organization: ${orgId}`);
+
+  const countsVerified = countedRows !== null;
+  // What the last completed analysis said was stored. Not a substitute for the
+  // count -- it is only shown alongside `countsVerified: false`, which every
+  // surface gates on.
+  const storedRows: StoredRowCounts =
+    countedRows ?? stored?.storedRows ?? { usage: 0, people: 0, entitlements: 0, contracts: 0 };
 
   const evidenceKey = evidenceKeyFor({
     storedRows,
@@ -375,6 +405,7 @@ async function loadDataset(orgId: string): Promise<LoadedDataset> {
   const base = {
     storedRows,
     acceptedRows,
+    countsVerified,
     coverage: summarizeCoverage([], [], [], []),
     userIdentities: [] as UserIdentity[],
   };

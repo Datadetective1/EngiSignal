@@ -15,9 +15,16 @@
 -- remembered number cannot detect the truncation this exists to rule out. So it
 -- keeps doing the work and is given room.
 --
--- 30 seconds, not unlimited. The page segment allows 60, so a count that
--- exceeded even this still fails as a query rather than hanging a request, and
--- the ceiling stays visible rather than becoming invisible latency.
+-- SIX SECONDS, AND A CORRECTION. This was first set to 30 seconds on the theory
+-- that the count simply needed room. Measured, that was wrong and made things
+-- worse: the page sat blank for 31 seconds and then returned the same error.
+-- Raising a timeout does not turn a failure into a success, it turns a fast
+-- failure into a slow one.
+--
+-- The read path now survives a failed count and reports the check as not done,
+-- so the count should give up promptly instead. Six seconds is inside the
+-- role's own 8-second limit, which keeps the failure ours to describe rather
+-- than an unexplained cancellation.
 --
 -- The body below is the original verbatim. An earlier attempt in this session
 -- rewrote it from memory and dropped the null-organization guard -- the same
@@ -29,7 +36,7 @@ language plpgsql
 stable
 security definer
 set search_path = ''
-set statement_timeout = '30s'
+set statement_timeout = '6s'
 as $$
 declare
   result jsonb;
