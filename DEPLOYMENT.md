@@ -132,7 +132,24 @@ alter role ingestion_worker with password 'PASTE_VALUE_HERE';
 
 **Neither variable may be exposed to the browser.** Never prefix either with `NEXT_PUBLIC_`.
 
-### 4.3 Fallback behaviour
+### 4.3 Function durations and the database statement timeout
+
+Two different limits govern how long a request may take, and confusing them wastes a deploy.
+
+**Vercel `maxDuration`** bounds the function. The signed-in segment, the diagnostics read, the worker and the ingestion routes are all set to 60 s.
+
+**Postgres `statement_timeout`** bounds each query, and for the `authenticated` role it is **8 seconds**. This is the limit that actually bit: during a 466,000-row import, page reads returned 500 after ~10 s, and the database log showed exactly three `canceling statement due to statement timeout` events matching them. Raising `maxDuration` did not help and was not the fix — the query was being cancelled by Postgres long before the function ran out of time.
+
+The statement being cancelled was a full paged read of every canonical row, issued by `/api/ingestion/imports`, which the import-progress card polls every three seconds. That endpoint no longer computes coverage; see the comment in its route for the measurements.
+
+| Segment | `maxDuration` | Why |
+|---|---|---|
+| `app/app` (all signed-in pages) | 60 s | Integrity count degrades while rows are being written |
+| `/api/diagnostics/read` | 60 s | Same count, same reason |
+| `/api/jobs/ingestion` | 60 s | Worker yields at 40 s and needs headroom to yield rather than be killed |
+| `/api/ingestion/commit` | 60 s | Parses and stores the upload |
+
+### 4.4 Fallback behaviour
 
 If `ENGISIGNAL_DATA_PROVIDER=supabase` is set but credentials are missing, EngiSignal **falls back to the synthetic dataset rather than failing**. A broken evaluation is worse than a local one. Confirm the active provider in **Settings → Environment** after any deploy.
 
