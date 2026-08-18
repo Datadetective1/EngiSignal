@@ -1,0 +1,33 @@
+-- ── DO NOT ANALYSE A TENANT THAT IS STILL BEING WRITTEN TO ──────────────────
+--
+-- Measured at 282K across eight files: persistence finished at 12:45:38 and the
+-- analysis was not ready until 12:48:09. The build itself took 9 seconds. The
+-- other 143 were waste, and they were waste created by this phase -- Phase 2G
+-- reached READY sooner because a page read happened to start the build.
+--
+-- The cause is that a build could be claimed while imports were still landing.
+-- Each such build raced newer evidence, was correctly refused publication as
+-- stale, and left the tenant dirty; every abandoned claim then cost a
+-- 90-second lease before anything could try again. Every integrity rule was
+-- working. They were being asked the same question repeatedly while the answer
+-- kept changing.
+--
+-- Two conditions are added to claim_projection_job:
+--
+--   1. No import for that tenant may be queued or importing. Precise rather
+--      than a timer -- it asks whether ingestion is finished, not whether
+--      enough time has passed.
+--
+--   2. The last change must be at least five seconds old, which covers the gap
+--      between one import completing and the next arriving in the same upload.
+--      A customer selecting eight files produces eight imports seconds apart,
+--      and without this the first completion starts a build the second
+--      immediately invalidates.
+--
+-- projection_work_imminent() lets the worker tell "nothing to do" apart from
+-- "something to do that is not ready yet", so it comes straight back instead of
+-- returning idle and waiting a whole tick. Bounded to two minutes of recent
+-- activity: a tenant blocked longer than that is not settling, it is stuck, and
+-- chasing it every few seconds would spin a worker for no benefit.
+--
+-- Both function bodies were applied to production in this phase.

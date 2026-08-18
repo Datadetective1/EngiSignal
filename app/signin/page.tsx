@@ -5,7 +5,12 @@ import { Logo } from '@/components/brand/logo';
 import { brand } from '@/config/brand';
 import { getSession, isSupabaseAuth } from '@/lib/auth';
 import { DEMO_ORG } from '@/lib/synthetic/organization';
-import { requestPasswordResetAction, signInAction, signUpAction } from './actions';
+import {
+  requestPasswordResetAction,
+  resendConfirmationAction,
+  signInAction,
+  signUpAction,
+} from './actions';
 
 export const metadata: Metadata = { title: 'Sign in' };
 
@@ -22,6 +27,11 @@ const ERRORS: Record<string, string> = {
   exists: 'An account already exists for that email. Sign in instead.',
   // Never reported as a problem with what the user typed.
   ratelimited: 'Too many attempts right now. Wait a minute and try again.',
+  // A separate message because the advice differs: this limit is measured in
+  // hours, and "try again in a minute" would send someone round a loop that
+  // cannot succeed.
+  emaillimited:
+    'We have sent as many emails as we are allowed to in the last hour. Your account is safe — wait an hour and use “Resend confirmation email” below.',
   unconfirmed: 'Confirm your email address first, then sign in.',
   failed: 'Sign-in failed. Check the details and try again.',
 };
@@ -72,6 +82,12 @@ export default async function SignInPage({
               <p className="mt-5 max-w-sm rounded-md border border-accent/40 bg-accent-soft px-3.5 py-2.5 text-[12.5px] leading-relaxed text-accent">
                 Check your email to confirm the address, then sign in. Your workspace is created on
                 first sign-in.
+              </p>
+            )}
+
+            {params.notice === 'confirmsent' && (
+              <p className="mt-5 max-w-sm rounded-md border border-accent/40 bg-accent-soft px-3.5 py-2.5 text-[12.5px] leading-relaxed text-accent">
+                If that address has an account awaiting confirmation, another email is on its way.
               </p>
             )}
 

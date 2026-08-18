@@ -35,6 +35,13 @@ function messageFor(error: { message: string; status?: number; code?: string }):
   const code = (error.code ?? '').toLowerCase();
 
   if (error.status === 429 || code.includes('rate_limit') || text.includes('rate limit')) {
+    // Two different limits wear the same status code, and the advice for one is
+    // wrong for the other. A per-request throttle clears in seconds; the email
+    // send limit is measured in hours, so telling someone to "wait a minute"
+    // sends them round a loop that cannot succeed.
+    if (code.includes('over_email_send_rate_limit') || text.includes('email rate limit')) {
+      return 'emaillimited';
+    }
     return 'ratelimited';
   }
   if (text.includes('invalid login credentials')) return 'invalid';
@@ -164,6 +171,45 @@ export async function requestPasswordResetAction(formData: FormData) {
   });
 
   redirect('/signin?notice=resetsent');
+}
+
+/**
+ * Send the confirmation email again.
+ *
+ * Without this there was no way out of a lost confirmation. Signing up again
+ * answered "an account already exists", signing in answered "confirm your email
+ * first", and the customer was left holding an account they could not reach.
+ * That is survivable for one person who can be helped by hand; it is not
+ * survivable for a pilot cohort that signs up together and meets the hourly
+ * email limit.
+ *
+ * Always reports success, even for an address with no account: telling a
+ * stranger which emails are registered is user enumeration.
+ */
+export async function resendConfirmationAction(formData: FormData) {
+  const email = String(formData.get('email') ?? '').trim();
+  if (email.length === 0 || !email.includes('@')) redirect('/signin?error=email');
+
+  if (!isSupabaseAuth()) redirect('/signin?notice=confirmsent');
+
+  const supabase = await userClient();
+  const { error } = await supabase.auth.resend({
+    type: 'signup',
+    email,
+    // The same two-step confirmation page signup points at. Sending this to
+    // the callback instead would hand back a link that confirms on being
+    // opened -- exactly the property the two-step design exists to remove.
+    options: { emailRedirectTo: await emailConfirmUrl({ next: '/app' }) },
+  });
+
+  // The one exception to reporting success regardless: being throttled is a
+  // fact about the service, not about whether the address exists, and hiding it
+  // would leave someone waiting for mail that was never sent.
+  if (error !== null && (error.status === 429 || (error.code ?? '').includes('rate_limit'))) {
+    redirect('/signin?error=emaillimited');
+  }
+
+  redirect('/signin?notice=confirmsent');
 }
 
 export async function signOutAction() {

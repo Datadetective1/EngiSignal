@@ -144,7 +144,11 @@ export async function POST(request: Request): Promise<NextResponse> {
     const moreToDo =
       outcome.status === 'yielded' ||
       outcome.status === 'complete' ||
-      projection?.status === 'ready';
+      projection?.status === 'ready' ||
+      // A build is owed but its tenant is still settling. Coming straight back
+      // costs one cheap query; waiting for the next tick costs the customer up
+      // to a minute of looking at an analysis that is not current yet.
+      (projection?.status === 'idle' && projection.imminent === true);
     if (moreToDo) {
       const site = originOf(request);
       const secret = envOptional('CRON_SECRET');

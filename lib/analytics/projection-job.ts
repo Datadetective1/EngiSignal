@@ -55,7 +55,8 @@ import {
 export const PROJECTION_LEASE_SECONDS = 90;
 
 export type ProjectionJobOutcome =
-  | { status: 'idle' }
+  /** Nothing owed, or nothing owed that is ready to be built yet. */
+  | { status: 'idle'; imminent?: boolean }
   | { status: 'ready'; organizationId: string; buildMs: number; payloadBytes: number; usageRows: number }
   | { status: 'superseded'; organizationId: string }
   | { status: 'integrity-failed'; organizationId: string }
@@ -74,7 +75,15 @@ export async function runProjectionJob(sql: WorkerSql): Promise<ProjectionJobOut
     select * from public.claim_projection_job(${PROJECTION_LEASE_SECONDS}::integer)
   `;
   const job = claimed[0];
-  if (job === undefined) return { status: 'idle' };
+  if (job === undefined) {
+    // Nothing claimable. That is not the same as nothing to do: a tenant whose
+    // last import landed seconds ago is deliberately left to settle, and
+    // returning plain `idle` would send the worker away for a whole tick.
+    const [pending] = await sql<{ projection_work_imminent: boolean }[]>`
+      select public.projection_work_imminent() as projection_work_imminent
+    `;
+    return { status: 'idle', imminent: pending?.projection_work_imminent === true };
+  }
 
   const token = job.token;
   const phases: Record<string, { ms: number; detail?: Record<string, number> }> = {};
