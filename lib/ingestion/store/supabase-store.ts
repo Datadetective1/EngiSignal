@@ -56,91 +56,9 @@ export { hasSupabaseEnv } from '@/lib/supabase/server';
 async function db(): Promise<SupabaseClient> {
   return userClient();
 }
-/**
- * Rows per insert request.
- *
- * Three configurations measured through the deployed product at 68,008 rows:
- *
- *   PostgREST insert, 500 rows    15,875 ms   <- best
- *   PostgREST insert, 5,000 rows  39,028 ms
- *   set-based RPC,   5,000 rows   21,088 ms
- *
- * And the same work timed inside Postgres, with RLS in force: 49 ms for 500
- * rows, 303 ms for 5,000, 4,173 ms for 50,000 -- linear at about 83 us per row.
- * The database needs roughly 5.5 seconds for this import; production spent 21.
- *
- * So the missing fifteen seconds are not the database and not the planner.
- * They are the cost of serialising and shipping about 13 MB of JSON from the
- * function region to the database region, which is proportional to the total
- * payload and therefore almost unchanged by how it is divided up. That is why
- * both attempts to tune this number failed, one of them in production.
- *
- * 500 is kept because it is the best of the three measured points, not because
- * it is optimal. The ceiling this sits under is removed by moving persistence
- * off the request, not by choosing a better constant.
- */
-const INSERT_CHUNK = Number(process.env.ENGISIGNAL_INSERT_CHUNK ?? 500);
 
-/** The set-based loader for each canonical family. */
-const BULK_FUNCTION: Record<string, string> = {
-  ingestion_usage: 'bulk_insert_usage',
-  ingestion_entitlements: 'bulk_insert_entitlements',
-  ingestion_people: 'bulk_insert_people',
-  ingestion_contracts: 'bulk_insert_contracts',
-  ingestion_rejections: 'bulk_insert_rejections',
-};
-
-/**
- * Sends rows as data rather than as SQL text.
- *
- * Measured through the deployed product at 68,008 rows: 135 chunks of 500 took
- * 15,875 ms, and raising the chunk to 5,000 took 39,028 ms -- ten times the
- * rows per request cost 23.7 times the time, because PostgREST renders an
- * array of N rows into one INSERT carrying N tuples and the planner's cost for
- * that grows faster than N. One jsonb argument removes the dependency entirely.
- *
- * The count the database returns is compared against the count sent. Postgres
- * will not silently insert fewer rows than a statement asked for, so this
- * should never fire -- but a short write is the one failure that would
- * otherwise be invisible, and the whole product rests on stored matching
- * accepted.
- */
-async function insertChunked(
-  table: string,
-  rows: Record<string, unknown>[],
-  organizationId: string,
-  importId: string,
-  onPhase?: CommitInput['onPhase'],
-): Promise<void> {
-  const fn = BULK_FUNCTION[table];
-  if (fn === undefined) throw new Error(`No bulk loader is defined for ${table}.`);
-
-  const from = performance.now();
-  let chunks = 0;
-  let written = 0;
-  for (let index = 0; index < rows.length; index += INSERT_CHUNK) {
-    const chunk = rows.slice(index, index + INSERT_CHUNK);
-    const { data, error } = await (await db()).rpc(fn, {
-      rows: chunk,
-      org: organizationId,
-      imp: importId,
-    });
-    if (error !== null) throw new Error(`${table}: ${error.message}`);
-    const count = typeof data === 'number' ? data : Number(data);
-    if (count !== chunk.length) {
-      throw new Error(
-        `${table}: sent ${chunk.length} rows but the database recorded ${count}.`,
-      );
-    }
-    written += count;
-    chunks += 1;
-  }
-  if (written !== rows.length) {
-    throw new Error(`${table}: sent ${rows.length} rows but only ${written} were written.`);
-  }
-  onPhase?.(`insert:${table}`, performance.now() - from, { rows: rows.length, chunks });
-}
-
+/** Where a customer's upload waits until the worker has written its rows. */
+const SOURCE_BUCKET = 'ingestion-sources';
 /** Times a single round trip so the fixed costs are visible next to the bulk ones. */
 async function timed<T>(
   name: string,
@@ -170,6 +88,8 @@ export const supabaseIngestionStore: IngestionStore = {
       sourceSheets,
       mappingUsed,
       contentFingerprint,
+      fileContent,
+      parseOptions,
       onPhase,
     } = input;
     // Every family, including contracts — which carry the money, and were
@@ -204,6 +124,26 @@ export const supabaseIngestionStore: IngestionStore = {
       }
     }
 
+    // ── THE EVIDENCE IS DURABLE BEFORE THE JOB EXISTS ─────────────────────
+    //
+    // The worker that writes the rows may not run for a minute, and will not be
+    // this process. It re-reads the customer's own file rather than trusting
+    // anything held in memory, so the file has to be stored before there is a
+    // job to find it -- otherwise a job could be claimed for evidence that was
+    // never saved.
+    const sourcePath = `${organizationId}/${importId}`;
+    if (fileContent !== undefined) {
+      const upload = await timed('upload:source', onPhase, async () =>
+        (await db()).storage.from(SOURCE_BUCKET).upload(sourcePath, fileContent, {
+          contentType: 'application/octet-stream',
+          upsert: true,
+        }),
+      );
+      if (upload.error !== null) {
+        throw new Error(`Could not store the uploaded file: ${upload.error.message}`);
+      }
+    }
+
     const uploadedAt = new Date().toISOString();
     const { error: importError } = await timed('insert:imports', onPhase, async () =>
       (await db()).from('imports').insert({
@@ -225,7 +165,12 @@ export const supabaseIngestionStore: IngestionStore = {
       accepted_rows: result.acceptedRows,
       rejected_rows: result.rejectedRows,
       duplicate_rows: result.duplicateRows,
-      status: 'importing',
+      // Queued, not importing: the rows are not written yet and nothing is
+      // working on them. `importing` now means a worker holds a lease.
+      status: 'queued',
+      source_path: fileContent !== undefined ? sourcePath : null,
+      parse_options: parseOptions ?? {},
+      rows_persisted: 0,
       detection_confidence: detectionConfidence,
       detection_evidence: detectionEvidence,
       detection_fell_back: detectionFellBack,
@@ -258,162 +203,10 @@ export const supabaseIngestionStore: IngestionStore = {
       throw new Error(`Could not record the import: ${importError.message}`);
     }
 
-    try {
-      await insertChunked(
-        'ingestion_usage',
-        result.usage.map((record) => ({
-          usage_date: record.date,
-          hour: record.hour,
-          observed_at: record.observedAt,
-          raw_user: record.user,
-          employee_code: record.employeeCode,
-          raw_feature: record.feature,
-          raw_product: record.product,
-          raw_vendor: record.vendor,
-          quantity: record.quantity,
-          concurrent: record.concurrent,
-          peak: record.peak,
-          available: record.available,
-          duration_hours: record.durationHours,
-          checkout_at: record.checkoutAt,
-          checkin_at: record.checkinAt,
-          denied: record.denied,
-          denial_count: record.denialCount,
-          license_server: record.licenseServer,
-          pool: record.pool,
-          tokens: record.tokens,
-          source_system: record.provenance.sourceSystem,
-          source_file: record.provenance.sourceFile,
-          source_sheet: record.provenance.sourceSheet,
-          source_row: record.provenance.sourceRow,
-        })),
-        organizationId,
-        importId,
-        onPhase,
-      );
-      await insertChunked(
-        'ingestion_entitlements',
-        result.entitlements.map((record) => ({
-          raw_feature: record.feature,
-          raw_product: record.product,
-          raw_vendor: record.vendor,
-          entitled_quantity: record.entitledQuantity,
-          license_model: record.licenseModel,
-          license_server: record.licenseServer,
-          pool: record.pool,
-          expires_on: record.expiresOn,
-          source_system: record.provenance.sourceSystem,
-          source_file: record.provenance.sourceFile,
-          source_sheet: record.provenance.sourceSheet,
-          source_row: record.provenance.sourceRow,
-        })),
-        organizationId,
-        importId,
-        onPhase,
-      );
-      await insertChunked(
-        'ingestion_people',
-        result.people.map((record) => ({
-          raw_user: record.user,
-          employee_code: record.employeeCode,
-          display_name: record.displayName,
-          email: record.email,
-          employment_status: record.employmentStatus,
-          employment_type: record.employmentType,
-          manager_name: record.managerName,
-          manager_key: record.managerKey,
-          department: record.department,
-          organization: record.organization,
-          business_unit: record.businessUnit,
-          program: record.program,
-          discipline: record.discipline,
-          competency: record.competency,
-          location: record.location,
-          region: record.region,
-          cost_center: record.costCenter,
-          source_system: record.provenance.sourceSystem,
-          source_file: record.provenance.sourceFile,
-          source_sheet: record.provenance.sourceSheet,
-          source_row: record.provenance.sourceRow,
-        })),
-        organizationId,
-        importId,
-        onPhase,
-      );
-      await insertChunked(
-        'ingestion_contracts',
-        result.contracts.map((record) => ({
-          raw_feature: record.feature,
-          raw_product: record.product,
-          raw_vendor: record.vendor,
-          sku: record.sku,
-          contract_number: record.contractNumber,
-          agreement_number: record.agreementNumber,
-          purchase_order: record.purchaseOrder,
-          supplier: record.supplier,
-          quantity: record.quantity,
-          unit_price: record.unitPrice,
-          total_cost: record.totalCost,
-          annual_cost: record.annualCost,
-          currency: record.currency,
-          license_model: record.licenseModel,
-          pricing_unit: record.pricingUnit,
-          contract_start_date: record.contractStartDate,
-          contract_end_date: record.contractEndDate,
-          renewal_date: record.renewalDate,
-          business_unit: record.businessUnit,
-          cost_center: record.costCenter,
-          owner: record.owner,
-          notes: record.notes,
-          unit_price_basis: record.unitPriceBasis,
-          annual_cost_basis: record.annualCostBasis,
-          multi_year_total: record.multiYearTotal,
-          source_system: record.provenance.sourceSystem,
-          source_file: record.provenance.sourceFile,
-          source_sheet: record.provenance.sourceSheet,
-          source_row: record.provenance.sourceRow,
-        })),
-        organizationId,
-        importId,
-        onPhase,
-      );
-      // Rejections are audit records, never analytical ones.
-      await insertChunked(
-        'ingestion_rejections',
-        result.rejections.slice(0, 5000).map((rejection) => ({
-          source_sheet: rejection.sourceSheet,
-          source_row: rejection.sourceRow,
-          rule: rejection.rule,
-          field: rejection.field,
-          value: rejection.value,
-          message: rejection.message,
-        })),
-        organizationId,
-        importId,
-        onPhase,
-      );
-    } catch (error) {
-      // Cascade removes every row this import wrote.
-      await (await db()).from('imports').delete().eq('id', importId).eq('organization_id', organizationId);
-      throw error instanceof Error ? error : new Error('The import could not be stored.');
-    }
-    const importedAt = new Date().toISOString();
-    const { error: finalizeError } = await timed('finalize', onPhase, async () =>
-      (await db())
-        .from('imports')
-        .update({ status: 'complete', imported_at: importedAt })
-        .eq('id', importId)
-        .eq('organization_id', organizationId),
-    );
-    if (finalizeError !== null) {
-      await (await db()).from('imports').delete().eq('id', importId).eq('organization_id', organizationId);
-      // Two commits of the same content racing: the loser lands here. It is a
-      // duplicate, not a server error, and the rows it wrote are already gone.
-      if (isDuplicateImportError(finalizeError)) {
-        throw new DuplicateImportError(null);
-      }
-      throw new Error(`Could not finalize the import: ${finalizeError.message}`);
-    }
+    // No canonical rows are written here. At the measured 83 microseconds per
+    // row a large import cannot finish inside a request, so the worker writes
+    // them afterwards and the customer is told the truth in the meantime: the
+    // file is accepted and stored, and nothing is analysed yet.
     return {
       id: importId,
       organizationId,
@@ -423,9 +216,11 @@ export const supabaseIngestionStore: IngestionStore = {
       sourceSystem: result.sourceSystem,
       detectionConfidence,
       detectionFellBack,
-      status: 'complete',
+      status: 'queued',
       uploadedAt,
-      importedAt,
+      importedAt: null,
+      rowsPersisted: 0,
+      attempt: 0,
       totalRows: result.totalRows,
       acceptedRows: result.acceptedRows,
       rejectedRows: result.rejectedRows,
@@ -803,6 +598,8 @@ function rowToSummary(row: Record<string, unknown>): ImportSummary {
     peopleRecords: Number(row.people_records ?? 0),
     contractRecords: Number(row.contract_records ?? 0),
     failureReason: (row.failure_reason ?? null) as string | null,
+    rowsPersisted: Number(row.rows_persisted ?? 0),
+    attempt: Number(row.attempt ?? 0),
   };
 }
 

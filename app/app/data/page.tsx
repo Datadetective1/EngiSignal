@@ -21,6 +21,7 @@ import { getIngestionStore, isEphemeralStore, isServerlessEphemeral } from '@/li
 import { capabilityLines, coverageLines, qualityBand } from '@/lib/ingestion/capabilities';
 import { loadWorkspace } from '@/lib/workspace';
 import { DataIntegrityCard, ProjectionCard } from '@/components/app/data-integrity';
+import { ImportProgress } from '@/components/app/import-progress';
 
 export const metadata: Metadata = { title: 'Data' };
 
@@ -172,6 +173,8 @@ export default async function DataPage() {
           </ul>
         )}
       </Card>
+
+      <ImportProgress />
 
       <div className="grid gap-5 lg:grid-cols-2">
         {/* ── Import history ────────────────────────────────────────────── */}

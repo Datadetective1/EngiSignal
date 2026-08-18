@@ -30,12 +30,19 @@ export type { StoredRowCounts };
 /**
  * Import lifecycle.
  *
- * These are real states. Ingestion is synchronous, so there is no queued or
- * processing state that the implementation does not actually occupy —
- * displaying one would be theatre.
+ * These are real states, and the rule that made that sentence worth writing
+ * still holds: nothing here is displayed that the implementation does not
+ * actually occupy.
+ *
+ * `queued` was added when ingestion stopped being synchronous. A large import
+ * cannot be persisted inside the request that uploads it, so between the file
+ * being accepted and a worker picking it up there is a real moment when the
+ * evidence is durable and nobody is working on it. That moment is `queued`;
+ * `importing` now means a worker holds a lease and is writing rows.
  */
 export type ImportLifecycle =
   | 'uploaded'
+  | 'queued'
   | 'analyzed'
   | 'mapping_review'
   | 'validated'
@@ -64,6 +71,17 @@ export interface ImportSummary {
   peopleRecords: number;
   contractRecords: number;
   failureReason: string | null;
+  /**
+   * Rows durably written so far.
+   *
+   * Equal to `acceptedRows` once the import is complete. While it is queued or
+   * importing this is the honest answer to "is it moving", and it is the number
+   * the worker resumes from -- so what the customer watches and what the system
+   * relies on are the same value, not two that could disagree.
+   */
+  rowsPersisted: number;
+  /** Attempts made. Above one means it is being retried, not stuck. */
+  attempt: number;
 }
 
 export interface ImportDetail extends ImportSummary {
@@ -139,6 +157,19 @@ export interface CommitInput {
   detectionFellBack: boolean;
   /** SHA-256 over content + dataset + mapping. Enables duplicate detection. */
   contentFingerprint?: string;
+  /**
+   * The uploaded bytes.
+   *
+   * Stored as the canonical evidence so the worker can re-read exactly what the
+   * customer sent. Optional so the in-memory store, which persists inline and
+   * has no worker, is unaffected.
+   */
+  fileContent?: ArrayBuffer;
+  /**
+   * Exactly the options this file was parsed with, recorded so a worker
+   * reproduces the customer's reviewed mapping rather than guessing at it.
+   */
+  parseOptions?: Record<string, unknown>;
   /**
    * Reports how long each stage of persistence took. Optional so the memory
    * store and every existing caller are unaffected; supplied in production so

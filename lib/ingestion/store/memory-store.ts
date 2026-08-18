@@ -109,6 +109,10 @@ export const memoryIngestionStore: IngestionStore = {
     store.contracts.push(...result.contracts);
 
     const detail: ImportDetail = {
+      // The in-memory store has no worker and writes inline, so an import is
+      // finished the moment it is accepted and every accepted row is persisted.
+      rowsPersisted: result.acceptedRows,
+      attempt: 1,
       id: importId,
       organizationId,
       fileName,

@@ -93,7 +93,24 @@ NEXT_PUBLIC_PILOT_EMAIL=pilot@your-domain.com
 NEXT_PUBLIC_LEGAL_ENTITY_NAME=<registered entity>
 ```
 
-There is deliberately no service-role key in that list. Every database call the application makes runs as the signed-in user, so Row Level Security is what enforces tenant isolation. Do not add `SUPABASE_SERVICE_ROLE_KEY` to the deployment: no code path reads it, and a key that bypasses RLS only widens the blast radius if the environment leaks.
+There is deliberately no service-role key in that list, and there still is not one. Every database call the application makes on behalf of a customer runs as the signed-in user, so Row Level Security is what enforces tenant isolation. Do not add `SUPABASE_SERVICE_ROLE_KEY` to the deployment: no code path reads it, and a key that bypasses RLS only widens the blast radius if the environment leaks.
+
+#### The ingestion worker
+
+Phase 2G added one identity that is not a signed-in customer, because it had to. Large imports are written by a worker on the database's own schedule, minutes after the request that uploaded the file, and a worker cannot borrow a session that has expired or a browser that has closed. Durability and borrowed credentials are incompatible.
+
+That worker is **not** a service-role key. Two variables carry it:
+
+```
+INGESTION_WORKER_TOKEN=<minted by scripts/mint-ingestion-worker-token.mjs>
+CRON_SECRET=<shared with the database's scheduler>
+```
+
+`INGESTION_WORKER_TOKEN` names the `ingestion_worker` database role, which has `EXECUTE` on six functions and **no rights over any table in any schema** — verified against production, where its reads of both `imports` and `ingestion_usage` are refused by Postgres itself. Its one table privilege anywhere is `select` on `storage.objects`, confined by policy to the `ingestion-sources` bucket. Every function it can call takes an import id and reads the organization from the import row, so no argument in its surface names a tenant.
+
+`CRON_SECRET` is checked in constant time by `/api/jobs/ingestion` before it does anything, and the same value is held in the database's Vault so `pg_cron` can present it. Set both in the database and the deployment, or imports will queue and never drain.
+
+Minting the token needs the project's **JWT secret**, which can sign a token for any role including `service_role`. It is used once, on a machine that already has it, and only the resulting token is deployed — the signing secret itself must never be set in the deployment environment.
 
 ### 4.3 Fallback behaviour
 

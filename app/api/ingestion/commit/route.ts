@@ -10,11 +10,10 @@ import {
 } from '@/lib/ingestion';
 import { resolveIngestionContext } from '@/lib/ingestion/session';
 import { getIngestionStore } from '@/lib/ingestion/store';
-import { startProjectionBuild } from '@/lib/data/supabase-provider';
-import { detachedUserClient } from '@/lib/supabase/server';
 import { DuplicateImportError } from '@/lib/ingestion/store/types';
 import { fingerprintImport } from '@/lib/ingestion/fingerprint';
 import { stopwatch } from '@/lib/perf/stopwatch';
+import { envOptional } from '@/config/env';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -178,6 +177,15 @@ export async function POST(request: Request) {
       getIngestionStore().commitImport({
       onPhase: (name, ms, detail) => watch.record(name, ms, detail),
       contentFingerprint,
+      // Stored so a worker minutes from now re-reads exactly these bytes with
+      // exactly these options, rather than reconstructing either.
+      fileContent: fileBytes,
+      parseOptions: {
+        forceSource: body.data.forceSource,
+        mappingOverrides: body.data.mappingOverrides,
+        sheetName: body.data.sheetName,
+        dayFirst: body.data.dayFirst,
+      },
       organizationId: auth.context.organizationId,
       importId,
       fileName: file.name,
@@ -214,32 +222,32 @@ export async function POST(request: Request) {
     );
   }
 
-  // ── THE ROWS ARE DURABLE; THE ANALYSIS IS NOT THIS REQUEST'S JOB ───────────
+  // ── THE FILE IS SAFE; THE ROWS ARE NOT WRITTEN YET ────────────────────────
   //
-  // Phase 2E rebuilt the projection here, inside the request. Measured in
-  // production that took 21.9 seconds at 282k rows, and it grows with the
-  // estate while the function timeout does not.
+  // Phase 2E moved the analysis off this request. Phase 2G moves the rows too,
+  // for the same reason and with harder numbers: the database needs about 83
+  // microseconds per row, so a 466,000-row import is forty seconds of database
+  // work before any network, and no request can hold that.
   //
-  // The response now returns as soon as the canonical rows are committed, which
-  // is the only thing the customer actually needs to be certain of, and the
-  // analysis runs after it. `after()` keeps the caller's own session, so the
-  // build is governed by exactly the same Row Level Security as every other
-  // statement — no service-role key, no standing capability to read every
-  // tenant, introduced to solve a latency problem.
+  // What the customer is promised here is exactly what has happened -- their
+  // file is stored and the import is queued. The worker writes the rows, and
+  // `queued` is a state the import genuinely occupies rather than a spinner.
   //
-  // Best-effort by design: if the platform cuts the invocation short, the build
-  // records nothing, the claim's lease expires, and the next read takes it
-  // over. Nothing waits for a human to notice.
-  // Captured while the request is still alive: after the response there is no
-  // cookie store to read a session from, and a client built then would have no
-  // permissions at all.
-  const detached = await detachedUserClient();
-  if (detached !== null) {
+  // The scheduler in Postgres would find this job within a minute on its own.
+  // Waking a worker now just means the customer does not wait for that minute;
+  // if this fails, or the invocation dies before it lands, the tick still picks
+  // the job up. Nothing here is load-bearing.
+  const site = envOptional('NEXT_PUBLIC_SITE_URL');
+  const schedulerSecret = envOptional('CRON_SECRET');
+  if (site !== null && schedulerSecret !== null) {
     after(async () => {
       try {
-        await startProjectionBuild(auth.context.organizationId, undefined, detached);
+        await fetch(`${site}/api/jobs/ingestion`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${schedulerSecret}` },
+        });
       } catch {
-        // The runner records its own failures against the tenant.
+        // The schedule is the mechanism. This is only impatience.
       }
     });
   }
@@ -261,6 +269,8 @@ export async function POST(request: Request) {
       // answerable from the response the customer already received.
       timings: { totalMs: watch.totalMs(), phases: watch.phases() },
     },
-    { headers: { 'Server-Timing': watch.serverTiming() } },
+    // 202: understood and stored, not yet done. The rows are written by a
+    // worker, and the import's own status is where the customer follows it.
+    { status: 202, headers: { 'Server-Timing': watch.serverTiming() } },
   );
 }
