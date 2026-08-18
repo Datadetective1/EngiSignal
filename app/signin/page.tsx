@@ -27,11 +27,13 @@ const ERRORS: Record<string, string> = {
   exists: 'An account already exists for that email. Sign in instead.',
   // Never reported as a problem with what the user typed.
   ratelimited: 'Too many attempts right now. Wait a minute and try again.',
-  // A separate message because the advice differs: this limit is measured in
-  // hours, and "try again in a minute" would send someone round a loop that
-  // cannot succeed.
+  // Two different limits return the same status: a short per-address cooldown
+  // measured in seconds, and an hourly cap across the whole project. They are
+  // not distinguishable from the response, so this says what is certainly true
+  // -- the account is safe and the last email that was sent is still valid --
+  // and is honest that the wait could be either.
   emaillimited:
-    'We have sent as many emails as we are allowed to in the last hour. Your account is safe — wait an hour and use “Resend confirmation email” below.',
+    'Too many confirmation emails have been requested recently. Your account is safe and any email already sent still works. Wait a few minutes and use the resend box below; if it keeps refusing, an hourly limit has been reached and will clear within the hour.',
   unconfirmed: 'Confirm your email address first, then sign in.',
   failed: 'Sign-in failed. Check the details and try again.',
 };
