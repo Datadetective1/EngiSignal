@@ -37,6 +37,7 @@ import type {
   ImportLifecycle,
   ImportSummary,
   IngestionStore,
+  ResumeOutcome,
   StoredRowCounts,
 } from './types';
 import type { ProjectionRecord } from '@/lib/analytics/projection';
@@ -63,13 +64,21 @@ const SOURCE_BUCKET = 'ingestion-sources';
 /**
  * How long the worker's capability to read one uploaded file lasts.
  *
- * Ten years. Not because a job might take that long -- they take minutes -- but
- * because the failure this prevents is an import that stalls for a reason
- * unrelated to itself, and there is no benefit to sizing it tightly: the URL
- * covers exactly one object in one tenant, and the row that holds it is behind
- * the same Row Level Security as the import it belongs to.
+ * Twenty-four hours. A job's real lifetime is minutes -- five attempts, and an
+ * abandoned one reaped within a minute -- so this is already three orders of
+ * magnitude of headroom for the path that matters.
+ *
+ * The first version of this was ten years, chosen so expiry could never stall
+ * an import. That reasoning was backwards: it removed a failure mode by making
+ * the capability effectively permanent and unrevokable, which is a worse
+ * property for a bearer URL to a customer's file than the problem it avoided.
+ *
+ * Expiry is handled instead of avoided. `source_path` is stored alongside, so
+ * an authenticated request can mint a fresh URL for a genuinely stalled import
+ * at any point in the future -- see `resumeImport`. A lapsed URL is a
+ * recoverable condition with a named cause, not a dead import.
  */
-const SOURCE_URL_TTL_SECONDS = 60 * 60 * 24 * 365 * 10;
+const SOURCE_URL_TTL_SECONDS = 60 * 60 * 24;
 /** Times a single round trip so the fixed costs are visible next to the bulk ones. */
 async function timed<T>(
   name: string,
@@ -163,12 +172,7 @@ export const supabaseIngestionStore: IngestionStore = {
       // a capability for exactly this one object, and the worker needs no
       // storage privilege of its own.
       //
-      // The expiry is deliberately far longer than any job can live. Work is
-      // measured in minutes, retries cap at five, and an abandoned job is
-      // reaped within a minute -- but an import that failed because its URL
-      // lapsed while it sat in a queue would be failing for a reason that has
-      // nothing to do with the import. `source_path` is stored alongside so a
-      // fresh URL can always be minted by an authenticated request.
+      // Short-lived on purpose, with `source_path` kept so it can be renewed.
       const signed = await timed('sign:source', onPhase, async () =>
         (await db()).storage.from(SOURCE_BUCKET).createSignedUrl(sourcePath, SOURCE_URL_TTL_SECONDS),
       );
@@ -327,6 +331,75 @@ export const supabaseIngestionStore: IngestionStore = {
       .select('id');
     if (error !== null) throw new Error(error.message);
     return (data ?? []).length > 0;
+  },
+  async resumeImport(orgId: string, importId: string): Promise<ResumeOutcome> {
+    // Scoped by organization as well as id, and running as the caller, so Row
+    // Level Security refuses another tenant's import before this filter does.
+    const { data: record, error } = await (await db())
+      .from('imports')
+      .select('id, status, source_path, accepted_rows, rows_persisted')
+      .eq('organization_id', orgId)
+      .eq('id', importId)
+      .maybeSingle();
+    if (error !== null) throw new Error(error.message);
+    if (record === null) return { status: 'not-found' };
+
+    const status = record.status as ImportLifecycle;
+    if (status === 'complete') {
+      return {
+        status: 'not-resumable',
+        reason: 'This import already finished. Every accepted row is stored.',
+      };
+    }
+    if (status === 'queued' || status === 'importing') {
+      return {
+        status: 'not-resumable',
+        reason: 'This import is already queued or being written. Nothing needs to be resumed.',
+      };
+    }
+    if (typeof record.source_path !== 'string' || record.source_path.length === 0) {
+      return {
+        status: 'not-resumable',
+        reason:
+          'The uploaded file for this import was not kept, so it cannot be resumed. Import the file again.',
+      };
+    }
+
+    // A fresh capability for the same single object. The file never moved --
+    // only permission to read it lapsed.
+    const signed = await (await db())
+      .storage.from(SOURCE_BUCKET)
+      .createSignedUrl(record.source_path as string, SOURCE_URL_TTL_SECONDS);
+    if (signed.error !== null || signed.data === null) {
+      return {
+        status: 'not-resumable',
+        reason: `The uploaded file could not be reached: ${signed.error?.message ?? 'no URL returned'}`,
+      };
+    }
+
+    // The attempt counter is reset because the reason it failed has been
+    // addressed. `status = failed` is required in the filter so this cannot
+    // requeue an import that finished between the read above and this write.
+    const { data: updated, error: updateError } = await (await db())
+      .from('imports')
+      .update({
+        source_url: signed.data.signedUrl,
+        status: 'queued',
+        attempt: 0,
+        failure_reason: null,
+        worker_token: null,
+        lease_expires_at: null,
+      })
+      .eq('organization_id', orgId)
+      .eq('id', importId)
+      .eq('status', 'failed')
+      .select('id');
+    if (updateError !== null) throw new Error(updateError.message);
+    if ((updated ?? []).length === 0) {
+      return { status: 'not-resumable', reason: 'This import changed while it was being resumed.' };
+    }
+
+    return { status: 'requeued' };
   },
   async countStoredRows(orgId: string): Promise<StoredRowCounts> {
     // Counted BY THE DATABASE, which is the whole point: counting the length of

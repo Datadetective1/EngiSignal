@@ -22,6 +22,7 @@ import type {
   CoverageSummary,
   ImportDetail,
   ImportSummary,
+  ResumeOutcome,
   IngestionStore,
   StoredRowCounts,
 } from './types';
@@ -163,6 +164,17 @@ export const memoryIngestionStore: IngestionStore = {
     return bucket(orgId).imports.get(importId) ?? null;
   },
 
+  async resumeImport(orgId: string, importId: string): Promise<ResumeOutcome> {
+    // This store writes inline and keeps no uploaded file, so an import here is
+    // either finished or was never accepted. There is nothing to resume, and
+    // saying so plainly is better than pretending the operation applies.
+    const store = bucket(orgId);
+    if (!store.imports.has(importId)) return { status: 'not-found' };
+    return {
+      status: 'not-resumable',
+      reason: 'This environment stores imports in memory and writes them immediately.',
+    };
+  },
   async deleteImport(orgId: string, importId: string): Promise<boolean> {
     const store = bucket(orgId);
     if (!store.imports.has(importId)) return false;

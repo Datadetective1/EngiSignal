@@ -44,7 +44,11 @@ drop policy if exists "ingestion sources: worker reads" on storage.objects;
 -- editor, so it never passes through a repository, a build log or a migration
 -- history:
 --
---   alter role ingestion_worker with password '<generated>';
+--   select encode(gen_random_bytes(24), 'hex') as new_password;
+--   alter role ingestion_worker with password '<that value>';
+--
+-- Hex rather than Base64: a Base64 password can contain +, / and =, which are
+-- ambiguous inside a connection URI and would have to be percent-encoded.
 --
 -- ── AUDIT ───────────────────────────────────────────────────────────────────
 --

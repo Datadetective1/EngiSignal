@@ -71,6 +71,15 @@ export async function POST(request: Request): Promise<NextResponse> {
           }
           const response = await fetch(job.sourceUrl);
           if (!response.ok) {
+            // A lapsed signed URL is a recoverable condition, not a lost
+            // import: the file is still there and only permission to read it
+            // expired. Named explicitly so the customer is offered the fix
+            // rather than shown a transport error they cannot act on.
+            if (response.status === 400 || response.status === 401 || response.status === 403) {
+              throw new Error(
+                'Access to the uploaded file has expired. The file is still stored — resume this import to renew access and continue from where it stopped.',
+              );
+            }
             throw new Error(
               `Could not read the uploaded file (HTTP ${response.status}). The stored copy may have been removed.`,
             );

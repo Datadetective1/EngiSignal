@@ -117,7 +117,16 @@ A JWT naming the same role was rejected deliberately: any key that can sign a JW
 
 The worker also verifies this at runtime. Before touching customer data it asserts `current_user = ingestion_worker`, that the role cannot bypass RLS, and that it holds zero memberships — and refuses to run otherwise. A credential repointed at a more privileged role fails loudly instead of quietly working.
 
-It holds no storage credential at all. The request that accepts an upload — already authenticated as the file's owner — mints a signed URL for that single object and records it on the import row.
+It holds no storage credential at all. The request that accepts an upload — already authenticated as the file's owner — mints a **24-hour** signed URL for that single object and records it on the import row alongside `source_path`.
+
+Twenty-four hours is three orders of magnitude beyond a job's real lifetime (minutes; five attempts; abandoned jobs reaped within a minute), and expiry is handled rather than avoided: if an import fails and then sits failed for longer than that, `POST /api/ingestion/imports/<id>/resume` mints a fresh URL and requeues from the existing checkpoint. That runs as the signed-in customer, so Row Level Security decides which imports are reachable. The customer sees a **Resume import** control on any failed import.
+
+To set the role's password, generate it in the Supabase SQL editor as **hex** — Base64 can contain `+`, `/` and `=`, which are ambiguous inside a connection URI:
+
+```sql
+select encode(gen_random_bytes(24), 'hex') as new_password;
+alter role ingestion_worker with password 'PASTE_VALUE_HERE';
+```
 
 `CRON_SECRET` is checked in constant time by `/api/jobs/ingestion` before it does anything, and the same value is held in the database's Vault so `pg_cron` can present it. Set both, or imports will queue and never drain.
 

@@ -15,7 +15,7 @@
  * stopped, and the page says so rather than animating over it.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Badge, Card, CardHeader } from '@/components/ui/primitives';
 import { formatNumber } from '@/lib/analytics/financial';
@@ -67,6 +67,38 @@ export function ImportProgress() {
   const router = useRouter();
   const [inFlight, setInFlight] = useState<InFlightImport[] | null>(null);
   const [unreachable, setUnreachable] = useState(false);
+  const [resuming, setResuming] = useState<string | null>(null);
+  const [resumeError, setResumeError] = useState<string | null>(null);
+
+  /**
+   * Renews the worker's access to the uploaded file and requeues.
+   *
+   * The signed URL the worker reads through lasts a day, so an import left
+   * failed for longer than that cannot be retried until it is renewed. The
+   * file never went anywhere; only permission to read it lapsed.
+   */
+  const resume = useCallback(
+    async (id: string) => {
+      setResuming(id);
+      setResumeError(null);
+      try {
+        const response = await fetch(`/api/ingestion/imports/${encodeURIComponent(id)}/resume`, {
+          method: 'POST',
+        });
+        if (!response.ok) {
+          const body = (await response.json().catch(() => ({}))) as { error?: string };
+          setResumeError(body.error ?? 'This import could not be resumed.');
+          return;
+        }
+        router.refresh();
+      } catch {
+        setResumeError('The server could not be reached. Nothing has changed.');
+      } finally {
+        setResuming(null);
+      }
+    },
+    [router],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -121,6 +153,9 @@ export function ImportProgress() {
         title="Imports in progress"
         description="Rows are written by a background worker. Closing this page does not stop it."
       />
+      {resumeError !== null && (
+        <p className="mb-3 text-[12px] text-warning">{resumeError}</p>
+      )}
       {unreachable && (
         <p className="mb-3 text-[12px] text-warning">
           This page cannot reach the server right now, so the figures below may be out of date. The
@@ -166,6 +201,22 @@ export function ImportProgress() {
               )}
 
               {detail !== '' && <p className="text-[11.5px] text-fg-muted">{detail}</p>}
+
+              {record.status === 'failed' && (
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => void resume(record.id)}
+                    disabled={resuming === record.id}
+                    className="rounded-md border border-border px-2.5 py-1 text-[11.5px] font-medium hover:bg-surface-3 disabled:opacity-60"
+                  >
+                    {resuming === record.id ? 'Resuming…' : 'Resume import'}
+                  </button>
+                  <span className="text-[11px] text-fg-muted">
+                    Continues from {formatNumber(record.rowsPersisted)} rows already written.
+                  </span>
+                </div>
+              )}
             </li>
           );
         })}

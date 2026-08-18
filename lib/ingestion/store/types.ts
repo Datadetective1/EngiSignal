@@ -143,6 +143,12 @@ export class DuplicateImportError extends Error {
   }
 }
 
+/** Why a resume did or did not happen. Named, so the UI need not guess. */
+export type ResumeOutcome =
+  | { status: 'requeued' }
+  | { status: 'not-found' }
+  | { status: 'not-resumable'; reason: string };
+
 export interface CommitInput {
   organizationId: string;
   importId: string;
@@ -189,6 +195,22 @@ export interface IngestionStore {
 
   /** Remove one import and everything it wrote. Returns false when not found. */
   deleteImport(orgId: string, importId: string): Promise<boolean>;
+
+  /**
+   * Return a stalled import to the queue, renewing the worker's access to its
+   * file.
+   *
+   * The worker reads the uploaded file through a short-lived signed URL. If an
+   * import sits failed for longer than that URL lives -- which only happens
+   * when something already went wrong -- the file is still there and the
+   * import is still recoverable; only the capability to read it has lapsed.
+   * This mints a fresh one and requeues.
+   *
+   * Runs as the signed-in customer, so Row Level Security decides which
+   * imports are reachable: an id belonging to another tenant is simply not
+   * found.
+   */
+  resumeImport(orgId: string, importId: string): Promise<ResumeOutcome>;
 
   /** Canonical usage for a tenant, for projection into analytics shapes. */
   listUsage(orgId: string, options?: { importId?: string; limit?: number }): Promise<CanonicalUsageRecord[]>;
