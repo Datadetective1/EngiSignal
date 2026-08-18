@@ -327,8 +327,22 @@ export const supabaseIngestionStore: IngestionStore = {
     };
   },
   async deleteImport(orgId: string, importId: string): Promise<boolean> {
-    // Scoped by organization as well as id: an id alone must never be enough
-    // to reach another tenant's import.
+    // The uploaded file has to go too. Deleting the import row removes the
+    // canonical rows by cascade, but the customer's original export lives in
+    // storage, and leaving it there means a customer who deleted their data
+    // still has it stored -- indefinitely, invisibly, and growing with every
+    // import they ever remove.
+    //
+    // Read first, because after the row is gone there is nothing left that
+    // knows where the file was. Scoped by organization as well as id: an id
+    // alone must never be enough to reach another tenant's import.
+    const { data: record } = await (await db())
+      .from('imports')
+      .select('source_path')
+      .eq('organization_id', orgId)
+      .eq('id', importId)
+      .maybeSingle();
+
     const { data, error } = await (await db())
       .from('imports')
       .delete()
@@ -336,7 +350,24 @@ export const supabaseIngestionStore: IngestionStore = {
       .eq('id', importId)
       .select('id');
     if (error !== null) throw new Error(error.message);
-    return (data ?? []).length > 0;
+
+    const removed = (data ?? []).length > 0;
+
+    if (removed && typeof record?.source_path === 'string' && record.source_path.length > 0) {
+      // After the row, so a failure here cannot leave an import the customer
+      // believes is deleted. A file that is already gone is not an error.
+      const { error: storageError } = await (await db())
+        .storage.from(SOURCE_BUCKET)
+        .remove([record.source_path as string]);
+      if (storageError !== null) {
+        console.error('[ingestion] import row deleted but its file remains', {
+          importId,
+          message: storageError.message,
+        });
+      }
+    }
+
+    return removed;
   },
   async resumeImport(orgId: string, importId: string): Promise<ResumeOutcome> {
     // Scoped by organization as well as id, and running as the caller, so Row

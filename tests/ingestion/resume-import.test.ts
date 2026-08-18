@@ -18,12 +18,14 @@ vi.mock('server-only', () => ({}));
  */
 
 const state: {
+  removedPaths: string[];
   record: Record<string, unknown> | null;
   signed: { data: { signedUrl: string } | null; error: { message: string } | null };
   updateFilters: Record<string, unknown>;
   updatePayload: Record<string, unknown> | null;
   updateReturns: unknown[];
 } = {
+  removedPaths: [],
   record: null,
   signed: { data: { signedUrl: 'https://storage.example/fresh' }, error: null },
   updateFilters: {},
@@ -47,6 +49,10 @@ vi.mock('@/lib/supabase/server', () => {
         state.updatePayload = payload;
         return self;
       },
+      delete: () => {
+        writing = true;
+        return self;
+      },
       eq: (column: string, value: unknown) => {
         if (writing) state.updateFilters[column] = value;
         return self;
@@ -60,7 +66,15 @@ vi.mock('@/lib/supabase/server', () => {
   return {
     userClient: async () => ({
       from: () => builder(),
-      storage: { from: () => ({ createSignedUrl: async () => state.signed }) },
+      storage: {
+        from: () => ({
+          createSignedUrl: async () => state.signed,
+          remove: async (paths: string[]) => {
+            state.removedPaths.push(...paths);
+            return { error: null };
+          },
+        }),
+      },
     }),
     hasSupabaseEnv: () => true,
   };
@@ -84,6 +98,7 @@ beforeEach(() => {
   state.updateFilters = {};
   state.updatePayload = null;
   state.updateReturns = [{ id: 'imp-1' }];
+  state.removedPaths = [];
 });
 
 describe('resuming a stalled import', () => {
@@ -172,5 +187,29 @@ describe('when resuming would be wrong', () => {
     // than "forbidden" keeps this from answering questions about other tenants.
     state.record = null;
     expect(await resume()).toEqual({ status: 'not-found' });
+  });
+});
+
+describe('deleting an import', () => {
+  it('removes the uploaded file, not just the rows', async () => {
+    // A customer who deletes their data expects it gone. Removing the import
+    // row cascades the canonical rows, but the original export lives in
+    // storage -- and leaving it there means the data is still held,
+    // indefinitely and invisibly, after the customer removed it.
+    const { supabaseIngestionStore } = await import('@/lib/ingestion/store/supabase-store');
+    const removed = await supabaseIngestionStore.deleteImport('org-1', 'imp-1');
+
+    expect(removed).toBe(true);
+    expect(state.removedPaths).toEqual(['org-1/imp-1']);
+  });
+
+  it('does not touch storage when nothing was deleted', async () => {
+    // A wrong id, or another tenant's id, must not reach into storage at all.
+    state.updateReturns = [];
+    const { supabaseIngestionStore } = await import('@/lib/ingestion/store/supabase-store');
+    const removed = await supabaseIngestionStore.deleteImport('org-1', 'imp-1');
+
+    expect(removed).toBe(false);
+    expect(state.removedPaths).toEqual([]);
   });
 });
