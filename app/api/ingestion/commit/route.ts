@@ -14,6 +14,7 @@ import { DuplicateImportError } from '@/lib/ingestion/store/types';
 import { fingerprintImport } from '@/lib/ingestion/fingerprint';
 import { stopwatch } from '@/lib/perf/stopwatch';
 import { envOptional } from '@/config/env';
+import { originOf } from '@/lib/http/origin';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -237,7 +238,7 @@ export async function POST(request: Request) {
   // Waking a worker now just means the customer does not wait for that minute;
   // if this fails, or the invocation dies before it lands, the tick still picks
   // the job up. Nothing here is load-bearing.
-  const site = envOptional('NEXT_PUBLIC_SITE_URL');
+  const site = originOf(request);
   const schedulerSecret = envOptional('CRON_SECRET');
   if (site !== null && schedulerSecret !== null) {
     after(async () => {

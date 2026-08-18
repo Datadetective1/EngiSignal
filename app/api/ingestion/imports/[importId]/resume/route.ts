@@ -19,11 +19,12 @@ import { resolveIngestionContext } from '@/lib/ingestion/session';
 import { getIngestionStore } from '@/lib/ingestion/store';
 import { decodeRouteId } from '@/lib/routes';
 import { envOptional } from '@/config/env';
+import { originOf } from '@/lib/http/origin';
 
 export const runtime = 'nodejs';
 
 export async function POST(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ importId: string }> },
 ): Promise<NextResponse> {
   const auth = await resolveIngestionContext();
@@ -44,7 +45,7 @@ export async function POST(
 
   // The scheduler would find it within a minute anyway; this only removes the
   // wait. Failure here costs one tick and nothing else.
-  const site = envOptional('NEXT_PUBLIC_SITE_URL');
+  const site = originOf(request);
   const secret = envOptional('CRON_SECRET');
   if (site !== null && secret !== null) {
     after(async () => {

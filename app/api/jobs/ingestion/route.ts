@@ -30,6 +30,7 @@ import { runIngestionJob } from '@/lib/ingestion/job/runner';
 import type { ClaimedJob } from '@/lib/ingestion/job/runner';
 import { ingestFile } from '@/lib/ingestion';
 import { envOptional } from '@/config/env';
+import { originOf } from '@/lib/http/origin';
 import { stopwatch } from '@/lib/perf/stopwatch';
 
 // Comfortably above the runner's 40s budget, so it yields on its own terms
@@ -126,7 +127,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     // job or advances a checkpoint, and `idle` ends the chain. Chaining on
     // `failed` or `superseded` would spin on a job that is not moving.
     if (outcome.status === 'yielded' || outcome.status === 'complete') {
-      const site = envOptional('NEXT_PUBLIC_SITE_URL');
+      const site = originOf(request);
       const secret = envOptional('CRON_SECRET');
       if (site !== null && secret !== null) {
         after(async () => {
@@ -161,13 +162,13 @@ export async function POST(request: Request): Promise<NextResponse> {
  * anything running at all. It names no tenant, no file and no row, and reports
  * only whether configuration is present -- never any part of its value.
  */
-export async function GET(): Promise<NextResponse> {
+export async function GET(request: Request): Promise<NextResponse> {
   return NextResponse.json({
     worker: workerConfigured() ? 'configured' : 'not-configured',
     schedulerSecret: envOptional('CRON_SECRET') !== null ? 'configured' : 'not-configured',
     // The origin a finishing worker calls to wake its successor. Absent, every
     // job waits for the next scheduled tick instead of chaining -- which looks
     // like slowness rather than misconfiguration, so it is reported.
-    wakeOrigin: envOptional('NEXT_PUBLIC_SITE_URL') ?? 'not-configured',
+    wakeOrigin: originOf(request),
   });
 }
