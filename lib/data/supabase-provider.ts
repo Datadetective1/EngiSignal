@@ -12,7 +12,8 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { userClient, withDetachedClient } from '@/lib/supabase/server';
+import { after } from 'next/server';
+import { detachedUserClient, userClient, withDetachedClient } from '@/lib/supabase/server';
 import { buildDatasetFromCanonical } from '@/lib/ingestion/dataset';
 import { confirmedAliasMaps } from '@/lib/ingestion/confirmations';
 import { resolveUsers, type UserIdentity } from '@/lib/ingestion/identity';
@@ -490,7 +491,7 @@ async function loadDataset(orgId: string): Promise<LoadedDataset> {
     ...over,
   });
 
-  if (needsBuild) pendingBuilds.set(orgId, evidenceKey);
+  if (needsBuild) await scheduleBuild(orgId, evidenceKey);
 
   // The happy path: a payload that describes exactly what is stored.
   if (reason === null && stored?.payload != null) {
@@ -534,19 +535,37 @@ async function loadDataset(orgId: string): Promise<LoadedDataset> {
 }
 
 /**
- * Builds this request decided are needed, drained by the caller after the
- * response is sent.
+ * ── SCHEDULING THE BUILD WHERE THE NEED IS DISCOVERED ──────────────────────
  *
- * A module-level map rather than a return value because `loadDataset` is
- * reached through a cached workspace that many components share, and the build
- * must be started once per request, not once per component that happens to read
- * the workspace.
+ * The first version handed the decision back to `loadWorkspace`, which drained
+ * it and scheduled the work. That silently excluded every caller that is not a
+ * page: the diagnostics endpoint, and the exports, could see that a build was
+ * needed and never start one.
+ *
+ * Production showed the consequence. A tenant sat at `superseded` for five
+ * minutes with no build running and none scheduled — correct figures for an
+ * old evidence version, honestly labelled, and no route back to a current one
+ * except a page load that nobody was making.
+ *
+ * So it is scheduled here instead, once per request, by whoever reads.
+ *
+ * The client is captured NOW, while the request is alive; after the response
+ * there is no cookie store to read a session from. `after()` outside a request
+ * scope throws, which is caught: a background build is a nice-to-have on any
+ * path that has no response to outlive.
  */
-const pendingBuilds = new Map<string, string>();
-
-/** Take and clear whatever build this request decided was needed. */
-export function takePendingBuild(orgId: string): string | null {
-  const key = pendingBuilds.get(orgId) ?? null;
-  pendingBuilds.delete(orgId);
-  return key;
+async function scheduleBuild(orgId: string, evidenceKey: string): Promise<void> {
+  try {
+    const detached = await detachedUserClient();
+    if (detached === null) return;
+    after(async () => {
+      try {
+        await startProjectionBuild(orgId, evidenceKey, detached);
+      } catch {
+        // The runner records its own failures against the tenant.
+      }
+    });
+  } catch {
+    // No request scope to attach to. The next read will try again.
+  }
 }

@@ -10,7 +10,6 @@
 
 import 'server-only';
 import { cache } from 'react';
-import { after } from 'next/server';
 import { notFound } from 'next/navigation';
 import { computePortfolioTotals, unusedCapacitySpend } from '@/lib/analytics/financial';
 import {
@@ -29,8 +28,6 @@ import { requireSession, type AppSession } from '@/lib/auth';
 import { ensureOrganization } from '@/app/signin/actions';
 import { getDataProvider } from '@/lib/data';
 import { buildDatasetFromCanonical } from '@/lib/ingestion/dataset';
-import { startProjectionBuild, takePendingBuild } from '@/lib/data/supabase-provider';
-import { detachedUserClient } from '@/lib/supabase/server';
 import { DEFAULT_ANALYSIS_OPTIONS, type AnalysisOptions, type AnalyticsDataset } from '@/lib/domain/dataset';
 import type {
   ConfidenceResult,
@@ -124,38 +121,6 @@ export const loadWorkspace = cache(async (): Promise<Workspace> => {
     await provider.getDatasetWithProjection(organization.id);
   const options = DEFAULT_ANALYSIS_OPTIONS;
 
-  // ── A BUILD THIS REQUEST DECIDED WAS NEEDED ────────────────────────────────
-  //
-  // Started AFTER the response, so nobody waits inside an HTTP request for a
-  // computation that takes 22 seconds at 282k rows and grows from there. It
-  // runs with this caller's own session, so Row Level Security applies to it
-  // exactly as to everything else — no service-role key, no standing
-  // capability to read every tenant.
-  const pending = takePendingBuild(organization.id);
-  if (pending !== null) {
-    // Captured HERE, while the request is still alive. After the response the
-    // cookie store is gone, and a client built then would have no session at
-    // all — which is exactly how the first version of this silently never ran.
-    const detached = await detachedUserClient();
-    if (detached !== null) {
-      after(async () => {
-        try {
-          await startProjectionBuild(organization.id, pending, detached);
-        } catch {
-          // The runner records its own failures against the tenant.
-        }
-      });
-    }
-  }
-
-  // Three counts that must agree: what the import receipts promised, what the
-  // database holds, and what this request actually read. Unchanged by the
-  // projection: `analyzed` is still what the analytics consumed, and it is
-  // still compared against a count the database performed, so a projection
-  // built from a truncated read is caught by exactly the same gate.
-  // The counts come back from the same fetch that decided whether the
-  // projection could be used, rather than from a second round trip asking the
-  // database the questions it was just asked.
   // No analysis yet is not an analysis of nothing. An empty dataset stands in
   // so rendering code stays simple; the gate below is what stops it being
   // mistaken for a finished answer.
