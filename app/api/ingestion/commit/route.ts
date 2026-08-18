@@ -11,6 +11,7 @@ import {
 import { resolveIngestionContext } from '@/lib/ingestion/session';
 import { getIngestionStore } from '@/lib/ingestion/store';
 import { startProjectionBuild } from '@/lib/data/supabase-provider';
+import { detachedUserClient } from '@/lib/supabase/server';
 import { DuplicateImportError } from '@/lib/ingestion/store/types';
 import { fingerprintImport } from '@/lib/ingestion/fingerprint';
 
@@ -215,13 +216,19 @@ export async function POST(request: Request) {
   // Best-effort by design: if the platform cuts the invocation short, the build
   // records nothing, the claim's lease expires, and the next read takes it
   // over. Nothing waits for a human to notice.
-  after(async () => {
-    try {
-      await startProjectionBuild(auth.context.organizationId);
-    } catch {
-      // The runner records its own failures against the tenant.
-    }
-  });
+  // Captured while the request is still alive: after the response there is no
+  // cookie store to read a session from, and a client built then would have no
+  // permissions at all.
+  const detached = await detachedUserClient();
+  if (detached !== null) {
+    after(async () => {
+      try {
+        await startProjectionBuild(auth.context.organizationId, undefined, detached);
+      } catch {
+        // The runner records its own failures against the tenant.
+      }
+    });
+  }
 
   return NextResponse.json({
     import: summary,

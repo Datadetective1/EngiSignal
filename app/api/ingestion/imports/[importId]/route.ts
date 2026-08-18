@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { resolveIngestionContext } from '@/lib/ingestion/session';
 import { getIngestionStore } from '@/lib/ingestion/store';
 import { startProjectionBuild } from '@/lib/data/supabase-provider';
+import { detachedUserClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
@@ -69,13 +70,19 @@ export async function DELETE(
   // analysis that rested on them is rebuilt after the response, exactly as it
   // is after an import — the read path would notice the evidence key had moved
   // anyway, so this only decides who waits, not whether it happens.
-  after(async () => {
-    try {
-      await startProjectionBuild(auth.context.organizationId);
-    } catch {
-      // The runner records its own failures against the tenant.
-    }
-  });
+  // Captured while the request is still alive: after the response there is no
+  // cookie store to read a session from, and a client built then would have no
+  // permissions at all.
+  const detached = await detachedUserClient();
+  if (detached !== null) {
+    after(async () => {
+      try {
+        await startProjectionBuild(auth.context.organizationId, undefined, detached);
+      } catch {
+        // The runner records its own failures against the tenant.
+      }
+    });
+  }
 
   return NextResponse.json({ deleted: true, importId: parsed.data.importId });
 }

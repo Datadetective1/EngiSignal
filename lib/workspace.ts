@@ -30,6 +30,7 @@ import { ensureOrganization } from '@/app/signin/actions';
 import { getDataProvider } from '@/lib/data';
 import { buildDatasetFromCanonical } from '@/lib/ingestion/dataset';
 import { startProjectionBuild, takePendingBuild } from '@/lib/data/supabase-provider';
+import { detachedUserClient } from '@/lib/supabase/server';
 import { DEFAULT_ANALYSIS_OPTIONS, type AnalysisOptions, type AnalyticsDataset } from '@/lib/domain/dataset';
 import type {
   ConfidenceResult,
@@ -132,14 +133,19 @@ export const loadWorkspace = cache(async (): Promise<Workspace> => {
   // capability to read every tenant.
   const pending = takePendingBuild(organization.id);
   if (pending !== null) {
-    after(async () => {
-      try {
-        await startProjectionBuild(organization.id, pending);
-      } catch {
-        // The build records its own failure. An exception escaping here would
-        // only surface after the response has already been sent.
-      }
-    });
+    // Captured HERE, while the request is still alive. After the response the
+    // cookie store is gone, and a client built then would have no session at
+    // all — which is exactly how the first version of this silently never ran.
+    const detached = await detachedUserClient();
+    if (detached !== null) {
+      after(async () => {
+        try {
+          await startProjectionBuild(organization.id, pending, detached);
+        } catch {
+          // The runner records its own failures against the tenant.
+        }
+      });
+    }
   }
 
   // Three counts that must agree: what the import receipts promised, what the

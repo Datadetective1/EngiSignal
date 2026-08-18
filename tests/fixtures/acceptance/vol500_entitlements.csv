@@ -1,0 +1,13 @@
+feature,vendor,quantity,license_type,license_server,expiry
+ANSYS_MECH_ENT,Ansys,350,concurrent,flex-01,2026-11-15
+ANSYS_CFD,Ansys,120,concurrent,flex-01,2026-11-15
+CATIA_V5,Dassault Systemes,200,concurrent,flex-01,
+NX_DESIGN,Siemens,180,concurrent,flex-01,2027-03-31
+ABAQUS_STD,Dassault Systemes,60,concurrent,flex-01,2026-10-02
+HYPERMESH,Altair,45,concurrent,flex-01,2027-01-20
+LS_DYNA,Ansys,70,concurrent,flex-01,2027-02-14
+STAR_CCM,Siemens,75,concurrent,flex-01,2026-12-05
+MATLAB,MathWorks,120,named user,flex-01,2027-01-31
+SIMULINK,MathWorks,80,named user,flex-01,2027-01-31
+NX_CAM,Siemens,40,named user,flex-01,
+VERICUT,CGTech,25,named user,flex-01,2027-05-18

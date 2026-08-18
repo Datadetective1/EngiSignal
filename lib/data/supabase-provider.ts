@@ -12,7 +12,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { userClient } from '@/lib/supabase/server';
+import { userClient, withDetachedClient } from '@/lib/supabase/server';
 import { buildDatasetFromCanonical } from '@/lib/ingestion/dataset';
 import { confirmedAliasMaps } from '@/lib/ingestion/confirmations';
 import { resolveUsers, type UserIdentity } from '@/lib/ingestion/identity';
@@ -373,22 +373,33 @@ function acceptedFrom(imports: readonly ImportSummary[]): StoredRowCounts {
  * gets its page; the estate gets analysed; nobody watches a spinner inside an
  * HTTP request that might time out.
  */
-export async function startProjectionBuild(orgId: string, evidenceKey?: string): Promise<void> {
-  const organization = await supabaseProvider.getOrganization(orgId);
-  if (organization === null) return;
+export async function startProjectionBuild(
+  orgId: string,
+  evidenceKey?: string,
+  client?: SupabaseClient,
+): Promise<void> {
+  // Bound for the whole build, so every store call underneath uses the session
+  // captured while the request was still alive rather than a cookie store that
+  // has since gone away.
+  const run = async () => {
+    const organization = await supabaseProvider.getOrganization(orgId);
+    if (organization === null) return;
 
-  // The import path does not know the key — it just finished changing the very
-  // evidence the key describes — so it is computed here from what is now stored.
-  const key = evidenceKey ?? (await currentEvidenceKey(orgId));
-  const client = await db();
+    // The import path does not know the key — it has just finished changing the
+    // very evidence the key describes — so it is computed from what is stored.
+    const key = evidenceKey ?? (await currentEvidenceKey(orgId));
 
-  await runProjectionBuild({
-    client: client as unknown as BuildClient,
-    organizationId: orgId,
-    evidenceKey: key,
-    build: () => buildFromCanonical(orgId, organization),
-    countStoredRows: () => supabaseIngestionStore.countStoredRows(orgId),
-  });
+    await runProjectionBuild({
+      client: (await db()) as unknown as BuildClient,
+      organizationId: orgId,
+      evidenceKey: key,
+      build: () => buildFromCanonical(orgId, organization),
+      countStoredRows: () => supabaseIngestionStore.countStoredRows(orgId),
+    });
+  };
+
+  if (client === undefined) return run();
+  return withDetachedClient(client, run);
 }
 
 /** The fingerprint of the evidence that exists right now. */
