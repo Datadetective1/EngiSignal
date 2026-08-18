@@ -58,11 +58,41 @@ async function db(): Promise<SupabaseClient> {
 }
 /** Chunked so a large import does not exceed request limits. */
 const INSERT_CHUNK = 500;
-async function insertChunked(table: string, rows: Record<string, unknown>[]): Promise<void> {
+
+/**
+ * Every chunk is one PostgREST round trip, awaited before the next begins. That
+ * shape is what makes a large import slow, and the cost divides into two parts
+ * that need opposite fixes: time proportional to rows is database work, while
+ * time proportional to CHUNKS is network and request overhead. Reporting both
+ * counts is what lets the two be told apart from the outside.
+ */
+async function insertChunked(
+  table: string,
+  rows: Record<string, unknown>[],
+  onPhase?: CommitInput['onPhase'],
+): Promise<void> {
+  const from = performance.now();
+  let chunks = 0;
   for (let index = 0; index < rows.length; index += INSERT_CHUNK) {
     const chunk = rows.slice(index, index + INSERT_CHUNK);
     const { error } = await (await db()).from(table).insert(chunk);
     if (error !== null) throw new Error(`${table}: ${error.message}`);
+    chunks += 1;
+  }
+  onPhase?.(`insert:${table}`, performance.now() - from, { rows: rows.length, chunks });
+}
+
+/** Times a single round trip so the fixed costs are visible next to the bulk ones. */
+async function timed<T>(
+  name: string,
+  onPhase: CommitInput['onPhase'],
+  work: () => Promise<T>,
+): Promise<T> {
+  const from = performance.now();
+  try {
+    return await work();
+  } finally {
+    onPhase?.(name, performance.now() - from);
   }
 }
 export const supabaseIngestionStore: IngestionStore = {
@@ -81,6 +111,7 @@ export const supabaseIngestionStore: IngestionStore = {
       sourceSheets,
       mappingUsed,
       contentFingerprint,
+      onPhase,
     } = input;
     // Every family, including contracts — which carry the money, and were
     // missed when the commercial dataset was added.
@@ -100,20 +131,23 @@ export const supabaseIngestionStore: IngestionStore = {
     // then rolled back. Correct, but wasteful and it surfaced a raw database
     // message to the caller instead of a clean duplicate response.
     if (contentFingerprint !== undefined) {
-      const { data: prior } = await (await db())
-        .from('imports')
-        .select('id')
-        .eq('organization_id', organizationId)
-        .eq('content_fingerprint', contentFingerprint)
-        .eq('status', 'complete')
-        .maybeSingle();
+      const { data: prior } = await timed('duplicateCheck', onPhase, async () =>
+        (await db())
+          .from('imports')
+          .select('id')
+          .eq('organization_id', organizationId)
+          .eq('content_fingerprint', contentFingerprint)
+          .eq('status', 'complete')
+          .maybeSingle(),
+      );
       if (prior !== null) {
         throw new DuplicateImportError((prior.id as string | undefined) ?? null);
       }
     }
 
     const uploadedAt = new Date().toISOString();
-    const { error: importError } = await (await db()).from('imports').insert({
+    const { error: importError } = await timed('insert:imports', onPhase, async () =>
+      (await db()).from('imports').insert({
       id: importId,
       organization_id: organizationId,
       // The legacy template enum still constrains this column; canonical
@@ -146,7 +180,8 @@ export const supabaseIngestionStore: IngestionStore = {
       contract_records: result.contracts.length,
       uploaded_at: uploadedAt,
       content_fingerprint: contentFingerprint ?? null,
-    });
+      }),
+    );
 
     if (importError !== null) {
       // A unique violation on the fingerprint index means this exact content,
@@ -195,6 +230,7 @@ export const supabaseIngestionStore: IngestionStore = {
           source_sheet: record.provenance.sourceSheet,
           source_row: record.provenance.sourceRow,
         })),
+        onPhase,
       );
       await insertChunked(
         'ingestion_entitlements',
@@ -214,6 +250,7 @@ export const supabaseIngestionStore: IngestionStore = {
           source_sheet: record.provenance.sourceSheet,
           source_row: record.provenance.sourceRow,
         })),
+        onPhase,
       );
       await insertChunked(
         'ingestion_people',
@@ -242,6 +279,7 @@ export const supabaseIngestionStore: IngestionStore = {
           source_sheet: record.provenance.sourceSheet,
           source_row: record.provenance.sourceRow,
         })),
+        onPhase,
       );
       await insertChunked(
         'ingestion_contracts',
@@ -278,6 +316,7 @@ export const supabaseIngestionStore: IngestionStore = {
           source_sheet: record.provenance.sourceSheet,
           source_row: record.provenance.sourceRow,
         })),
+        onPhase,
       );
       // Rejections are audit records, never analytical ones.
       await insertChunked(
@@ -292,6 +331,7 @@ export const supabaseIngestionStore: IngestionStore = {
           value: rejection.value,
           message: rejection.message,
         })),
+        onPhase,
       );
     } catch (error) {
       // Cascade removes every row this import wrote.
@@ -299,11 +339,13 @@ export const supabaseIngestionStore: IngestionStore = {
       throw error instanceof Error ? error : new Error('The import could not be stored.');
     }
     const importedAt = new Date().toISOString();
-    const { error: finalizeError } = await (await db())
-      .from('imports')
-      .update({ status: 'complete', imported_at: importedAt })
-      .eq('id', importId)
-      .eq('organization_id', organizationId);
+    const { error: finalizeError } = await timed('finalize', onPhase, async () =>
+      (await db())
+        .from('imports')
+        .update({ status: 'complete', imported_at: importedAt })
+        .eq('id', importId)
+        .eq('organization_id', organizationId),
+    );
     if (finalizeError !== null) {
       await (await db()).from('imports').delete().eq('id', importId).eq('organization_id', organizationId);
       // Two commits of the same content racing: the loser lands here. It is a

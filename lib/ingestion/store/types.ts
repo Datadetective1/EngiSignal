@@ -139,6 +139,12 @@ export interface CommitInput {
   detectionFellBack: boolean;
   /** SHA-256 over content + dataset + mapping. Enables duplicate detection. */
   contentFingerprint?: string;
+  /**
+   * Reports how long each stage of persistence took. Optional so the memory
+   * store and every existing caller are unaffected; supplied in production so
+   * the cost of an import is a measurement rather than an estimate.
+   */
+  onPhase?: (name: string, ms: number, detail?: Record<string, number>) => void;
 }
 
 export interface IngestionStore {

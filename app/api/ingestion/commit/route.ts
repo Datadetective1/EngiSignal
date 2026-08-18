@@ -14,6 +14,7 @@ import { startProjectionBuild } from '@/lib/data/supabase-provider';
 import { detachedUserClient } from '@/lib/supabase/server';
 import { DuplicateImportError } from '@/lib/ingestion/store/types';
 import { fingerprintImport } from '@/lib/ingestion/fingerprint';
+import { stopwatch } from '@/lib/perf/stopwatch';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -97,12 +98,20 @@ export async function POST(request: Request) {
   }
 
   const importId = crypto.randomUUID();
+  // ── WHERE THE TIME ACTUALLY GOES ──────────────────────────────────────────
+  //
+  // A large import is slow, and until now "slow" was a single number covering
+  // reading, parsing, fingerprinting and four tables' worth of round trips.
+  // Those are fixed by different changes, so they are measured separately.
+  const watch = stopwatch();
   // Read once: the bytes are needed for both parsing and fingerprinting.
-  const fileBytes = await file.arrayBuffer();
+  const fileBytes = await watch.phase('read', () => file.arrayBuffer(), () => ({
+    bytes: file.size,
+  }));
 
   let analysis;
   try {
-    analysis = await ingestFile(fileBytes, {
+    analysis = await watch.phase('parse', () => ingestFile(fileBytes, {
       dataset: body.data.dataset,
       organizationId: auth.context.organizationId,
       importId,
@@ -111,7 +120,7 @@ export async function POST(request: Request) {
       mappingOverrides: body.data.mappingOverrides,
       sheetName: body.data.sheetName,
       dayFirst: body.data.dayFirst,
-    });
+    }));
   } catch (error) {
     if (error instanceof EmptyFileError || error instanceof UnsupportedFileError) {
       return NextResponse.json({ error: error.message }, { status: 422 });
@@ -159,11 +168,15 @@ export async function POST(request: Request) {
   // Identical content, dataset and mapping must not be committed twice: two
   // commits of one file double every observation, raising P95 and the
   // recommended quantity silently.
-  const contentFingerprint = await fingerprintImport(fileBytes, body.data.dataset, mappingUsed);
+  const contentFingerprint = await watch.phase('fingerprint', () =>
+    fingerprintImport(fileBytes, body.data.dataset, mappingUsed),
+  );
 
   let summary;
   try {
-    summary = await getIngestionStore().commitImport({
+    summary = await watch.phase('persist', () =>
+      getIngestionStore().commitImport({
+      onPhase: (name, ms, detail) => watch.record(name, ms, detail),
       contentFingerprint,
       organizationId: auth.context.organizationId,
       importId,
@@ -176,7 +189,8 @@ export async function POST(request: Request) {
       sourceSheets: analysis.sheetNames,
       mappingUsed,
       result: analysis.result,
-    });
+      }),
+    );
   } catch (error) {
     if (error instanceof DuplicateImportError) {
       return NextResponse.json(
@@ -230,16 +244,23 @@ export async function POST(request: Request) {
     });
   }
 
-  return NextResponse.json({
-    import: summary,
-    detection: {
-      source: analysis.detection.source,
-      name: analysis.detection.name,
-      confidence: analysis.detection.confidence,
-      evidence: analysis.detection.evidence,
-      fellBack: analysis.detection.fellBack,
+  return NextResponse.json(
+    {
+      import: summary,
+      detection: {
+        source: analysis.detection.source,
+        name: analysis.detection.name,
+        confidence: analysis.detection.confidence,
+        evidence: analysis.detection.evidence,
+        fellBack: analysis.detection.fellBack,
+      },
+      quality: analysis.result.quality,
+      warnings: analysis.result.warnings,
+      // Reported rather than logged: the cost of an import is the customer's
+      // information too, and a support question about a slow upload is
+      // answerable from the response the customer already received.
+      timings: { totalMs: watch.totalMs(), phases: watch.phases() },
     },
-    quality: analysis.result.quality,
-    warnings: analysis.result.warnings,
-  });
+    { headers: { 'Server-Timing': watch.serverTiming() } },
+  );
 }
