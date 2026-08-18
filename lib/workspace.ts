@@ -172,11 +172,24 @@ export const loadWorkspace = cache(async (): Promise<Workspace> => {
   const integrity = checkIntegrity({
     accepted: acceptedRows,
     stored: storedRows,
-    // Reporting an empty analysis as "0 of 67,267 analysed" would fire the
-    // integrity alarm on a healthy tenant whose build is simply still running.
-    // The state of the build is reported by `analysis`, not by pretending the
-    // counts disagree.
-    analyzed: dataset?.analyzedRows ?? storedRows,
+    // ── WHY THIS IS NOT ALWAYS dataset.analyzedRows ────────────────────────
+    //
+    // The integrity gate asks one question: did the analysis read every row
+    // that is stored? That question only means anything when the analysis is
+    // OF the rows that are stored.
+    //
+    // While a build is running, the readable analysis describes an EARLIER
+    // evidence version, so comparing its row count against today's is
+    // comparing two different estates. Production showed exactly what that
+    // looks like: a tenant mid-build was told "317,936 of 317,936 stored usage
+    // rows were not read into this analysis" — the truncation alarm, raised on
+    // a perfectly healthy import that was simply still being analysed. That is
+    // the alarm this product cannot afford to cry wolf on.
+    //
+    // So the comparison is made only when the analysis is current. When it is
+    // not, the honest report is "the analysis is not finished", which is what
+    // `analysis` below carries and what every surface gates on.
+    analyzed: projection.analyticsCurrent && dataset !== null ? dataset.analyzedRows : storedRows,
     analysis:
       projection.source === 'current'
         ? 'current'
