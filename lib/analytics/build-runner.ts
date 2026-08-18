@@ -44,6 +44,9 @@ import type { StoredRowCounts } from './integrity';
  * nothing.
  */
 
+/** Records how long a named stage of the build took. */
+export type PhaseRecorder = (name: string, ms: number, detail?: Record<string, number>) => void;
+
 /** The narrow slice of the Supabase client this needs. */
 export interface BuildClient {
   rpc(name: string, params: Record<string, unknown>): PromiseLike<{ data: unknown; error: { message: string } | null }>;
@@ -53,8 +56,14 @@ export interface BuildDeps {
   client: BuildClient;
   organizationId: string;
   evidenceKey: string;
-  /** Builds the payload from canonical rows. The slow part. */
-  build: () => Promise<ProjectionPayload>;
+  /**
+   * Builds the payload from canonical rows. The slow part.
+   *
+   * Given a recorder so it can report where its own time went. A build that
+   * reports only a total cannot be optimised without guessing, and guessing
+   * about where time goes has been wrong every time it has been tried here.
+   */
+  build: (onPhase: PhaseRecorder) => Promise<ProjectionPayload>;
   /** Exact counts, re-read after the build to prove nothing moved underneath it. */
   countStoredRows: () => Promise<StoredRowCounts>;
   /** Injectable for tests. */
@@ -111,14 +120,25 @@ export async function runProjectionBuild(deps: BuildDeps): Promise<BuildOutcome>
   );
 
   const startedAt = now();
+  const phases: Record<string, { ms: number; detail?: Record<string, number> }> = {};
+  const record: PhaseRecorder = (name, ms, detail) => {
+    phases[name] = { ms: Math.round(ms), detail };
+  };
+
   try {
-    const payload = await deps.build();
+    const payload = await deps.build(record);
 
     // Re-read the counts AFTER building. If the estate moved while we worked,
     // this is what catches it: the analysis describes rows that are no longer
     // what is stored, and it must not be published as current.
+    const countFrom = now();
     const storedRows = await deps.countStoredRows();
+    record('countStoredRows', now() - countFrom);
+
+    const serializeFrom = now();
     const serialized = serializeDataset(payload);
+    record('serialize', now() - serializeFrom, { bytes: serialized.bytes });
+
     const buildMs = now() - startedAt;
 
     const published = await client.rpc('publish_projection_build', {
@@ -131,6 +151,7 @@ export async function runProjectionBuild(deps: BuildDeps): Promise<BuildOutcome>
       new_stored_rows: storedRows,
       new_analyzed_rows: payload.dataset.analyzedRows,
       build_ms: buildMs,
+      new_build_phases: phases,
     });
 
     if (published.error !== null) {

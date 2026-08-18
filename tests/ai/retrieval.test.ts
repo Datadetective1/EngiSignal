@@ -51,6 +51,7 @@ const workspace = {
     version: 1,
     computedAt: null,
     buildMs: null,
+    buildPhases: null,
     payloadBytes: null,
     evidenceKey: 'test',
     currentEvidenceKey: 'test',

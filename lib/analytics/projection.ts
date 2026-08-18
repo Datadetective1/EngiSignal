@@ -84,6 +84,8 @@ export interface ProjectionRecord {
   evidenceKey: string | null;
   computedAt: string | null;
   buildMs: number | null;
+  /** Per-stage timings of the last build. Null for builds that predate them. */
+  buildPhases: Record<string, { ms: number; detail?: Record<string, number> }> | null;
   storedRows: StoredRowCounts | null;
   analyzedRows: AnalyzedRowCounts | null;
   /** Null while a first build is still in flight. */
@@ -152,6 +154,7 @@ export interface ProjectionStatus {
   /** When the readable payload was computed. Null when there is none. */
   computedAt: string | null;
   buildMs: number | null;
+  buildPhases: Record<string, { ms: number; detail?: Record<string, number> }> | null;
   payloadBytes: number | null;
 
   /** The evidence the readable payload describes. Null when there is none. */

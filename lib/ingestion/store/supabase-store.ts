@@ -636,6 +636,10 @@ export const supabaseIngestionStore: IngestionStore = {
       evidenceKey: data.evidence_key === null ? null : String(data.evidence_key),
       computedAt: data.computed_at === null ? null : String(data.computed_at),
       buildMs: data.build_ms === null ? null : Number(data.build_ms),
+      buildPhases:
+        data.build_phases !== null && typeof data.build_phases === 'object'
+          ? (data.build_phases as ProjectionRecord['buildPhases'])
+          : null,
       storedRows: data.stored_rows as ProjectionRecord['storedRows'],
       analyzedRows: data.analyzed_rows as ProjectionRecord['analyzedRows'],
       // Null while a first build is still in flight. Never coerced to '': an

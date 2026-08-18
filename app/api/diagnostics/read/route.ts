@@ -87,6 +87,7 @@ export async function GET() {
         stale: projection.stale,
         computedAt: projection.computedAt,
         buildMs: projection.buildMs,
+        buildPhases: projection.buildPhases,
         payloadBytes: projection.payloadBytes,
         evidenceKey: projection.evidenceKey === null ? null : shortEvidenceKey(projection.evidenceKey),
         currentEvidenceKey: shortEvidenceKey(projection.currentEvidenceKey),

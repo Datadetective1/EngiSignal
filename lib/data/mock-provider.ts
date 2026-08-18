@@ -89,6 +89,7 @@ export const mockProvider: DataProvider = {
         version: PROJECTION_VERSION,
         computedAt: null,
         buildMs: null,
+        buildPhases: null,
         payloadBytes: null,
         evidenceKey: 'local',
         currentEvidenceKey: 'local',

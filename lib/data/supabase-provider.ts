@@ -37,7 +37,11 @@ import {
   evidenceKeyFor,
   projectionUsable,
 } from '@/lib/analytics/projection';
-import { runProjectionBuild, type BuildClient } from '@/lib/analytics/build-runner';
+import {
+  runProjectionBuild,
+  type BuildClient,
+  type PhaseRecorder,
+} from '@/lib/analytics/build-runner';
 import type { StoredRowCounts } from '@/lib/analytics/integrity';
 import type { DataProvider, ReclaimOverride } from './provider';
 
@@ -281,18 +285,31 @@ export const supabaseProvider: DataProvider = {
 async function buildFromCanonical(
   orgId: string,
   organization: Organization,
+  onPhase: PhaseRecorder = () => {},
 ): Promise<ProjectionPayload> {
+  /** Times one stage and reports how much it moved. */
+  const timed = async <T>(name: string, work: () => Promise<T>, size?: (v: T) => number) => {
+    const from = performance.now();
+    const value = await work();
+    onPhase(name, performance.now() - from, size ? { rows: size(value) } : undefined);
+    return value;
+  };
+
+  // Timed individually rather than as one figure: these run concurrently, so a
+  // total would only show the slowest, and which one is slowest is the entire
+  // question.
   const [usage, entitlements, people, contracts, imports, aliases] = await Promise.all([
-    supabaseIngestionStore.listUsage(orgId),
-    supabaseIngestionStore.listEntitlements(orgId),
-    supabaseIngestionStore.listPeople(orgId),
-    supabaseIngestionStore.listContracts(orgId),
-    supabaseIngestionStore.listImports(orgId),
+    timed('read:usage', () => supabaseIngestionStore.listUsage(orgId), (r) => r.length),
+    timed('read:entitlements', () => supabaseIngestionStore.listEntitlements(orgId), (r) => r.length),
+    timed('read:people', () => supabaseIngestionStore.listPeople(orgId), (r) => r.length),
+    timed('read:contracts', () => supabaseIngestionStore.listContracts(orgId), (r) => r.length),
+    timed('read:imports', () => supabaseIngestionStore.listImports(orgId), (r) => r.length),
     // Customer-confirmed merges. The only thing that combines two strings the
     // matching rules would refuse to combine, and scoped to this tenant.
-    confirmedAliasMaps(orgId),
+    timed('read:aliases', () => confirmedAliasMaps(orgId)),
   ]);
 
+  const computeFrom = performance.now();
   const dataset = buildDatasetFromCanonical({
     organization,
     usage,
@@ -327,12 +344,14 @@ async function buildFromCanonical(
     })),
   };
 
-  return {
+  const payload = {
     dataset: withImports,
     coverage: summarizeCoverage(usage, entitlements, people, contracts),
     // Deliberately un-aliased; see ProjectionPayload.
     userIdentities: resolveUsers(usage, people),
   };
+  onPhase('compute', performance.now() - computeFrom, { usageRows: usage.length });
+  return payload;
 }
 
 export interface LoadedDataset {
@@ -395,7 +414,7 @@ export async function startProjectionBuild(
       client: (await db()) as unknown as BuildClient,
       organizationId: orgId,
       evidenceKey: key,
-      build: () => buildFromCanonical(orgId, organization),
+      build: (onPhase) => buildFromCanonical(orgId, organization, onPhase),
       countStoredRows: () => supabaseIngestionStore.countStoredRows(orgId),
     });
   };
@@ -473,6 +492,7 @@ async function loadDataset(orgId: string): Promise<LoadedDataset> {
     version: stored?.version ?? PROJECTION_VERSION,
     computedAt: stored?.computedAt ?? null,
     buildMs: stored?.buildMs ?? null,
+    buildPhases: stored?.buildPhases ?? null,
     payloadBytes: stored?.payloadBytes ?? null,
     evidenceKey: stored?.evidenceKey ?? null,
     currentEvidenceKey: evidenceKey,
