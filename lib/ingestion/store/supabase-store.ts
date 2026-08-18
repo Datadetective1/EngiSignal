@@ -59,12 +59,27 @@ async function db(): Promise<SupabaseClient> {
 /**
  * Rows per insert request.
  *
- * With the rows travelling as one jsonb parameter the statement is the same
- * size whatever the batch, so the superlinear parse cost that punished large
- * chunks through PostgREST is gone and fewer, larger requests are now simply
- * better. Overridable so the value stays a measurement rather than a belief.
+ * Three configurations measured through the deployed product at 68,008 rows:
+ *
+ *   PostgREST insert, 500 rows    15,875 ms   <- best
+ *   PostgREST insert, 5,000 rows  39,028 ms
+ *   set-based RPC,   5,000 rows   21,088 ms
+ *
+ * And the same work timed inside Postgres, with RLS in force: 49 ms for 500
+ * rows, 303 ms for 5,000, 4,173 ms for 50,000 -- linear at about 83 us per row.
+ * The database needs roughly 5.5 seconds for this import; production spent 21.
+ *
+ * So the missing fifteen seconds are not the database and not the planner.
+ * They are the cost of serialising and shipping about 13 MB of JSON from the
+ * function region to the database region, which is proportional to the total
+ * payload and therefore almost unchanged by how it is divided up. That is why
+ * both attempts to tune this number failed, one of them in production.
+ *
+ * 500 is kept because it is the best of the three measured points, not because
+ * it is optimal. The ceiling this sits under is removed by moving persistence
+ * off the request, not by choosing a better constant.
  */
-const INSERT_CHUNK = Number(process.env.ENGISIGNAL_INSERT_CHUNK ?? 5000);
+const INSERT_CHUNK = Number(process.env.ENGISIGNAL_INSERT_CHUNK ?? 500);
 
 /** The set-based loader for each canonical family. */
 const BULK_FUNCTION: Record<string, string> = {
