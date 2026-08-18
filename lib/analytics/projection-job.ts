@@ -35,6 +35,7 @@ import type { WorkerSql } from '@/lib/ingestion/job/worker-db';
 import type { AnalyticsDataset } from '@/lib/domain/dataset';
 import type { Organization } from '@/lib/domain/types';
 import {
+  asTimestampString,
   toContractRecord,
   toEntitlementRecord,
   toPersonRecord,
@@ -171,7 +172,7 @@ export async function runProjectionJob(sql: WorkerSql): Promise<ProjectionJobOut
           acceptedRows: Number(i.accepted_rows ?? 0),
           rejectedRows: Number(i.rejected_rows ?? 0),
           status: (i.status === 'complete' ? 'complete' : 'failed') as 'complete' | 'failed',
-          createdAt: (i.uploaded_at ?? i.created_at) as string,
+          createdAt: asTimestampString(i.uploaded_at ?? i.created_at) as string,
           createdBy: null,
           mappingId: null,
           notes: null,

@@ -15,6 +15,7 @@
 
 import { userClient } from '@/lib/supabase/server';
 import { normalizeFeatureKey, normalizeUserKey } from './identity';
+import { asTimestampString } from './store/row-read';
 
 export type ConfirmationKind = 'feature' | 'user';
 
@@ -55,7 +56,7 @@ export function rowToConfirmation(row: Record<string, unknown>): IdentityConfirm
     canonicalKey: row.canonical_key as string,
     decision: row.decision as ConfirmationDecision,
     decidedByEmail: (row.decided_by_email ?? null) as string | null,
-    decidedAt: row.decided_at as string,
+    decidedAt: asTimestampString(row.decided_at) as string,
     suggestedKey: (row.suggested_key ?? null) as string | null,
     note: (row.note ?? null) as string | null,
   };
