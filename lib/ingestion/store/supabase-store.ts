@@ -59,37 +59,69 @@ async function db(): Promise<SupabaseClient> {
 /**
  * Rows per insert request.
  *
- * Measured in production at 68k rows, chunked 500 at a time: 135 round trips,
- * 15,875 ms, 117.6 ms each. Against that, the single-row insert into `imports`
- * in the same request took 107 ms and a trivial SELECT took 66 ms. Five hundred
- * rows therefore cost about ten milliseconds more than one -- roughly 0.02 ms
- * of database work per row against ~107 ms of fixed cost per request.
- *
- * Persistence was never database-bound. It was bound by the number of times we
- * crossed the network, so the fix is to cross it far less often. Overridable so
- * the value can be calibrated against production rather than argued about.
+ * With the rows travelling as one jsonb parameter the statement is the same
+ * size whatever the batch, so the superlinear parse cost that punished large
+ * chunks through PostgREST is gone and fewer, larger requests are now simply
+ * better. Overridable so the value stays a measurement rather than a belief.
  */
 const INSERT_CHUNK = Number(process.env.ENGISIGNAL_INSERT_CHUNK ?? 5000);
 
+/** The set-based loader for each canonical family. */
+const BULK_FUNCTION: Record<string, string> = {
+  ingestion_usage: 'bulk_insert_usage',
+  ingestion_entitlements: 'bulk_insert_entitlements',
+  ingestion_people: 'bulk_insert_people',
+  ingestion_contracts: 'bulk_insert_contracts',
+  ingestion_rejections: 'bulk_insert_rejections',
+};
+
 /**
- * Every chunk is one PostgREST round trip, awaited before the next begins. That
- * shape is what makes a large import slow, and the cost divides into two parts
- * that need opposite fixes: time proportional to rows is database work, while
- * time proportional to CHUNKS is network and request overhead. Reporting both
- * counts is what lets the two be told apart from the outside.
+ * Sends rows as data rather than as SQL text.
+ *
+ * Measured through the deployed product at 68,008 rows: 135 chunks of 500 took
+ * 15,875 ms, and raising the chunk to 5,000 took 39,028 ms -- ten times the
+ * rows per request cost 23.7 times the time, because PostgREST renders an
+ * array of N rows into one INSERT carrying N tuples and the planner's cost for
+ * that grows faster than N. One jsonb argument removes the dependency entirely.
+ *
+ * The count the database returns is compared against the count sent. Postgres
+ * will not silently insert fewer rows than a statement asked for, so this
+ * should never fire -- but a short write is the one failure that would
+ * otherwise be invisible, and the whole product rests on stored matching
+ * accepted.
  */
 async function insertChunked(
   table: string,
   rows: Record<string, unknown>[],
+  organizationId: string,
+  importId: string,
   onPhase?: CommitInput['onPhase'],
 ): Promise<void> {
+  const fn = BULK_FUNCTION[table];
+  if (fn === undefined) throw new Error(`No bulk loader is defined for ${table}.`);
+
   const from = performance.now();
   let chunks = 0;
+  let written = 0;
   for (let index = 0; index < rows.length; index += INSERT_CHUNK) {
     const chunk = rows.slice(index, index + INSERT_CHUNK);
-    const { error } = await (await db()).from(table).insert(chunk);
+    const { data, error } = await (await db()).rpc(fn, {
+      rows: chunk,
+      org: organizationId,
+      imp: importId,
+    });
     if (error !== null) throw new Error(`${table}: ${error.message}`);
+    const count = typeof data === 'number' ? data : Number(data);
+    if (count !== chunk.length) {
+      throw new Error(
+        `${table}: sent ${chunk.length} rows but the database recorded ${count}.`,
+      );
+    }
+    written += count;
     chunks += 1;
+  }
+  if (written !== rows.length) {
+    throw new Error(`${table}: sent ${rows.length} rows but only ${written} were written.`);
   }
   onPhase?.(`insert:${table}`, performance.now() - from, { rows: rows.length, chunks });
 }
@@ -215,8 +247,6 @@ export const supabaseIngestionStore: IngestionStore = {
       await insertChunked(
         'ingestion_usage',
         result.usage.map((record) => ({
-          organization_id: organizationId,
-          import_id: importId,
           usage_date: record.date,
           hour: record.hour,
           observed_at: record.observedAt,
@@ -242,13 +272,13 @@ export const supabaseIngestionStore: IngestionStore = {
           source_sheet: record.provenance.sourceSheet,
           source_row: record.provenance.sourceRow,
         })),
+        organizationId,
+        importId,
         onPhase,
       );
       await insertChunked(
         'ingestion_entitlements',
         result.entitlements.map((record) => ({
-          organization_id: organizationId,
-          import_id: importId,
           raw_feature: record.feature,
           raw_product: record.product,
           raw_vendor: record.vendor,
@@ -262,13 +292,13 @@ export const supabaseIngestionStore: IngestionStore = {
           source_sheet: record.provenance.sourceSheet,
           source_row: record.provenance.sourceRow,
         })),
+        organizationId,
+        importId,
         onPhase,
       );
       await insertChunked(
         'ingestion_people',
         result.people.map((record) => ({
-          organization_id: organizationId,
-          import_id: importId,
           raw_user: record.user,
           employee_code: record.employeeCode,
           display_name: record.displayName,
@@ -291,13 +321,13 @@ export const supabaseIngestionStore: IngestionStore = {
           source_sheet: record.provenance.sourceSheet,
           source_row: record.provenance.sourceRow,
         })),
+        organizationId,
+        importId,
         onPhase,
       );
       await insertChunked(
         'ingestion_contracts',
         result.contracts.map((record) => ({
-          organization_id: organizationId,
-          import_id: importId,
           raw_feature: record.feature,
           raw_product: record.product,
           raw_vendor: record.vendor,
@@ -328,14 +358,14 @@ export const supabaseIngestionStore: IngestionStore = {
           source_sheet: record.provenance.sourceSheet,
           source_row: record.provenance.sourceRow,
         })),
+        organizationId,
+        importId,
         onPhase,
       );
       // Rejections are audit records, never analytical ones.
       await insertChunked(
         'ingestion_rejections',
         result.rejections.slice(0, 5000).map((rejection) => ({
-          organization_id: organizationId,
-          import_id: importId,
           source_sheet: rejection.sourceSheet,
           source_row: rejection.sourceRow,
           rule: rejection.rule,
@@ -343,6 +373,8 @@ export const supabaseIngestionStore: IngestionStore = {
           value: rejection.value,
           message: rejection.message,
         })),
+        organizationId,
+        importId,
         onPhase,
       );
     } catch (error) {
