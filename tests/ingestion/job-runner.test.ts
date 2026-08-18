@@ -27,6 +27,7 @@ function claimRow(over: Record<string, unknown> = {}) {
     dataset: 'usage',
     file_name: 'usage.csv',
     source_path: 'org-1/imp-1',
+    source_url: 'https://storage.example/signed/org-1/imp-1',
     rows_persisted: 0,
     accepted_rows: ROWS,
     parse_options: { dayFirst: true },
@@ -277,10 +278,49 @@ describe('what the worker is allowed to ask for', () => {
   });
 
   it('re-parses with the options recorded when the file was accepted', async () => {
-    const parse = vi.fn(async () => parsedUsage(ROWS) as never);
-    const h = harness({}, { parse });
+    // Guessing at the mapping would produce the same row COUNT with different
+    // values, which reconciles perfectly and is wrong.
+    let seenOptions: unknown;
+    const h = harness(
+      {},
+      {
+        parse: async (_bytes, job) => {
+          seenOptions = job.parseOptions;
+          return parsedUsage(ROWS) as never;
+        },
+      },
+    );
     await runIngestionJob(h.deps);
 
-    expect(parse.mock.calls[0]![1].parseOptions).toEqual({ dayFirst: true });
+    expect(seenOptions).toEqual({ dayFirst: true });
+  });
+
+  it('reads the file through the signed URL it was given, not a storage path', async () => {
+    let fetched: string | null = null;
+    const h = harness(
+      {},
+      {
+        download: async (job) => {
+          fetched = job.sourceUrl;
+          return new ArrayBuffer(8);
+        },
+      },
+    );
+    await runIngestionJob(h.deps);
+
+    expect(fetched).toBe('https://storage.example/signed/org-1/imp-1');
+  });
+
+  it('fails with a usable reason when the import has no readable file', async () => {
+    const h = harness({ claim_import_job: [claimRow({ source_url: null })] }, {
+      download: async (job) => {
+        if (job.sourceUrl === null) throw new Error('This import has no readable copy of its uploaded file.');
+        return new ArrayBuffer(8);
+      },
+    });
+    const outcome = await runIngestionJob(h.deps);
+
+    expect(outcome).toMatchObject({ status: 'failed' });
+    expect(h.named('fail_import_job')[0]!.reason).toMatch(/no readable copy/);
   });
 });

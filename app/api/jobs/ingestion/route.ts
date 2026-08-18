@@ -11,11 +11,21 @@
  * than waiting for the next tick -- the tick is the safety net, not the
  * mechanism. If the successor never arrives, the lease expires and the next
  * tick reclaims the job, which is the same path a crash takes.
+ *
+ * It connects as `ingestion_worker`, a database role with EXECUTE on six
+ * functions and no privilege over any table, and refuses to do anything at all
+ * until it has confirmed that is who it is.
  */
 
 import { NextResponse } from 'next/server';
 import { after } from 'next/server';
-import { isScheduler, workerClient } from '@/lib/supabase/worker';
+import {
+  assertLeastPrivilege,
+  isScheduler,
+  openWorkerConnection,
+  workerConfigured,
+} from '@/lib/ingestion/job/worker-db';
+import { pgRpc } from '@/lib/ingestion/job/worker-rpc';
 import { runIngestionJob } from '@/lib/ingestion/job/runner';
 import type { ClaimedJob } from '@/lib/ingestion/job/runner';
 import { ingestFile } from '@/lib/ingestion';
@@ -27,8 +37,6 @@ import { stopwatch } from '@/lib/perf/stopwatch';
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
-const BUCKET = 'ingestion-sources';
-
 export async function POST(request: Request): Promise<NextResponse> {
   if (!isScheduler(request.headers.get('authorization'))) {
     // Deliberately indistinguishable from a missing route: an unauthenticated
@@ -36,8 +44,8 @@ export async function POST(request: Request): Promise<NextResponse> {
     return new NextResponse('Not found', { status: 404 });
   }
 
-  const client = workerClient();
-  if (client === null) {
+  const sql = openWorkerConnection();
+  if (sql === null) {
     return NextResponse.json(
       { error: 'No worker identity is configured, so no import can be processed.' },
       { status: 503 },
@@ -46,66 +54,83 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const watch = stopwatch();
 
-  const outcome = await watch.phase('job', () =>
-    runIngestionJob({
-      rpc: async (name, params) => client.rpc(name, params),
+  try {
+    // Before touching a customer's data, prove the connection is the narrow
+    // role and not something that merely happened to authenticate.
+    await watch.phase('identity', () => assertLeastPrivilege(sql));
 
-      download: async (path) => {
-        const { data, error } = await client.storage.from(BUCKET).download(path);
-        if (error !== null || data === null) {
-          throw new Error(`Could not read the uploaded file: ${error?.message ?? 'missing'}`);
-        }
-        return data.arrayBuffer();
-      },
+    const outcome = await watch.phase('job', () =>
+      runIngestionJob({
+        rpc: pgRpc(sql),
 
-      // Re-parsed with the options recorded when the file was accepted, so the
-      // worker reproduces the customer's reviewed mapping rather than guessing
-      // at it again.
-      parse: async (bytes, job: ClaimedJob) => {
-        const options = job.parseOptions as {
-          forceSource?: string;
-          mappingOverrides?: Record<string, string>;
-          sheetName?: string;
-          dayFirst?: boolean;
-        };
-        const analysis = await ingestFile(bytes, {
-          dataset: job.dataset,
-          organizationId: job.organizationId,
-          importId: job.importId,
-          fileName: job.fileName,
-          forceSource: options.forceSource as never,
-          mappingOverrides: options.mappingOverrides,
-          sheetName: options.sheetName,
-          dayFirst: options.dayFirst,
-        });
-        return analysis.result as never;
-      },
-    }),
-  );
+        // No storage credential: the URL was minted by the request that
+        // accepted the upload, and covers exactly this one object.
+        download: async (job: ClaimedJob) => {
+          if (job.sourceUrl === null) {
+            throw new Error('This import has no readable copy of its uploaded file.');
+          }
+          const response = await fetch(job.sourceUrl);
+          if (!response.ok) {
+            throw new Error(
+              `Could not read the uploaded file (HTTP ${response.status}). The stored copy may have been removed.`,
+            );
+          }
+          return response.arrayBuffer();
+        },
 
-  // Keep going without waiting for the next tick. Only on `yielded`: every
-  // other outcome is terminal for this job, and chaining on them would spin.
-  if (outcome.status === 'yielded') {
-    const site = envOptional('NEXT_PUBLIC_SITE_URL');
-    const secret = envOptional('CRON_SECRET');
-    if (site !== null && secret !== null) {
-      after(async () => {
-        try {
-          await fetch(`${site}/api/jobs/ingestion`, {
-            method: 'POST',
-            headers: { authorization: `Bearer ${secret}` },
+        // Re-parsed with the options recorded when the file was accepted, so
+        // the worker reproduces the customer's reviewed mapping rather than
+        // guessing at it again.
+        parse: async (bytes, job: ClaimedJob) => {
+          const options = job.parseOptions as {
+            forceSource?: string;
+            mappingOverrides?: Record<string, string>;
+            sheetName?: string;
+            dayFirst?: boolean;
+          };
+          const analysis = await ingestFile(bytes, {
+            dataset: job.dataset,
+            organizationId: job.organizationId,
+            importId: job.importId,
+            fileName: job.fileName,
+            forceSource: options.forceSource as never,
+            mappingOverrides: options.mappingOverrides,
+            sheetName: options.sheetName,
+            dayFirst: options.dayFirst,
           });
-        } catch {
-          // The schedule is the backstop; a missed handoff costs one tick.
-        }
-      });
-    }
-  }
+          return analysis.result as never;
+        },
+      }),
+    );
 
-  return NextResponse.json({
-    outcome,
-    timings: { totalMs: watch.totalMs(), phases: watch.phases() },
-  });
+    // Keep going without waiting for the next tick. Only on `yielded`: every
+    // other outcome is terminal for this job, and chaining on them would spin.
+    if (outcome.status === 'yielded') {
+      const site = envOptional('NEXT_PUBLIC_SITE_URL');
+      const secret = envOptional('CRON_SECRET');
+      if (site !== null && secret !== null) {
+        after(async () => {
+          try {
+            await fetch(`${site}/api/jobs/ingestion`, {
+              method: 'POST',
+              headers: { authorization: `Bearer ${secret}` },
+            });
+          } catch {
+            // The schedule is the backstop; a missed handoff costs one tick.
+          }
+        });
+      }
+    }
+
+    return NextResponse.json({
+      outcome,
+      timings: { totalMs: watch.totalMs(), phases: watch.phases() },
+    });
+  } finally {
+    // Transaction-mode pooling gives out a backend per transaction, so holding
+    // this open past the invocation would consume a slot for nothing.
+    await sql.end({ timeout: 5 });
+  }
 }
 
 /**
@@ -113,11 +138,12 @@ export async function POST(request: Request): Promise<NextResponse> {
  *
  * Whether the queue is being drained is operational health, not customer data,
  * and it answers the only question that matters when imports look stuck: is
- * anything running at all. It reveals no tenant, no file and no row.
+ * anything running at all. It names no tenant, no file and no row, and reports
+ * only whether configuration is present -- never any part of its value.
  */
 export async function GET(): Promise<NextResponse> {
   return NextResponse.json({
-    worker: workerClient() !== null ? 'configured' : 'not-configured',
+    worker: workerConfigured() ? 'configured' : 'not-configured',
     schedulerSecret: envOptional('CRON_SECRET') !== null ? 'configured' : 'not-configured',
   });
 }

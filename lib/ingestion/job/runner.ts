@@ -30,6 +30,11 @@ export interface ClaimedJob {
   dataset: CanonicalDataset;
   fileName: string;
   sourcePath: string;
+  /**
+   * A signed URL for this import's file, minted by the request that accepted
+   * it. The worker holds no storage credential of its own.
+   */
+  sourceUrl: string | null;
   rowsPersisted: number;
   acceptedRows: number;
   /** Exactly the options the accepting request parsed with. */
@@ -50,8 +55,8 @@ export type JobOutcome =
 export interface RunnerDeps {
   /** Calls the six functions the worker role may execute. */
   rpc: (name: string, params: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
-  /** Fetches the stored upload. */
-  download: (path: string) => Promise<ArrayBuffer>;
+  /** Fetches the stored upload. Given the whole job so it can use its URL. */
+  download: (job: ClaimedJob) => Promise<ArrayBuffer>;
   /** Re-parses it exactly as the accepting request did. */
   parse: (
     bytes: ArrayBuffer,
@@ -89,6 +94,7 @@ function toJob(row: Record<string, unknown>): ClaimedJob {
     dataset: row.dataset as CanonicalDataset,
     fileName: String(row.file_name),
     sourcePath: String(row.source_path),
+    sourceUrl: typeof row.source_url === 'string' ? row.source_url : null,
     rowsPersisted: Number(row.rows_persisted ?? 0),
     acceptedRows: Number(row.accepted_rows ?? 0),
     parseOptions:
@@ -116,7 +122,7 @@ export async function runIngestionJob(deps: RunnerDeps): Promise<JobOutcome> {
   const job = toJob(rows[0]!);
 
   try {
-    const bytes = await deps.download(job.sourcePath);
+    const bytes = await deps.download(job);
     const parsed = await deps.parse(bytes, job);
     const all = rowsForDataset(job.dataset, parsed);
 

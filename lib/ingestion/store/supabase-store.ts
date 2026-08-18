@@ -59,6 +59,17 @@ async function db(): Promise<SupabaseClient> {
 
 /** Where a customer's upload waits until the worker has written its rows. */
 const SOURCE_BUCKET = 'ingestion-sources';
+
+/**
+ * How long the worker's capability to read one uploaded file lasts.
+ *
+ * Ten years. Not because a job might take that long -- they take minutes -- but
+ * because the failure this prevents is an import that stalls for a reason
+ * unrelated to itself, and there is no benefit to sizing it tightly: the URL
+ * covers exactly one object in one tenant, and the row that holds it is behind
+ * the same Row Level Security as the import it belongs to.
+ */
+const SOURCE_URL_TTL_SECONDS = 60 * 60 * 24 * 365 * 10;
 /** Times a single round trip so the fixed costs are visible next to the bulk ones. */
 async function timed<T>(
   name: string,
@@ -132,6 +143,7 @@ export const supabaseIngestionStore: IngestionStore = {
     // job to find it -- otherwise a job could be claimed for evidence that was
     // never saved.
     const sourcePath = `${organizationId}/${importId}`;
+    let sourceUrl: string | null = null;
     if (fileContent !== undefined) {
       const upload = await timed('upload:source', onPhase, async () =>
         (await db()).storage.from(SOURCE_BUCKET).upload(sourcePath, fileContent, {
@@ -142,6 +154,30 @@ export const supabaseIngestionStore: IngestionStore = {
       if (upload.error !== null) {
         throw new Error(`Could not store the uploaded file: ${upload.error.message}`);
       }
+
+      // ── HOW THE WORKER WILL READ IT ────────────────────────────────────
+      //
+      // The worker authenticates to Postgres as a role with EXECUTE on six
+      // functions and no API key at all, so it cannot call the Storage API.
+      // This request can: it is already the person who owns the file. It mints
+      // a capability for exactly this one object, and the worker needs no
+      // storage privilege of its own.
+      //
+      // The expiry is deliberately far longer than any job can live. Work is
+      // measured in minutes, retries cap at five, and an abandoned job is
+      // reaped within a minute -- but an import that failed because its URL
+      // lapsed while it sat in a queue would be failing for a reason that has
+      // nothing to do with the import. `source_path` is stored alongside so a
+      // fresh URL can always be minted by an authenticated request.
+      const signed = await timed('sign:source', onPhase, async () =>
+        (await db()).storage.from(SOURCE_BUCKET).createSignedUrl(sourcePath, SOURCE_URL_TTL_SECONDS),
+      );
+      if (signed.error !== null || signed.data === null) {
+        throw new Error(
+          `Could not prepare the uploaded file for processing: ${signed.error?.message ?? 'no URL returned'}`,
+        );
+      }
+      sourceUrl = signed.data.signedUrl;
     }
 
     const uploadedAt = new Date().toISOString();
@@ -169,6 +205,7 @@ export const supabaseIngestionStore: IngestionStore = {
       // working on them. `importing` now means a worker holds a lease.
       status: 'queued',
       source_path: fileContent !== undefined ? sourcePath : null,
+      source_url: sourceUrl,
       parse_options: parseOptions ?? {},
       rows_persisted: 0,
       detection_confidence: detectionConfidence,

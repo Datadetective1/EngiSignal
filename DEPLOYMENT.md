@@ -99,18 +99,29 @@ There is deliberately no service-role key in that list, and there still is not o
 
 Phase 2G added one identity that is not a signed-in customer, because it had to. Large imports are written by a worker on the database's own schedule, minutes after the request that uploaded the file, and a worker cannot borrow a session that has expired or a browser that has closed. Durability and borrowed credentials are incompatible.
 
-That worker is **not** a service-role key. Two variables carry it:
+That worker is **not** a service-role key, and **not** a JWT. Two variables carry it:
 
 ```
-INGESTION_WORKER_TOKEN=<minted by scripts/mint-ingestion-worker-token.mjs>
-CRON_SECRET=<shared with the database's scheduler>
+INGESTION_WORKER_DATABASE_URL=postgresql://ingestion_worker.<project-ref>:<password>@<pooler-host>:6543/postgres
+CRON_SECRET=<same value as the database's Vault secret>
 ```
 
-`INGESTION_WORKER_TOKEN` names the `ingestion_worker` database role, which has `EXECUTE` on six functions and **no rights over any table in any schema** — verified against production, where its reads of both `imports` and `ingestion_usage` are refused by Postgres itself. Its one table privilege anywhere is `select` on `storage.objects`, confined by policy to the `ingestion-sources` bucket. Every function it can call takes an import id and reads the organization from the import row, so no argument in its surface names a tenant.
+`INGESTION_WORKER_DATABASE_URL` connects as the `ingestion_worker` Postgres role through Supabase's **transaction** pooler. Verified against production, that role has:
 
-`CRON_SECRET` is checked in constant time by `/api/jobs/ingestion` before it does anything, and the same value is held in the database's Vault so `pg_cron` can present it. Set both in the database and the deployment, or imports will queue and never drain.
+- `EXECUTE` on exactly six job functions and no others — every one takes an import id and reads the organization from the import row, so no argument in its surface names a tenant;
+- **no** privilege over any table in any schema — its reads of `imports`, `ingestion_usage`, `organizations`, `auth.users`, `storage.objects` and `vault.decrypted_secrets` are all refused by the database;
+- membership of **no** other role, so `SET ROLE` to `postgres`, `service_role` or `authenticator` is impossible;
+- `NOSUPERUSER`, `NOCREATEDB`, `NOCREATEROLE`, `NOBYPASSRLS`, `NOINHERIT`, `NOREPLICATION`, connection limit 10.
 
-Minting the token needs the project's **JWT secret**, which can sign a token for any role including `service_role`. It is used once, on a machine that already has it, and only the resulting token is deployed — the signing secret itself must never be set in the deployment environment.
+A JWT naming the same role was rejected deliberately: any key that can sign a JWT can sign one claiming `service_role`, so the credential's real authority would be unbounded whatever role we wrote inside it. A role password cannot escalate. Supabase's own guidance agrees from the other side — the legacy JWT secret is deprecated, no longer rotatable, and retires with the legacy keys at the end of 2026.
+
+The worker also verifies this at runtime. Before touching customer data it asserts `current_user = ingestion_worker`, that the role cannot bypass RLS, and that it holds zero memberships — and refuses to run otherwise. A credential repointed at a more privileged role fails loudly instead of quietly working.
+
+It holds no storage credential at all. The request that accepts an upload — already authenticated as the file's owner — mints a signed URL for that single object and records it on the import row.
+
+`CRON_SECRET` is checked in constant time by `/api/jobs/ingestion` before it does anything, and the same value is held in the database's Vault so `pg_cron` can present it. Set both, or imports will queue and never drain.
+
+**Neither variable may be exposed to the browser.** Never prefix either with `NEXT_PUBLIC_`.
 
 ### 4.3 Fallback behaviour
 
