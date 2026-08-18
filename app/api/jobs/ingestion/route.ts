@@ -27,6 +27,7 @@ import {
 } from '@/lib/ingestion/job/worker-db';
 import { pgRpc } from '@/lib/ingestion/job/worker-rpc';
 import { runIngestionJob } from '@/lib/ingestion/job/runner';
+import { runProjectionJob } from '@/lib/analytics/projection-job';
 import type { ClaimedJob } from '@/lib/ingestion/job/runner';
 import { ingestFile } from '@/lib/ingestion';
 import { envOptional } from '@/config/env';
@@ -113,6 +114,20 @@ export async function POST(request: Request): Promise<NextResponse> {
       }),
     );
 
+    // ── THE ANALYSIS IS PART OF THE SAME JOB ──────────────────────────────
+    //
+    // Persistence and analysis are one promise to the customer: the numbers are
+    // current. Splitting them across two schedulers would mean a tenant whose
+    // rows are durable but whose analysis is owed depends on the next tick
+    // noticing, which is the coupling this phase exists to remove.
+    //
+    // Run when ingestion has nothing left to do, so rows land before the
+    // analysis that describes them, and a long build never starves the queue.
+    let projection: Awaited<ReturnType<typeof runProjectionJob>> | null = null;
+    if (outcome.status === 'idle') {
+      projection = await watch.phase('projection', () => runProjectionJob(sql));
+    }
+
     // ── KEEP GOING WHILE THERE IS PROGRESS TO MAKE ────────────────────────
     //
     // One invocation handles one job, so without this a four-file estate takes
@@ -126,7 +141,11 @@ export async function POST(request: Request): Promise<NextResponse> {
     // the queue may hold another. Both terminate -- each hop either finishes a
     // job or advances a checkpoint, and `idle` ends the chain. Chaining on
     // `failed` or `superseded` would spin on a job that is not moving.
-    if (outcome.status === 'yielded' || outcome.status === 'complete') {
+    const moreToDo =
+      outcome.status === 'yielded' ||
+      outcome.status === 'complete' ||
+      projection?.status === 'ready';
+    if (moreToDo) {
       const site = originOf(request);
       const secret = envOptional('CRON_SECRET');
       if (site !== null && secret !== null) {
@@ -145,6 +164,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     return NextResponse.json({
       outcome,
+      projection,
       timings: { totalMs: watch.totalMs(), phases: watch.phases() },
     });
   } finally {

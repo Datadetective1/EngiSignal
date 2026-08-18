@@ -46,7 +46,7 @@ function normalize(raw: string): string {
   return raw.trim().toLowerCase();
 }
 
-function rowToConfirmation(row: Record<string, unknown>): IdentityConfirmation {
+export function rowToConfirmation(row: Record<string, unknown>): IdentityConfirmation {
   return {
     id: row.id as string,
     organizationId: row.organization_id as string,
@@ -89,7 +89,22 @@ export async function confirmedAliasMaps(organizationId: string): Promise<{
   features: Map<string, string>;
   users: Map<string, string>;
 }> {
-  const all = await listConfirmations(organizationId);
+  return aliasMapsFrom(await listConfirmations(organizationId));
+}
+
+/**
+ * The alias maps a set of confirmations implies.
+ *
+ * Separated from the read so the projection worker, which fetches these rows
+ * over a different connection, applies exactly these rules rather than its own
+ * reading of them. A worker that skipped the `confirmed` filter or the key
+ * normalization below would silently drop every merge a customer had approved
+ * — which is the failure described in the comment inside this loop.
+ */
+export function aliasMapsFrom(all: IdentityConfirmation[]): {
+  features: Map<string, string>;
+  users: Map<string, string>;
+} {
   const features = new Map<string, string>();
   const users = new Map<string, string>();
 

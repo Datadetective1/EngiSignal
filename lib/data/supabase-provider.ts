@@ -12,8 +12,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { after } from 'next/server';
-import { detachedUserClient, userClient, withDetachedClient } from '@/lib/supabase/server';
+import { userClient, withDetachedClient } from '@/lib/supabase/server';
 import { buildDatasetFromCanonical } from '@/lib/ingestion/dataset';
 import { confirmedAliasMaps } from '@/lib/ingestion/confirmations';
 import { resolveUsers, type UserIdentity } from '@/lib/ingestion/identity';
@@ -511,7 +510,20 @@ async function loadDataset(orgId: string): Promise<LoadedDataset> {
     ...over,
   });
 
-  if (needsBuild) await scheduleBuild(orgId, evidenceKey);
+  // ── READING NO LONGER STARTS A BUILD ──────────────────────────────────────
+  //
+  // It used to. A page render was the only thing that noticed the analysis was
+  // owed, so a customer who imported a large estate and closed the tab came
+  // back to durable rows and no analysis.
+  //
+  // Phase 2H gave the projection the scheduler ingestion already had, and
+  // `mark_projection_dirty` records the debt at the moment the evidence
+  // changes. Leaving this call here as well would put two writers on one
+  // lifecycle -- the reader claiming with the customer's session, the worker
+  // with its own -- which is the second source of truth this codebase keeps
+  // refusing. `needsBuild` is still computed, because it is what tells the
+  // reader the analysis on screen is not current.
+  void needsBuild;
 
   // The happy path: a payload that describes exactly what is stored.
   if (reason === null && stored?.payload != null) {
@@ -554,38 +566,3 @@ async function loadDataset(orgId: string): Promise<LoadedDataset> {
   return { ...base, dataset: null, projection: status({ source: 'none' }) };
 }
 
-/**
- * ── SCHEDULING THE BUILD WHERE THE NEED IS DISCOVERED ──────────────────────
- *
- * The first version handed the decision back to `loadWorkspace`, which drained
- * it and scheduled the work. That silently excluded every caller that is not a
- * page: the diagnostics endpoint, and the exports, could see that a build was
- * needed and never start one.
- *
- * Production showed the consequence. A tenant sat at `superseded` for five
- * minutes with no build running and none scheduled — correct figures for an
- * old evidence version, honestly labelled, and no route back to a current one
- * except a page load that nobody was making.
- *
- * So it is scheduled here instead, once per request, by whoever reads.
- *
- * The client is captured NOW, while the request is alive; after the response
- * there is no cookie store to read a session from. `after()` outside a request
- * scope throws, which is caught: a background build is a nice-to-have on any
- * path that has no response to outlive.
- */
-async function scheduleBuild(orgId: string, evidenceKey: string): Promise<void> {
-  try {
-    const detached = await detachedUserClient();
-    if (detached === null) return;
-    after(async () => {
-      try {
-        await startProjectionBuild(orgId, evidenceKey, detached);
-      } catch {
-        // The runner records its own failures against the tenant.
-      }
-    });
-  } catch {
-    // No request scope to attach to. The next read will try again.
-  }
-}
