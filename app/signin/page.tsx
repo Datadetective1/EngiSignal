@@ -4,9 +4,9 @@ import { redirect } from 'next/navigation';
 import { Logo } from '@/components/brand/logo';
 import { brand } from '@/config/brand';
 import { getSession, isSupabaseAuth } from '@/lib/auth';
+import { MINIMUM_PASSWORD_LENGTH } from '@/lib/auth/password';
 import { DEMO_ORG } from '@/lib/synthetic/organization';
 import {
-  MINIMUM_PASSWORD_LENGTH,
   requestPasswordResetAction,
   resendConfirmationAction,
   signInAction,

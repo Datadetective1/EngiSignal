@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { createSession, isSupabaseAuth } from '@/lib/auth';
 import { authCallbackUrl, emailConfirmUrl } from '@/lib/auth/origin';
 import { userClient } from '@/lib/supabase/server';
+import { MINIMUM_PASSWORD_LENGTH } from '@/lib/auth/password';
 
 /**
  * Sign-in actions.
@@ -71,15 +72,6 @@ function messageFor(error: { message: string; status?: number; code?: string }):
   if (text.includes('invalid') && text.includes('email')) return 'email';
   return 'failed';
 }
-
-/**
- * The shortest password this product will accept.
- *
- * Must match the project's Auth setting. When the two disagree the shorter one
- * is useless: the form accepts what the database then refuses, and the customer
- * is told something generic about a password they already typed.
- */
-export const MINIMUM_PASSWORD_LENGTH = 10;
 
 export async function signInAction(formData: FormData) {
   const email = String(formData.get('email') ?? '').trim();
