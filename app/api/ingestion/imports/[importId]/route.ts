@@ -1,9 +1,8 @@
-import { NextResponse, after } from 'next/server';
+import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { resolveIngestionContext } from '@/lib/ingestion/session';
 import { getIngestionStore } from '@/lib/ingestion/store';
-import { startProjectionBuild } from '@/lib/data/supabase-provider';
-import { detachedUserClient } from '@/lib/supabase/server';
+import { markOwnProjectionDirty } from '@/lib/data/supabase-provider';
 
 export const runtime = 'nodejs';
 
@@ -58,30 +57,20 @@ export async function DELETE(
 
   if (!removed) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
 
-  // Deleting an import changes every derived number that rested on its rows.
-  // Drop the projection before answering, so no reader can be served a summary
-  // of an estate that no longer exists, then rebuild so the cost lands here
-  // rather than on the next person to open the dashboard.
+  // Deleting an import changes every derived number that rested on its rows,
+  // so the analysis is owed again. Saying exactly that -- and nothing about
+  // when or by whom it is rebuilt -- is the whole of the application's part in
+  // this. The worker owns the lifecycle; it already owns it for imports that
+  // complete, and having deletion start its own build was the second writer
+  // this phase set out to remove.
   //
-  // The read path would catch this anyway — the evidence key no longer matches
-  // once the rows are gone — but relying on that alone would mean the guarantee
-  // rests on one mechanism instead of two.
-  // The rows are gone, which is what the caller asked for and is now true. The
-  // analysis that rested on them is rebuilt after the response, exactly as it
-  // is after an import — the read path would notice the evidence key had moved
-  // anyway, so this only decides who waits, not whether it happens.
-  // Captured while the request is still alive: after the response there is no
-  // cookie store to read a session from, and a client built then would have no
-  // permissions at all.
-  const detached = await detachedUserClient();
-  if (detached !== null) {
-    after(async () => {
-      try {
-        await startProjectionBuild(auth.context.organizationId, undefined, detached);
-      } catch {
-        // The runner records its own failures against the tenant.
-      }
-    });
+  // Best effort. If it fails the evidence key no longer matches what is stored,
+  // so a reader is told the analysis is not current, and the next change marks
+  // the tenant again. The customer is never shown a stale number as a fresh one.
+  try {
+    await markOwnProjectionDirty(auth.context.organizationId);
+  } catch {
+    // Recorded by the reader as "not current" either way.
   }
 
   return NextResponse.json({ deleted: true, importId: parsed.data.importId });

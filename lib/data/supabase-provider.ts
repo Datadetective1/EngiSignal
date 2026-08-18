@@ -12,10 +12,9 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { userClient, withDetachedClient } from '@/lib/supabase/server';
+import { userClient } from '@/lib/supabase/server';
 import { buildDatasetFromCanonical } from '@/lib/ingestion/dataset';
-import { confirmedAliasMaps } from '@/lib/ingestion/confirmations';
-import { resolveUsers, type UserIdentity } from '@/lib/ingestion/identity';
+import type { UserIdentity } from '@/lib/ingestion/identity';
 import { supabaseIngestionStore } from '@/lib/ingestion/store/supabase-store';
 import type { AnalyticsDataset } from '@/lib/domain/dataset';
 import type { CoverageSummary, ImportSummary } from '@/lib/ingestion/store/types';
@@ -28,7 +27,6 @@ import type {
 } from '@/lib/domain/types';
 import {
   PROJECTION_VERSION,
-  type ProjectionPayload,
   type ProjectionStatus,
   BUILD_LEASE_SECONDS,
   buildNeeded,
@@ -36,11 +34,6 @@ import {
   evidenceKeyFor,
   projectionUsable,
 } from '@/lib/analytics/projection';
-import {
-  runProjectionBuild,
-  type BuildClient,
-  type PhaseRecorder,
-} from '@/lib/analytics/build-runner';
 import type { StoredRowCounts } from '@/lib/analytics/integrity';
 import type { DataProvider, ReclaimOverride } from './provider';
 
@@ -275,83 +268,6 @@ export const supabaseProvider: DataProvider = {
   },
 };
 
-/**
- * Build the analytical dataset from canonical rows.
- *
- * The slow path, and the authoritative one. Everything the projection serves is
- * a saved result of exactly this function.
- */
-async function buildFromCanonical(
-  orgId: string,
-  organization: Organization,
-  onPhase: PhaseRecorder = () => {},
-): Promise<ProjectionPayload> {
-  /** Times one stage and reports how much it moved. */
-  const timed = async <T>(name: string, work: () => Promise<T>, size?: (v: T) => number) => {
-    const from = performance.now();
-    const value = await work();
-    onPhase(name, performance.now() - from, size ? { rows: size(value) } : undefined);
-    return value;
-  };
-
-  // Timed individually rather than as one figure: these run concurrently, so a
-  // total would only show the slowest, and which one is slowest is the entire
-  // question.
-  const [usage, entitlements, people, contracts, imports, aliases] = await Promise.all([
-    timed('read:usage', () => supabaseIngestionStore.listUsage(orgId), (r) => r.length),
-    timed('read:entitlements', () => supabaseIngestionStore.listEntitlements(orgId), (r) => r.length),
-    timed('read:people', () => supabaseIngestionStore.listPeople(orgId), (r) => r.length),
-    timed('read:contracts', () => supabaseIngestionStore.listContracts(orgId), (r) => r.length),
-    timed('read:imports', () => supabaseIngestionStore.listImports(orgId), (r) => r.length),
-    // Customer-confirmed merges. The only thing that combines two strings the
-    // matching rules would refuse to combine, and scoped to this tenant.
-    timed('read:aliases', () => confirmedAliasMaps(orgId)),
-  ]);
-
-  const computeFrom = performance.now();
-  const dataset = buildDatasetFromCanonical({
-    organization,
-    usage,
-    entitlements,
-    people,
-    contracts,
-    featureAliases: aliases.features,
-    userAliases: aliases.users,
-  });
-
-  const withImports = {
-    ...dataset,
-    imports: imports.map((record) => ({
-      id: record.id,
-      organizationId: record.organizationId,
-      kind:
-        record.dataset === 'people'
-          ? ('employees' as const)
-          : record.dataset === 'entitlements' || record.dataset === 'contracts'
-            ? ('contracts' as const)
-            : ('usage' as const),
-      fileName: record.fileName,
-      fileBytes: record.fileBytes,
-      rowCount: record.totalRows,
-      acceptedRows: record.acceptedRows,
-      rejectedRows: record.rejectedRows,
-      status: (record.status === 'complete' ? 'complete' : 'failed') as 'complete' | 'failed',
-      createdAt: record.uploadedAt,
-      createdBy: null,
-      mappingId: null,
-      notes: null,
-    })),
-  };
-
-  const payload = {
-    dataset: withImports,
-    coverage: summarizeCoverage(usage, entitlements, people, contracts),
-    // Deliberately un-aliased; see ProjectionPayload.
-    userIdentities: resolveUsers(usage, people),
-  };
-  onPhase('compute', performance.now() - computeFrom, { usageRows: usage.length });
-  return payload;
-}
 
 export interface LoadedDataset {
   /**
@@ -387,39 +303,17 @@ function acceptedFrom(imports: readonly ImportSummary[]): StoredRowCounts {
 }
 
 /**
- * Start a build unless one is already running, and do not wait for it.
+ * Record that this tenant's evidence changed.
  *
- * Called from `after()`, so it runs once the response has been sent. The caller
- * gets its page; the estate gets analysed; nobody watches a spinner inside an
- * HTTP request that might time out.
+ * The application's entire part in the analysis lifecycle. It does not decide
+ * when a rebuild happens or who performs it -- the worker owns that, on the
+ * database's own schedule -- and it cannot mark another tenant, because the
+ * function checks membership from the session rather than from the argument.
  */
-export async function startProjectionBuild(
-  orgId: string,
-  evidenceKey?: string,
-  client?: SupabaseClient,
-): Promise<void> {
-  // Bound for the whole build, so every store call underneath uses the session
-  // captured while the request was still alive rather than a cookie store that
-  // has since gone away.
-  const run = async () => {
-    const organization = await supabaseProvider.getOrganization(orgId);
-    if (organization === null) return;
-
-    // The import path does not know the key — it has just finished changing the
-    // very evidence the key describes — so it is computed from what is stored.
-    const key = evidenceKey ?? (await currentEvidenceKey(orgId));
-
-    await runProjectionBuild({
-      client: (await db()) as unknown as BuildClient,
-      organizationId: orgId,
-      evidenceKey: key,
-      build: (onPhase) => buildFromCanonical(orgId, organization, onPhase),
-      countStoredRows: () => supabaseIngestionStore.countStoredRows(orgId),
-    });
-  };
-
-  if (client === undefined) return run();
-  return withDetachedClient(client, run);
+export async function markOwnProjectionDirty(orgId: string): Promise<void> {
+  const client = await db();
+  const { error } = await client.rpc('mark_own_projection_dirty', { org: orgId });
+  if (error !== null) throw new Error(error.message);
 }
 
 /** The fingerprint of the evidence that exists right now. */
