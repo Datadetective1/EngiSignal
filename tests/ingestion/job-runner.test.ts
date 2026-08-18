@@ -167,6 +167,34 @@ describe('resuming after an interruption', () => {
     });
   });
 
+  it('hands the claim back when it yields, so the next worker can continue', async () => {
+    // Returning while still holding the claim was the whole defect: the
+    // successor cannot take an `importing` job whose lease is still live, so a
+    // worker that stopped politely locked the job out until the lease lapsed.
+    // Every "cut-off worker" seen at 466K was this.
+    let clock = 0;
+    const h = harness({}, { now: () => (clock += 30_000), budgetMs: 40_000 });
+    const outcome = await runIngestionJob(h.deps);
+
+    expect(outcome.status).toBe('yielded');
+    const released = h.named('release_import_job');
+    expect(released).toHaveLength(1);
+    expect(released[0]!.job).toBe('imp-1');
+    expect(released[0]!.token).toBe('token-1');
+  });
+
+  it('does not hand the claim back on any other outcome', async () => {
+    // Releasing after completing, or after being superseded, would invite a
+    // second worker into a job that is finished or already taken.
+    const done = harness();
+    await runIngestionJob(done.deps);
+    expect(done.named('release_import_job')).toHaveLength(0);
+
+    const taken = harness({ persist_import_slice: -1 });
+    await runIngestionJob(taken.deps);
+    expect(taken.named('release_import_job')).toHaveLength(0);
+  });
+
   it('yields cleanly when its time is nearly up, leaving the checkpoint durable', async () => {
     // A worker killed mid-slice costs an attempt; one that stops on its own
     // costs nothing, so it must stop first.

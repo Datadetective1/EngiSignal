@@ -145,9 +145,18 @@ export async function runIngestionJob(deps: RunnerDeps): Promise<JobOutcome> {
     let sliceCount = 0;
 
     while (cursor < all.length) {
-      // Yield before the platform takes the decision away. The checkpoint is
-      // durable, so stopping here costs nothing but a scheduling round trip.
+      // Yield before the platform takes the decision away.
+      //
+      // And hand the claim back on the way out. Returning while still holding
+      // it meant the successor could not take the job -- claim_import_job only
+      // accepts an `importing` row whose lease has expired -- so a worker that
+      // stopped politely locked the job out for the rest of its lease. That is
+      // what the 466K run showed as abandoned claims and cut-off workers.
+      // Nothing had been cut off; they had all stopped exactly as designed.
       if (now() - startedAt > budgetMs) {
+        await deps
+          .rpc('release_import_job', { job: job.importId, token: job.token })
+          .catch(() => undefined);
         return { status: 'yielded', importId: job.importId, rowsPersisted: cursor, sliceCount };
       }
 
