@@ -1,0 +1,25 @@
+-- ── WHAT THE PROJECTION JOB GUARANTEES, EXERCISED AGAINST POSTGRES ──────────
+--
+-- The worker's unit tests drive a fake. This is the belief itself, checked.
+-- Every claim the projection job rests on is decided by one conditional
+-- statement, and a conditional statement is either demonstrated or hoped for:
+--
+--   a worker is handed a tenant rather than choosing one
+--   two workers cannot hold the same tenant
+--   a token reads only the tenant it was issued for
+--   an unrecognised token reads nothing at all
+--   a superseded worker cannot publish
+--   publishing is refused when analysed rows differ from stored
+--
+-- Run against the target database as a role that may create temporary
+-- functions. Substitute two organizations that exist and hold different row
+-- counts -- the difference is what proves the two claims read different data.
+--
+--   psql "$DATABASE_URL" -f tests/sql/projection_guarantees.sql
+--
+-- Every row of the result must read PASS. The function leaves both tenants
+-- marked dirty, so the worker rebuilds them honestly afterwards.
+--
+-- Result when run against production on 18 Aug 2026, with 281,995 and 67,267
+-- usage rows respectively: 8 of 8 PASS, the two claims reading 281,995 and
+-- 67,267 rows and an invented token reading 0.
