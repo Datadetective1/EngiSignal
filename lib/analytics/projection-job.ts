@@ -96,27 +96,40 @@ export async function runProjectionJob(sql: WorkerSql): Promise<ProjectionJobOut
   const startedAt = performance.now();
 
   try {
-    const rows = (which: string) =>
-      sql<{ projection_rows: Record<string, unknown> }[]>`
-        select public.projection_rows(${token}::uuid, ${which}) as projection_rows
-      `;
-
-    const [usageRows, entitlementRows, peopleRows, contractRows, importRows, confirmationRows] =
-      await Promise.all([
-        time('read:usage', () => rows('usage'), (r) => r.length),
-        time('read:entitlements', () => rows('entitlements'), (r) => r.length),
-        time('read:people', () => rows('people'), (r) => r.length),
-        time('read:contracts', () => rows('contracts'), (r) => r.length),
-        time('read:imports', () => rows('imports'), (r) => r.length),
-        time('read:confirmations', () => rows('confirmations'), (r) => r.length),
-      ]);
+    // ── READ SEQUENTIALLY, ON PURPOSE ──────────────────────────────────
+    //
+    // The first version ran these in Promise.all. The connection pool holds one
+    // connection, so the driver serialised them anyway -- and every timer then
+    // included waiting for the others. It reported 10,253 ms for a read of ZERO
+    // confirmation rows, which is not a measurement, it is the queue.
+    //
+    // Awaiting them in turn costs nothing that was not already being paid, and
+    // makes each number mean what it says.
+    const usageRows = await time('read:usage', () =>
+      sql<Record<string, unknown>[]>`select * from public.projection_usage(${token}::uuid)`,
+      (r) => r.length);
+    const entitlementRows = await time('read:entitlements', () =>
+      sql<Record<string, unknown>[]>`select * from public.projection_entitlements(${token}::uuid)`,
+      (r) => r.length);
+    const peopleRows = await time('read:people', () =>
+      sql<Record<string, unknown>[]>`select * from public.projection_people(${token}::uuid)`,
+      (r) => r.length);
+    const contractRows = await time('read:contracts', () =>
+      sql<Record<string, unknown>[]>`select * from public.projection_contracts(${token}::uuid)`,
+      (r) => r.length);
+    const importRows = await time('read:imports', () =>
+      sql<Record<string, unknown>[]>`select * from public.projection_imports(${token}::uuid)`,
+      (r) => r.length);
+    const confirmationRows = await time('read:confirmations', () =>
+      sql<Record<string, unknown>[]>`select * from public.projection_confirmations(${token}::uuid)`,
+      (r) => r.length);
 
     const computeFrom = performance.now();
 
-    const usage = usageRows.map((r) => toUsageRecord(r.projection_rows));
-    const entitlements = entitlementRows.map((r) => toEntitlementRecord(r.projection_rows));
-    const people = peopleRows.map((r) => toPersonRecord(r.projection_rows));
-    const contracts = contractRows.map((r) => toContractRecord(r.projection_rows));
+    const usage = usageRows.map(toUsageRecord);
+    const entitlements = entitlementRows.map(toEntitlementRecord);
+    const people = peopleRows.map(toPersonRecord);
+    const contracts = contractRows.map(toContractRecord);
 
     const organization: Organization = {
       id: job.organization_id,
@@ -127,7 +140,7 @@ export async function runProjectionJob(sql: WorkerSql): Promise<ProjectionJobOut
     // uses -- the `confirmed` filter and the key normalization are both
     // load-bearing, and a second reading of them is how approved merges
     // silently stop applying.
-    const confirmations = confirmationRows.map((row) => rowToConfirmation(row.projection_rows));
+    const confirmations = confirmationRows.map(rowToConfirmation);
     const { features: featureAliases, users: userAliases } = aliasMapsFrom(confirmations);
 
     const dataset = buildDatasetFromCanonical({
@@ -142,8 +155,7 @@ export async function runProjectionJob(sql: WorkerSql): Promise<ProjectionJobOut
 
     const withImports = {
       ...dataset,
-      imports: importRows.map((row) => {
-        const i = row.projection_rows as Record<string, unknown>;
+      imports: importRows.map((i) => {
         return {
           id: i.id as string,
           organizationId: i.organization_id as string,
@@ -196,7 +208,6 @@ export async function runProjectionJob(sql: WorkerSql): Promise<ProjectionJobOut
     const evidenceKey = evidenceKeyFor({
       storedRows,
       imports: importRows
-        .map((row) => row.projection_rows as Record<string, unknown>)
         .filter((i) => i.status === 'complete')
         .map((i) => ({ id: i.id as string, fingerprint: String(Number(i.accepted_rows ?? 0)) })),
       confirmations: {
