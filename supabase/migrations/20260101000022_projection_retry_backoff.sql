@@ -1,0 +1,29 @@
+-- ── A FAILING TENANT MUST NOT STARVE THE OTHERS ─────────────────────────────
+--
+-- Observed in production: a build failing on a real defect (a Date reaching
+-- code that sorts dates as strings) was reclaimed every minute and reached
+-- attempt 11 before the fix shipped. Each attempt was correct in isolation --
+-- the tenant was genuinely owed an analysis -- but the queue is shared, so one
+-- broken tenant retrying at full speed takes a worker slot from every healthy
+-- one, once a minute, indefinitely.
+--
+-- Ingestion caps attempts, because a stuck import should stop pretending. A
+-- projection is different: it writes nothing, it is idempotent, and giving up
+-- permanently would leave a customer with no analysis and no way back. So it
+-- keeps retrying, but slower each time:
+--
+--   attempt 1     ~30s
+--   attempt 5     ~8 minutes
+--   attempt 10    ~30 minutes (capped)
+--
+-- Fast enough that a transient failure recovers almost immediately, slow enough
+-- that a persistent one costs one slot every half hour rather than sixty.
+--
+-- The backoff applies only to a tenant that actually FAILED. A first build, or
+-- one owed because evidence just changed, is never delayed.
+--
+-- publish_projection_job resets build_attempt to 0, so a tenant that recovers
+-- is not punished by the history of a fault that has since been fixed.
+--
+-- Both function bodies were applied to production in this phase; see
+-- 20260101000021 for the surrounding design and the authorization model.
