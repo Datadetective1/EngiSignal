@@ -94,6 +94,7 @@ export const mockProvider: DataProvider = {
         currentEvidenceKey: 'local',
         stale: false,
         buildingEvidenceKey: null,
+        buildLive: false,
         buildStartedAt: null,
         buildFinishedAt: null,
         buildAttempt: 0,

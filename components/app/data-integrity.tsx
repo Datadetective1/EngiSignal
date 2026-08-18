@@ -110,7 +110,8 @@ export function ProjectionCard({
   analyzedUsage: number;
   storedUsage: number;
 }) {
-  const building = projection.state === 'building';
+  // An abandoned claim is not a build in progress.
+  const building = projection.state === 'building' && projection.buildLive;
   const failed = projection.state === 'failed';
 
   const tone = projection.analyticsCurrent

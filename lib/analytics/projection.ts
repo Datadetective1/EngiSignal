@@ -163,6 +163,17 @@ export interface ProjectionStatus {
 
   /** The evidence a build is working towards, when one is in flight. */
   buildingEvidenceKey: string | null;
+  /**
+   * Whether that build is actually alive.
+   *
+   * A claim outlives its worker: `after()` is best-effort, and a superseded or
+   * killed build leaves `state = 'building'` on the row with nobody working.
+   * Production showed the cost of not distinguishing the two — a tenant whose
+   * analysis was perfectly current was told a build had been running for nine
+   * minutes. A claim whose heartbeat has lapsed is an abandoned claim, not
+   * work in progress, and is not reported as such.
+   */
+  buildLive: boolean;
   buildStartedAt: string | null;
   buildFinishedAt: string | null;
   buildAttempt: number;

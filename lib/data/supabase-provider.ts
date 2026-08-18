@@ -30,6 +30,7 @@ import {
   PROJECTION_VERSION,
   type ProjectionPayload,
   type ProjectionStatus,
+  BUILD_LEASE_SECONDS,
   buildNeeded,
   deserializeDataset,
   evidenceKeyFor,
@@ -476,6 +477,10 @@ async function loadDataset(orgId: string): Promise<LoadedDataset> {
     currentEvidenceKey: evidenceKey,
     stale: (stored?.evidenceKey ?? null) !== evidenceKey,
     buildingEvidenceKey: stored?.buildingEvidenceKey ?? null,
+    buildLive:
+      stored?.state === 'building' &&
+      stored.heartbeatAt !== null &&
+      Date.now() - Date.parse(stored.heartbeatAt) <= BUILD_LEASE_SECONDS * 1000,
     buildStartedAt: stored?.buildStartedAt ?? null,
     buildFinishedAt: stored?.buildFinishedAt ?? null,
     buildAttempt: stored?.buildAttempt ?? 0,

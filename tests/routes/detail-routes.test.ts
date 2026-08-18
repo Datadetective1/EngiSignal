@@ -191,6 +191,7 @@ const workspace = {
     currentEvidenceKey: 'test',
     stale: false,
     buildingEvidenceKey: null,
+    buildLive: false,
     buildStartedAt: null,
     buildFinishedAt: null,
     buildAttempt: 0,
