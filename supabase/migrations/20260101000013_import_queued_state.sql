@@ -1,0 +1,27 @@
+-- ── ONE STATE THAT GENUINELY DID NOT EXIST BEFORE ───────────────────────────
+--
+-- Phase 2F argued that a lifecycle should only gain a state the system really
+-- occupies, and that duplicating a fact across two tables is how the two come
+-- to disagree. The same test applies here, and it is passed exactly once.
+--
+-- Persistence used to happen inside the request that uploaded the file, so an
+-- import was either being written or finished, and `importing` covered it. Now
+-- the request stores the evidence and returns, and the rows are written later
+-- by a worker. Between those two moments the import is durable, accepted, and
+-- nobody is working on it. No existing value says that:
+--
+--   analyzed    the file has been read and mapped, nothing is stored yet
+--   validating  the mapping has been checked, still nothing stored
+--   importing   a worker holds a lease and is writing rows right now
+--   complete    every accepted row is stored and reconciled
+--   failed      it will not finish without intervention
+--
+-- So `queued` is added to the enum that already exists, rather than a second
+-- status column or a jobs table with a status of its own. There is one source
+-- of truth for what an import is doing, and it stays the one the customer's
+-- import history already reads from.
+--
+-- ALTER TYPE ... ADD VALUE cannot be used in the same transaction that adds it,
+-- which is why this is its own migration and the columns follow separately.
+
+alter type public.import_status add value if not exists 'queued' after 'analyzed';
