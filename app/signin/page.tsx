@@ -49,6 +49,19 @@ export default async function SignInPage({
   const signup = params.mode === 'signup';
   const resetting = params.mode === 'reset';
 
+  /**
+   * Whether this visitor is stuck waiting on a confirmation email.
+   *
+   * Four ways to arrive there: they have just signed up, they asked for another
+   * and it was sent, they tried to sign in before confirming, or the hourly
+   * email limit refused them.
+   */
+  const stuckOnConfirmation =
+    params.notice === 'confirm' ||
+    params.notice === 'confirmsent' ||
+    params.error === 'unconfirmed' ||
+    params.error === 'emaillimited';
+
   return (
     <div className="theme-dark min-h-dvh bg-bg text-fg">
       <div className="mx-auto flex min-h-dvh max-w-[1100px] flex-col px-6">
@@ -174,6 +187,40 @@ export default async function SignInPage({
                 </Link>
               </p>
             )}
+
+            {/*
+              The way out of a lost confirmation.
+              Shown exactly when someone is stuck on one: they have just signed
+              up, they asked for another and it was sent, they tried to sign in
+              before confirming, or the hourly email limit refused them. Without
+              this, signing up again answers "an account already exists" and
+              signing in answers "confirm your email first", which is a loop
+              with no exit.
+            */}
+            {supabaseAuth && stuckOnConfirmation && (
+                <form action={resendConfirmationAction} className="mt-3 max-w-sm">
+                  <label htmlFor="resend-email" className="block text-[12.5px] font-medium text-fg-muted">
+                    Did not get the email?
+                  </label>
+                  <div className="mt-1.5 flex gap-2">
+                    <input
+                      id="resend-email"
+                      name="email"
+                      type="email"
+                      required
+                      autoComplete="email"
+                      placeholder="you@company.com"
+                      className="h-10 min-w-0 flex-1 rounded-md border border-border bg-surface px-3 text-[13.5px] text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none"
+                    />
+                    <button
+                      type="submit"
+                      className="h-10 whitespace-nowrap rounded-md border border-border px-3 text-[12.5px] font-medium text-fg hover:bg-surface"
+                    >
+                      Resend
+                    </button>
+                  </div>
+                </form>
+              )}
 
             {supabaseAuth && (
               <p className="mt-4 max-w-sm text-[12.5px] text-fg-muted">
