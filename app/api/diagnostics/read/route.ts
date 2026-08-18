@@ -5,6 +5,9 @@ import { shortEvidenceKey } from '@/lib/analytics/projection';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+// Same reason as the app segment: the integrity counts degrade while rows are
+// being written, and the platform default would cut the read off mid-import.
+export const maxDuration = 60;
 
 /**
  * ── WHAT IS HAPPENING TO MY DATA ────────────────────────────────────────────

@@ -4,6 +4,27 @@ import { IntegrityBanner } from '@/components/app/data-integrity';
 import { formatDate } from '@/lib/analytics/dates';
 import { loadWorkspace } from '@/lib/workspace';
 
+/**
+ * ── HOW LONG A PAGE MAY TAKE WHILE AN IMPORT IS RUNNING ─────────────────────
+ *
+ * Every page in this segment verifies that stored rows equal accepted rows
+ * before showing anything, and that verification counts the tenant's canonical
+ * rows in the database rather than trusting a cached number. At rest the count
+ * is about 75 ms, served by an index-only scan.
+ *
+ * While a large import is being written it is much slower: the visibility map
+ * is not set for freshly inserted pages, so the same scan falls back to reading
+ * the heap for nearly every row. Measured during a 466,000-row import, one page
+ * read in 87 took 9,832 ms and was cut off by the platform's ten-second
+ * default -- the customer saw a 500 while their own import was running.
+ *
+ * The count is not something to cache away: it is the evidence that the numbers
+ * on screen describe the rows that actually exist, and a remembered count would
+ * be exactly the assumption it exists to replace. So the page is given room to
+ * finish instead.
+ */
+export const maxDuration = 60;
+
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const workspace = await loadWorkspace();
 
