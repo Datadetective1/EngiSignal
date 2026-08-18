@@ -112,9 +112,20 @@ export async function POST(request: Request): Promise<NextResponse> {
       }),
     );
 
-    // Keep going without waiting for the next tick. Only on `yielded`: every
-    // other outcome is terminal for this job, and chaining on them would spin.
-    if (outcome.status === 'yielded') {
+    // ── KEEP GOING WHILE THERE IS PROGRESS TO MAKE ────────────────────────
+    //
+    // One invocation handles one job, so without this a four-file estate takes
+    // four ticks and a seven-part one takes seven minutes -- almost all of it
+    // spent waiting rather than working. Measured: a 67,267-row import
+    // completed in about two seconds of work after thirty seconds of waiting
+    // for the next tick.
+    //
+    // Chaining is limited to the two outcomes that represent forward progress.
+    // `yielded` means this job has more to do; `complete` means it is done and
+    // the queue may hold another. Both terminate -- each hop either finishes a
+    // job or advances a checkpoint, and `idle` ends the chain. Chaining on
+    // `failed` or `superseded` would spin on a job that is not moving.
+    if (outcome.status === 'yielded' || outcome.status === 'complete') {
       const site = envOptional('NEXT_PUBLIC_SITE_URL');
       const secret = envOptional('CRON_SECRET');
       if (site !== null && secret !== null) {
@@ -154,5 +165,9 @@ export async function GET(): Promise<NextResponse> {
   return NextResponse.json({
     worker: workerConfigured() ? 'configured' : 'not-configured',
     schedulerSecret: envOptional('CRON_SECRET') !== null ? 'configured' : 'not-configured',
+    // The origin a finishing worker calls to wake its successor. Absent, every
+    // job waits for the next scheduled tick instead of chaining -- which looks
+    // like slowness rather than misconfiguration, so it is reported.
+    wakeOrigin: envOptional('NEXT_PUBLIC_SITE_URL') ?? 'not-configured',
   });
 }
