@@ -77,7 +77,14 @@ alter table public.analytics_projections
   alter column payload drop not null,
   alter column payload_bytes drop not null,
   alter column stored_rows drop not null,
-  alter column analyzed_rows drop not null;
+  alter column analyzed_rows drop not null,
+  -- And this one, which was missed first time round: at claim time there is no
+  -- key for the readable payload because there is no readable payload, and the
+  -- key being built lives in building_evidence_key. Omitting it meant the very
+  -- first claim for any tenant died on a not-null violation, so no build ever
+  -- started - found against production, with 67,267 rows durably imported and
+  -- no analysis ever produced.
+  alter column evidence_key drop not null;
 
 -- A readable payload and a state of `ready` must agree. This is the invariant
 -- the whole phase rests on: nothing can be marked ready without the analysis
