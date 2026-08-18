@@ -56,8 +56,20 @@ export { hasSupabaseEnv } from '@/lib/supabase/server';
 async function db(): Promise<SupabaseClient> {
   return userClient();
 }
-/** Chunked so a large import does not exceed request limits. */
-const INSERT_CHUNK = 500;
+/**
+ * Rows per insert request.
+ *
+ * Measured in production at 68k rows, chunked 500 at a time: 135 round trips,
+ * 15,875 ms, 117.6 ms each. Against that, the single-row insert into `imports`
+ * in the same request took 107 ms and a trivial SELECT took 66 ms. Five hundred
+ * rows therefore cost about ten milliseconds more than one -- roughly 0.02 ms
+ * of database work per row against ~107 ms of fixed cost per request.
+ *
+ * Persistence was never database-bound. It was bound by the number of times we
+ * crossed the network, so the fix is to cross it far less often. Overridable so
+ * the value can be calibrated against production rather than argued about.
+ */
+const INSERT_CHUNK = Number(process.env.ENGISIGNAL_INSERT_CHUNK ?? 5000);
 
 /**
  * Every chunk is one PostgREST round trip, awaited before the next begins. That
