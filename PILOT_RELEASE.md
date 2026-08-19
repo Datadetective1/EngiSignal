@@ -1,6 +1,10 @@
 # Pilot Release — v0.1.0-pilot.2
 
-**Tagged commit:** `157a4e5` · **Tested:** 19 August 2026 · **Environment:** production (`iad1`)
+**Verified build:** `157a4e5` · **Tested:** 19 August 2026 · **Environment:** production (`iad1`)
+
+The `v0.1.0-pilot.2` tag sits on the commit that adds this record. Its application
+code is byte-identical to `157a4e5`, the build every check below was run against —
+`git diff 157a4e5..v0.1.0-pilot.2` touches this file and nothing else.
 
 Supersedes `v0.1.0-pilot.1` (`986d3b8`). That tag remains valid for what it
 recorded; everything below it still holds. This release adds the pilot-operations
