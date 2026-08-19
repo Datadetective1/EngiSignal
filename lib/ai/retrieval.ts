@@ -9,13 +9,16 @@
 import { formatDate } from '@/lib/analytics/dates';
 import { computeForecast } from '@/lib/analytics/forecast';
 import {
+  COST_NOT_PROVIDED,
   formatCurrency,
   formatCurrencyExact,
   formatNumber,
   formatPercent,
   formatSignedPercent,
+  hasCostEvidence,
 } from '@/lib/analytics/financial';
 import type { Workspace } from '@/lib/workspace';
+import { INSUFFICIENT_TREND_LABEL, annualizedTrend } from '@/lib/analytics/trend';
 
 export interface RetrievedAnswer {
   intent: string;
@@ -74,7 +77,9 @@ export function retrieve(workspace: Workspace, question: string): RetrievedAnswe
 
     return {
       intent: 'savings',
-      headline: `${formatCurrency(totals.optimizationOpportunity)} of annual optimization opportunity across the portfolio.`,
+      headline: hasCostEvidence(totals)
+        ? `${formatCurrency(totals.optimizationOpportunity)} of annual optimization opportunity across the portfolio.`
+        : `Optimization opportunity cannot be calculated: ${COST_NOT_PROVIDED.toLowerCase()} for any feature.`,
       facts: [
         { label: 'Total annual spend', value: formatCurrencyExact(totals.annualSpend) },
         { label: 'Total optimization opportunity', value: formatCurrencyExact(totals.optimizationOpportunity) },
@@ -134,7 +139,13 @@ export function retrieve(workspace: Workspace, question: string): RetrievedAnswe
               { label: 'Observed days', value: formatNumber(feature.metrics.observedDays) },
               { label: 'Utilization at P95', value: formatPercent(feature.metrics.utilizationPct) },
               { label: 'Saturation days', value: formatNumber(feature.metrics.saturationDays) },
-              { label: 'Demand trend', value: `${formatSignedPercent(feature.metrics.trendPctPerYear)} per year` },
+              {
+                label: 'Demand trend',
+                value:
+                  annualizedTrend(feature.metrics) === null
+                    ? INSUFFICIENT_TREND_LABEL
+                    : `${formatSignedPercent(annualizedTrend(feature.metrics))} per year`,
+              },
             ]),
         ...(feature.namedUser === null
           ? []
@@ -328,7 +339,9 @@ export function retrieve(workspace: Workspace, question: string): RetrievedAnswe
   // ── Fallback: portfolio position ─────────────────────────────────────────
   return {
     intent: 'overview',
-    headline: `${dataset.organization.name} commits ${formatCurrency(totals.annualSpend)} annually across ${formatNumber(portfolio.length)} features.`,
+    headline: hasCostEvidence(totals)
+      ? `${dataset.organization.name} commits ${formatCurrency(totals.annualSpend)} annually across ${formatNumber(portfolio.length)} features.`
+      : `${dataset.organization.name} has ${formatNumber(portfolio.length)} analyzed features. ${COST_NOT_PROVIDED}, so no annual value can be stated.`,
     facts: [
       { label: 'Annual spend', value: formatCurrencyExact(totals.annualSpend) },
       { label: 'Optimization opportunity', value: formatCurrencyExact(totals.optimizationOpportunity) },

@@ -230,6 +230,11 @@ describe('describing the spend headline', () => {
       annualSpend: 1_759_000,
       purchasedCommitment: 2_209_000,
       purchasedPricedFeatures: 2,
+      // Served spend cannot exist without priced features: computePortfolioTotals
+      // adds to `annualSpend` only inside the branch that increments this
+      // counter. The fixture omitted it, which described a portfolio worth
+      // $1.76M in which nothing had a price.
+      pricedFeatures: 2,
       commitmentGap: 450_000,
       ...over,
     }) as PortfolioTotals;

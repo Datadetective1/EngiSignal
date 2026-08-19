@@ -146,9 +146,14 @@ describe('every dashboard card on an empty workspace', () => {
     });
   }
 
-  it('names the spend headline honestly with no contract evidence', () => {
-    expect(headline.label).toBe('Served capacity value');
-    expect(headline.basis).toContain('not a purchased commitment');
+  it('refuses to value an estate in which nothing has a price', () => {
+    // This workspace has no contracts AND no entitlements, so both the served
+    // and purchased sums are zero because there is nothing to add up -- not
+    // because the software is free. It used to be labelled "Served capacity
+    // value $0", which states a valuation nobody computed.
+    expect(headline.value).toBeNull();
+    expect(formatCurrency(headline.value)).toBe('—');
+    expect(headline.basis).toMatch(/no unit prices or contract costs/i);
   });
 
   it('does not invent a cost per engineer without headcount', () => {

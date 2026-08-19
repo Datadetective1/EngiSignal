@@ -283,9 +283,44 @@ export function formatSignedPercent(value: number | null, decimals = 1): string 
  * exists it leads and is called a commitment; where only entitlement evidence
  * exists the figure is called what it is.
  */
+/**
+ * ── MISSING COST IS NOT ZERO ────────────────────────────────────────────────
+ *
+ * Every money total here is a sum. A portfolio where no feature carries a price
+ * sums to 0, and 0 renders as "$0" — a figure that says the customer's
+ * engineering software is free. During onboarding, before contracts are
+ * uploaded, that is the state every pilot customer is in, and the executive
+ * brief was reporting "Optimization opportunity $0" as though it were a finding
+ * rather than an absence.
+ *
+ * The evidence check is the feature COUNT, never the amount: a genuinely zero
+ * cost and an absent one are identical in the number alone. Both counters
+ * already existed — nothing here changes a calculation, only whether the result
+ * is presented as an answer.
+ */
+export const COST_NOT_PROVIDED = 'Cost data not provided';
+
+/** Whether any feature carries price evidence, from either contract or entitlement. */
+export function hasCostEvidence(totals: PortfolioTotals): boolean {
+  return totals.pricedFeatures > 0 || totals.purchasedPricedFeatures > 0;
+}
+
+/**
+ * A money figure, or null when the portfolio carries no price evidence at all.
+ *
+ * `formatCurrency(null)` already renders "—", so passing a total through this
+ * is all a surface needs to stop claiming zero. Where prices do exist, the
+ * value is returned untouched — including a real zero, which is a measurement.
+ */
+export function costFigure(value: number | null, totals: PortfolioTotals): number | null {
+  if (!hasCostEvidence(totals)) return null;
+  return value;
+}
+
 export interface SpendHeadline {
   label: string;
-  value: number;
+  /** Null when no price evidence exists at all. Renders as "—". */
+  value: number | null;
   /** The other figure, when both exist and disagree. Null otherwise. */
   contrast: { label: string; value: number } | null;
   /** One plain sentence naming the basis. */
@@ -295,6 +330,17 @@ export interface SpendHeadline {
 export function describeSpendHeadline(totals: PortfolioTotals): SpendHeadline {
   const served = totals.annualSpend;
   const purchased = totals.purchasedCommitment;
+
+  // Nothing priced, from either source. Both sums are 0 and neither means it.
+  if (!hasCostEvidence(totals)) {
+    return {
+      label: 'Annual spend',
+      value: null,
+      contrast: null,
+      basis:
+        'No unit prices or contract costs have been imported, so the value of this estate cannot be stated. Import contracts and cost data to price the portfolio.',
+    };
+  }
 
   // `purchasedCommitment` is 0, not null, when nothing was priced from a
   // contract — so the feature COUNT is the evidence check, not the amount. A

@@ -14,6 +14,7 @@ import { PERIOD_LABELS, formatDate } from './dates';
 import { formatCurrencyExact, formatNumber, formatPercent, formatSignedPercent } from './financial';
 import { percentileLabel } from './rightsizing';
 import { round } from './stats';
+import { INSUFFICIENT_TREND_LABEL, annualizedTrend } from './trend';
 
 export function buildRecommendationEvidence(row: PortfolioRow): EvidenceRecord {
   const { metrics, rightSizing, financial, namedUser, denials } = row;
@@ -94,7 +95,10 @@ export function buildRecommendationEvidence(row: PortfolioRow): EvidenceRecord {
     });
     observations.push({
       label: 'Demand trend',
-      value: `${formatSignedPercent(metrics.trendPctPerYear)} / year`,
+      value:
+        annualizedTrend(metrics) === null
+          ? INSUFFICIENT_TREND_LABEL
+          : `${formatSignedPercent(annualizedTrend(metrics))} / year`,
     });
     observations.push({
       label: 'Volatility',

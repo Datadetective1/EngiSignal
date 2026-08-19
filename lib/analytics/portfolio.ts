@@ -31,6 +31,7 @@ import { computeNamedUserMetrics, computeNamedUserRightSizing } from './named-us
 import { computeRightSizing } from './rightsizing';
 import { computeTokenMetrics } from './tokens';
 import { round } from './stats';
+import { annualizedTrend } from './trend';
 
 const RISK_ORDER: RiskLevel[] = ['Low', 'Moderate', 'High', 'Critical'];
 
@@ -402,11 +403,18 @@ export function buildRenewals(
         incrementalSpend += f.incrementalSpend ?? 0;
       }
       if (row.risk === 'High' || row.risk === 'Critical') capacityExposure += 1;
-      if (row.metrics !== null) {
-        // Weight the trend by spend so a large product dominates the headline
-        // figure, rather than a $2K feature swinging a $4M renewal.
+      // Weight the trend by spend so a large product dominates the headline
+      // figure, rather than a $2K feature swinging a $4M renewal.
+      //
+      // Features without enough history contribute nothing rather than
+      // contributing a slope extrapolated from a few days -- one such feature
+      // in the average drags the whole agreement's headline trend with it. When
+      // every feature has real history, which is the normal case, this computes
+      // exactly what it always did.
+      const rowTrend = annualizedTrend(row.metrics);
+      if (rowTrend !== null) {
         const weight = row.financial.currentAnnualCost ?? 1;
-        trendWeighted += row.metrics.trendPctPerYear * weight;
+        trendWeighted += rowTrend * weight;
         trendWeightSum += weight;
       }
     }
@@ -428,7 +436,7 @@ export function buildRenewals(
       optimizationOpportunity: priced ? round(optimizationOpportunity, 2) : null,
       incrementalSpend: priced ? round(incrementalSpend, 2) : null,
       capacityExposure,
-      demandTrendPct: trendWeightSum > 0 ? round(trendWeighted / trendWeightSum, 1) : 0,
+      demandTrendPct: trendWeightSum > 0 ? round(trendWeighted / trendWeightSum, 1) : null,
       headcountImpactPct: round((dataset.organization.headcountGrowthRate ?? 0) * 100, 1),
       confidence: aggregateConfidence(rows.map((r) => r.confidence)),
     });

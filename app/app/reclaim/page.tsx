@@ -12,7 +12,14 @@ import {
   Th,
 } from '@/components/ui/primitives';
 import { formatDate } from '@/lib/analytics/dates';
-import { formatCurrency, formatCurrencyExact, formatNumber } from '@/lib/analytics/financial';
+import {
+  COST_NOT_PROVIDED,
+  costFigure,
+  formatCurrency,
+  formatCurrencyExact,
+  formatNumber,
+  hasCostEvidence,
+} from '@/lib/analytics/financial';
 import { buildReclaimCandidates, reclaimValue } from '@/lib/analytics/named-user';
 import { getDataProvider } from '@/lib/data';
 import type { ReclaimStatus } from '@/lib/domain/types';
@@ -71,7 +78,7 @@ export default async function ReclaimPage({
   if (!analyticsAvailable(workspace.integrity)) return <AnalyticsWithheld integrity={workspace.integrity} />;
 
   const params = await searchParams;
-  const { dataset, portfolio, organization, options } = workspace;
+  const { dataset, portfolio, organization, options, totals } = workspace;
 
   const employees = employeeIndex(dataset);
   const employeeContext = new Map(
@@ -127,7 +134,12 @@ export default async function ReclaimPage({
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi label="Candidates" value={formatNumber(candidates.length)} detail="Across named-user products" />
-        <Kpi label="Annual value" value={formatCurrency(totalValue)} tone="positive" detail="If every candidate is reclaimed" />
+        <Kpi
+          label="Annual value"
+          value={formatCurrency(costFigure(totalValue, totals))}
+          tone="positive"
+          detail={hasCostEvidence(totals) ? 'If every candidate is reclaimed' : COST_NOT_PROVIDED}
+        />
         <Kpi
           label="Reviewed"
           value={`${formatNumber(decided)} / ${formatNumber(candidates.length)}`}

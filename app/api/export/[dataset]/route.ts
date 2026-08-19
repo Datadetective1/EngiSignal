@@ -8,6 +8,7 @@ import {
 import { buildReclaimCandidates } from '@/lib/analytics/named-user';
 import { daysInactive } from '@/lib/analytics/named-user';
 import { csvResponse, toCsv } from '@/lib/export/csv';
+import { annualizedTrend } from '@/lib/analytics/trend';
 import type { DimensionKey } from '@/lib/domain/types';
 import { employeeIndex, loadWorkspace } from '@/lib/workspace';
 
@@ -37,7 +38,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ data
         row.vendorName, row.productName, row.featureName, row.featureCode, row.licenseModel,
         row.entitled, row.metrics?.p95 ?? '', row.metrics?.max ?? '',
         row.metrics?.utilizationPct ?? row.namedUser?.utilizationPct ?? '',
-        row.metrics?.saturationDays ?? '', row.metrics?.trendPctPerYear ?? '',
+        row.metrics?.saturationDays ?? '',
+        // An empty cell, not a number, when the history behind the trend is
+        // too short to support one. A spreadsheet formula over this column
+        // must not silently average in a slope taken from three days.
+        annualizedTrend(row.metrics) ?? '',
         row.unitPrice ?? '', row.financial.currentAnnualCost ?? '',
         row.rightSizing?.recommended ?? '', row.rightSizing?.quantityDelta ?? '',
         row.financial.optimizationOpportunity ?? '', row.financial.incrementalSpend ?? '',
@@ -175,7 +180,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ data
         renewal.vendorName, renewal.agreementName ?? '', renewal.contractNumber, renewal.renewalDate,
         renewal.daysRemaining, renewal.stage, renewal.itemCount, renewal.currentAnnualSpend ?? '',
         renewal.recommendedAnnualSpend ?? '', renewal.optimizationOpportunity ?? '',
-        renewal.incrementalSpend ?? '', renewal.capacityExposure, renewal.demandTrendPct,
+        renewal.incrementalSpend ?? '', renewal.capacityExposure, renewal.demandTrendPct ?? '',
         renewal.headcountImpactPct, renewal.confidence.level,
       ]);
       return csvResponse(`engisignal-renewals-${stamp}.csv`, toCsv(headers, rows));

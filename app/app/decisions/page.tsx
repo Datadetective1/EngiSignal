@@ -13,7 +13,13 @@ import {
   Td,
   Th,
 } from '@/components/ui/primitives';
-import { formatCurrency, formatNumber } from '@/lib/analytics/financial';
+import {
+  COST_NOT_PROVIDED,
+  costFigure,
+  formatCurrency,
+  formatNumber,
+  hasCostEvidence,
+} from '@/lib/analytics/financial';
 import { getDataProvider } from '@/lib/data';
 import { getDecisionOverrides } from '@/lib/data/mock-provider';
 import { DECISION_STATUS_LABELS, DECISION_TYPE_LABELS, buildDecisions } from '@/lib/decisions';
@@ -50,7 +56,7 @@ export default async function DecisionsPage({
 }) {
   const workspace = await loadWorkspace();
   const params = await searchParams;
-  const { organization, signals } = workspace;
+  const { organization, signals, totals } = workspace;
 
   const overrides = getDecisionOverrides(organization.id);
   const all = buildDecisions(organization.id, signals, overrides);
@@ -76,7 +82,16 @@ export default async function DecisionsPage({
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi label="Decisions" value={formatNumber(all.length)} detail={`${open.length} still open`} />
-        <Kpi label="Value at stake" value={formatCurrency(totalImpact)} tone="accent" detail="Absolute annual impact across the queue" />
+        <Kpi
+          label="Value at stake"
+          value={formatCurrency(costFigure(totalImpact, totals))}
+          tone="accent"
+          detail={
+            hasCostEvidence(totals)
+              ? 'Absolute annual impact across the queue'
+              : COST_NOT_PROVIDED
+          }
+        />
         <Kpi
           label="Urgent"
           value={formatNumber(urgent.length)}

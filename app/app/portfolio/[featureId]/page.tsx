@@ -29,6 +29,7 @@ import { AnalyticsWithheld } from '@/components/app/data-integrity';
 import { analyticsAvailable } from '@/lib/analytics/integrity';
 import { decodeRouteId, encodeRouteId, renewalHref } from '@/lib/routes';
 import { employeeIndex, loadWorkspace } from '@/lib/workspace';
+import { INSUFFICIENT_TREND_LABEL, annualizedTrend } from '@/lib/analytics/trend';
 
 export const metadata: Metadata = { title: 'Feature detail' };
 
@@ -207,7 +208,9 @@ export default async function FeatureDetailPage({
             description={`${formatDate(row.metrics.window.start)} – ${formatDate(row.metrics.window.end)} · ${formatNumber(row.metrics.observedDays)} observed days`}
             action={
               <span className="tnum text-[12px] text-fg-muted">
-                Trend {formatSignedPercent(row.metrics.trendPctPerYear)} / yr
+                {annualizedTrend(row.metrics) === null
+                  ? INSUFFICIENT_TREND_LABEL
+                  : `Trend ${formatSignedPercent(annualizedTrend(row.metrics))} / yr`}
               </span>
             }
           />

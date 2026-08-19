@@ -13,11 +13,14 @@ import {
 import { Sparkline } from '@/components/charts';
 import { formatDate } from '@/lib/analytics/dates';
 import {
+  COST_NOT_PROVIDED,
+  costFigure,
   costPerEngineer,
   describeSpendHeadline,
   describeSpendShare,
   formatCurrency,
   formatNumber,
+  hasCostEvidence,
 } from '@/lib/analytics/financial';
 import { computeForecast } from '@/lib/analytics/forecast';
 import { forecastPortfolioSpend } from '@/lib/analytics/forecast';
@@ -102,9 +105,13 @@ export default async function IntelligencePage() {
           />
           <Kpi
             label="Optimization"
-            value={formatCurrency(totals.optimizationOpportunity)}
+            value={formatCurrency(costFigure(totals.optimizationOpportunity, totals))}
             tone="positive"
-            detail={describeSpendShare(totals.optimizationOpportunity, totals.annualSpend)}
+            detail={
+              hasCostEvidence(totals)
+                ? describeSpendShare(totals.optimizationOpportunity, totals.annualSpend)
+                : COST_NOT_PROVIDED
+            }
             href="/app/portfolio"
           />
           <Kpi

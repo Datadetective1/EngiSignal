@@ -1,7 +1,11 @@
 import type { Metadata } from 'next';
 import { PortfolioTable, type PortfolioTableRow } from '@/components/app/portfolio-table';
 import { MethodologyNote, SectionHeading } from '@/components/ui/primitives';
-import { formatCurrency } from '@/lib/analytics/financial';
+import {
+  COST_NOT_PROVIDED,
+  formatCurrency,
+  hasCostEvidence,
+} from '@/lib/analytics/financial';
 import { loadWorkspace } from '@/lib/workspace';
 import { AnalyticsWithheld } from '@/components/app/data-integrity';
 import { analyticsAvailable } from '@/lib/analytics/integrity';
@@ -56,7 +60,9 @@ export default async function PortfolioPage({
         description={
           totals.purchasedPricedFeatures > 0
             ? `${portfolio.length} features across ${totals.vendorCount} vendors. ${formatCurrency(totals.purchasedCommitment)} purchased commitment, ${formatCurrency(totals.annualSpend)} of served capacity.`
-            : `${portfolio.length} features across ${totals.vendorCount} vendors, ${formatCurrency(totals.annualSpend)} of served capacity valued annually. Import contract quantities to state a purchased commitment.`
+            : hasCostEvidence(totals)
+              ? `${portfolio.length} features across ${totals.vendorCount} vendors, ${formatCurrency(totals.annualSpend)} of served capacity valued annually. Import contract quantities to state a purchased commitment.`
+              : `${portfolio.length} features analyzed. ${COST_NOT_PROVIDED}, so no annual value is stated — import contracts or a price list to value this estate.`
         }
       />
 

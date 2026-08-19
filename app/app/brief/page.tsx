@@ -7,14 +7,17 @@ import { Badge, TableShell, Td, Th } from '@/components/ui/primitives';
 import { brand } from '@/config/brand';
 import { formatDate } from '@/lib/analytics/dates';
 import {
+  COST_NOT_PROVIDED,
+  costFigure,
   costPerEngineer,
+  describeSpendHeadline,
+  describeSpendShare,
   formatCurrency,
   formatCurrencyExact,
   formatNumber,
   formatPercent,
   formatSignedPercent,
-  describeSpendHeadline,
-  describeSpendShare,
+  hasCostEvidence,
 } from '@/lib/analytics/financial';
 import { computeForecast, forecastPortfolioSpend } from '@/lib/analytics/forecast';
 import { SIGNAL_LABELS } from '@/lib/analytics/signals';
@@ -135,15 +138,23 @@ export default async function ExecutiveBriefPage() {
             />
             <BriefKpi
               label="Optimization opportunity"
-              value={formatCurrency(totals.optimizationOpportunity)}
+              value={formatCurrency(costFigure(totals.optimizationOpportunity, totals))}
               tone="positive"
-              sub={describeSpendShare(totals.optimizationOpportunity, totals.annualSpend)}
+              sub={
+                hasCostEvidence(totals)
+                  ? describeSpendShare(totals.optimizationOpportunity, totals.annualSpend)
+                  : COST_NOT_PROVIDED
+              }
             />
             <BriefKpi
               label="Forecast spend"
-              value={formatCurrency(forecastSpend)}
-              tone={forecastSpend > totals.annualSpend ? 'danger' : 'positive'}
-              sub={`At ${formatSignedPercent(headcountGrowth * 100, 0)} headcount growth`}
+              value={formatCurrency(costFigure(forecastSpend, totals))}
+              tone={hasCostEvidence(totals) && forecastSpend > totals.annualSpend ? 'danger' : 'positive'}
+              sub={
+                hasCostEvidence(totals)
+                  ? `At ${formatSignedPercent(headcountGrowth * 100, 0)} headcount growth`
+                  : COST_NOT_PROVIDED
+              }
             />
           </div>
         </section>
@@ -224,10 +235,20 @@ export default async function ExecutiveBriefPage() {
           </TableShell>
 
           <p className="mt-3 text-[11.5px] leading-relaxed text-fg-subtle">
-            Unused concurrent capacity above P95 demand alone accounts for{' '}
-            {formatCurrencyExact(unusedCapacity.amount)} across {unusedCapacity.featureCount} features.
-            Named-user waste adds {formatCurrencyExact(reclaimTotal)} across {formatNumber(reclaimSeats)} idle
-            seats. The two are reported separately because they use different definitions of waste.
+            {hasCostEvidence(totals) ? (
+              <>
+                Unused concurrent capacity above P95 demand alone accounts for{' '}
+                {formatCurrencyExact(unusedCapacity.amount)} across {unusedCapacity.featureCount} features.
+                Named-user waste adds {formatCurrencyExact(reclaimTotal)} across {formatNumber(reclaimSeats)} idle
+                seats. The two are reported separately because they use different definitions of waste.
+              </>
+            ) : (
+              <>
+                Unused capacity cannot be valued: {COST_NOT_PROVIDED.toLowerCase()} for any feature. Import
+                contract or price data to put a figure on the {unusedCapacity.featureCount} features carrying
+                capacity above P95 demand and the {formatNumber(reclaimSeats)} idle named-user seats.
+              </>
+            )}
           </p>
         </BriefSection>
 

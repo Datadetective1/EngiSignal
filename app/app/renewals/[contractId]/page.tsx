@@ -29,6 +29,7 @@ import { AnalyticsWithheld } from '@/components/app/data-integrity';
 import { analyticsAvailable } from '@/lib/analytics/integrity';
 import { decodeRouteId, featureHref, renewalBriefHref } from '@/lib/routes';
 import { loadWorkspace } from '@/lib/workspace';
+import { INSUFFICIENT_TREND_SHORT } from '@/lib/analytics/trend';
 
 export const metadata: Metadata = { title: 'Renewal' };
 
@@ -232,7 +233,11 @@ export default async function RenewalDetailPage({
           <div className="px-5 py-4">
             <MetricRow
               label="Demand trend"
-              value={`${formatSignedPercent(renewal.demandTrendPct)} / yr`}
+              value={
+                renewal.demandTrendPct === null
+                  ? INSUFFICIENT_TREND_SHORT
+                  : `${formatSignedPercent(renewal.demandTrendPct)} / yr`
+              }
               note="Spend-weighted across the agreement"
             />
             <MetricRow

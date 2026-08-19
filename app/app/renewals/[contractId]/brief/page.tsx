@@ -18,6 +18,12 @@ import { AnalyticsWithheld } from '@/components/app/data-integrity';
 import { analyticsAvailable } from '@/lib/analytics/integrity';
 import { decodeRouteId, renewalHref } from '@/lib/routes';
 import { employeeIndex, loadWorkspace } from '@/lib/workspace';
+import {
+  INSUFFICIENT_TREND_LABEL,
+  INSUFFICIENT_TREND_SHORT,
+  MINIMUM_TREND_HISTORY_DAYS,
+  annualizedTrend,
+} from '@/lib/analytics/trend';
 
 export const metadata: Metadata = { title: 'Negotiation brief' };
 
@@ -268,26 +274,40 @@ export default async function NegotiationBriefPage({
                 .map((row) => (
                   <tr key={row.featureId}>
                     <Td>{row.featureName}</Td>
-                    <Td align="right" className={row.metrics!.trendPctPerYear > 0 ? 'text-danger' : 'text-positive'}>
-                      {formatSignedPercent(row.metrics!.trendPctPerYear)}
+                    <Td
+                      align="right"
+                      className={
+                        annualizedTrend(row.metrics) === null
+                          ? 'text-fg-subtle'
+                          : annualizedTrend(row.metrics)! > 0
+                            ? 'text-danger'
+                            : 'text-positive'
+                      }
+                    >
+                      {annualizedTrend(row.metrics) === null
+                        ? INSUFFICIENT_TREND_SHORT
+                        : formatSignedPercent(annualizedTrend(row.metrics))}
                     </Td>
                     <Td align="right" className="text-fg-muted">
                       {row.metrics!.volatility.toFixed(2)}
                     </Td>
                     <Td className="text-fg-muted">
-                      {Math.abs(row.metrics!.trendPctPerYear) < 5
-                        ? 'Stable'
-                        : row.metrics!.trendPctPerYear > 0
-                          ? 'Growing'
-                          : 'Declining'}
+                      {annualizedTrend(row.metrics) === null
+                        ? 'Not enough history'
+                        : Math.abs(annualizedTrend(row.metrics)!) < 5
+                          ? 'Stable'
+                          : annualizedTrend(row.metrics)! > 0
+                            ? 'Growing'
+                            : 'Declining'}
                     </Td>
                   </tr>
                 ))}
             </tbody>
           </TableShell>
           <p className="mt-3 text-[11.5px] leading-relaxed text-fg-subtle">
-            Spend-weighted trend across the agreement is {formatSignedPercent(renewal.demandTrendPct)} per
-            year.
+            {renewal.demandTrendPct === null
+              ? `${INSUFFICIENT_TREND_LABEL} across this agreement: no feature carries at least ${MINIMUM_TREND_HISTORY_DAYS} days of observed history.`
+              : `Spend-weighted trend across the agreement is ${formatSignedPercent(renewal.demandTrendPct)} per year.`}
           </p>
         </BriefSection>
 

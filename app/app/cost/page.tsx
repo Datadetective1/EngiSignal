@@ -20,12 +20,14 @@ import {
   type AllocationMethod,
 } from '@/lib/analytics/allocation';
 import {
+  COST_NOT_PROVIDED,
   costPerActiveUser,
   costPerEngineer,
   describeSpendHeadline,
   formatCurrency,
   formatNumber,
   formatPercent,
+  hasCostEvidence,
 } from '@/lib/analytics/financial';
 import type { DimensionKey } from '@/lib/domain/types';
 import { loadWorkspace } from '@/lib/workspace';
@@ -136,9 +138,11 @@ export default async function CostPage({
           label={headline.label}
           value={formatCurrency(headline.value)}
           detail={
-            headline.contrast === null
-              ? `${totals.featureCount} features`
-              : `${headline.contrast.label} ${formatCurrency(headline.contrast.value)}`
+            !hasCostEvidence(totals)
+              ? COST_NOT_PROVIDED
+              : headline.contrast === null
+                ? `${totals.featureCount} features`
+                : `${headline.contrast.label} ${formatCurrency(headline.contrast.value)}`
           }
         />
         <Kpi
@@ -159,8 +163,12 @@ export default async function CostPage({
         />
         <Kpi
           label="Vendor concentration"
-          value={formatPercent(totals.vendorConcentration * 100, 0)}
-          detail={`Largest vendor share of spend · ${vendorBars[0]?.label ?? '—'}`}
+          value={hasCostEvidence(totals) ? formatPercent(totals.vendorConcentration * 100, 0) : '—'}
+          detail={
+            hasCostEvidence(totals)
+              ? `Largest vendor share of spend · ${vendorBars[0]?.label ?? '—'}`
+              : COST_NOT_PROVIDED
+          }
         />
       </div>
 
@@ -315,8 +323,9 @@ export default async function CostPage({
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-3">
           <p className="tnum text-[12px] text-fg-muted">
-            Allocated {formatCurrency(allocation.totalAllocated)} of {formatCurrency(totals.annualSpend)}{' '}
-            total spend
+            {hasCostEvidence(totals)
+              ? `Allocated ${formatCurrency(allocation.totalAllocated)} of ${formatCurrency(totals.annualSpend)} total spend`
+              : COST_NOT_PROVIDED}
           </p>
           <a
             href={`/api/export/cost?dimension=${dimension}&method=${method}`}

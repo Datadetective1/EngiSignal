@@ -619,7 +619,14 @@ export interface RenewalSummary {
   optimizationOpportunity: number | null;
   incrementalSpend: number | null;
   capacityExposure: number;
-  demandTrendPct: number;
+  /**
+   * Spend-weighted annualized demand trend across the agreement's features.
+   *
+   * Null when no feature carries enough observed history to support one. It
+   * used to fall back to 0, which reads as "demand is flat" -- a claim, not an
+   * absence.
+   */
+  demandTrendPct: number | null;
   headcountImpactPct: number;
   confidence: ConfidenceResult;
 }

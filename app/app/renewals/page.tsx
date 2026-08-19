@@ -25,6 +25,7 @@ import { AnalyticsWithheld } from '@/components/app/data-integrity';
 import { analyticsAvailable } from '@/lib/analytics/integrity';
 import type { RenewalStage } from '@/lib/domain/types';
 import { renewalHref } from '@/lib/routes';
+import { INSUFFICIENT_TREND_SHORT } from '@/lib/analytics/trend';
 
 export const metadata: Metadata = { title: 'Renewals' };
 
@@ -393,7 +394,9 @@ export default async function RenewalsPage() {
                     )}
                   </Td>
                   <Td align="right" className="text-fg-muted">
-                    {formatSignedPercent(renewal.demandTrendPct)}
+                    {renewal.demandTrendPct === null
+                      ? INSUFFICIENT_TREND_SHORT
+                      : formatSignedPercent(renewal.demandTrendPct)}
                   </Td>
                   <Td align="right" className="text-fg-muted">
                     {formatSignedPercent(renewal.headcountImpactPct, 0)}

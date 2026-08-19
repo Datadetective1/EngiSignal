@@ -13,7 +13,14 @@ import {
 } from '@/components/ui/primitives';
 import { monthlyPeakSeries } from '@/lib/analytics/concurrent';
 import { formatMonth } from '@/lib/analytics/dates';
-import { formatCurrency, formatNumber, formatSignedPercent } from '@/lib/analytics/financial';
+import {
+  COST_NOT_PROVIDED,
+  costFigure,
+  formatCurrency,
+  formatNumber,
+  formatSignedPercent,
+  hasCostEvidence,
+} from '@/lib/analytics/financial';
 import { computeForecast, forecastPortfolioSpend, forecastSeries, trendClampNote } from '@/lib/analytics/forecast';
 import { loadWorkspace } from '@/lib/workspace';
 import { AnalyticsWithheld } from '@/components/app/data-integrity';
@@ -83,7 +90,11 @@ export default async function ForecastPage({
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Kpi label="Current annual spend" value={formatCurrency(totals.annualSpend)} detail="At today's quantities" />
+        <Kpi
+          label="Current annual spend"
+          value={formatCurrency(costFigure(totals.annualSpend, totals))}
+          detail={hasCostEvidence(totals) ? "At today's quantities" : COST_NOT_PROVIDED}
+        />
         <Kpi
           label="Forecast spend"
           value={formatCurrency(forecastSpend)}

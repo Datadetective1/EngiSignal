@@ -24,6 +24,7 @@ import { confidenceWeight } from './confidence';
 import { formatCurrency, formatNumber, formatPercent } from './financial';
 import type { ReconciliationSummary } from './reconciliation';
 import { clamp, round } from './stats';
+import { annualizedTrend, trendForProjection } from './trend';
 
 const RISK_WEIGHT: Record<RiskLevel, number> = {
   Low: 0.1,
@@ -257,19 +258,27 @@ export function reclaimSignals(portfolio: readonly PortfolioRow[]): Signal[] {
 
 export function usageSignals(portfolio: readonly PortfolioRow[]): Signal[] {
   return portfolio
-    .filter((row) => row.metrics !== null && Math.abs(row.metrics.trendPctPerYear) >= 25)
+    // A trend signal exists to say demand is moving. Below the minimum history
+    // there is no trend to report, so the signal is not raised at all -- this
+    // is where "trending down 24333.3% per year" reached an executive brief
+    // from three days of usage.
+    .filter((row) => {
+      const trend = annualizedTrend(row.metrics);
+      return trend !== null && Math.abs(trend) >= 25;
+    })
     .map((row) => {
       const metrics = row.metrics;
-      if (metrics === null) return null;
-      const rising = metrics.trendPctPerYear > 0;
+      const trend = annualizedTrend(metrics);
+      if (metrics === null || trend === null) return null;
+      const rising = trend > 0;
 
       return makeSignal({
         id: `usage:${row.featureId}`,
         kind: 'usage',
         title: `${row.productName} demand ${rising ? 'rising' : 'declining'}`,
-        subtitle: `Daily peak demand is trending ${rising ? 'up' : 'down'} ${formatPercent(Math.abs(metrics.trendPctPerYear))} per year.`,
+        subtitle: `Daily peak demand is trending ${rising ? 'up' : 'down'} ${formatPercent(Math.abs(trend))} per year.`,
         facts: [
-          { label: 'Trend', value: `${rising ? '+' : '-'}${formatPercent(Math.abs(metrics.trendPctPerYear))}/yr` },
+          { label: 'Trend', value: `${rising ? '+' : '-'}${formatPercent(Math.abs(trend))}/yr` },
           { label: 'P95 demand', value: formatNumber(metrics.p95, 0) },
           { label: 'Entitled', value: formatNumber(metrics.entitled) },
         ],
@@ -292,13 +301,16 @@ export function forecastSignals(portfolio: readonly PortfolioRow[]): Signal[] {
       const metrics = row.metrics;
       if (metrics === null) return false;
       // Demand projected to cross entitled capacity within the horizon.
-      const projected = metrics.p95 * (1 + Math.max(0, metrics.trendPctPerYear) / 100);
+      // Growth comes through the sufficiency guard: below the minimum history
+      // the neutral assumption is no observed growth, rather than compounding
+      // a slope measured across three days.
+      const projected = metrics.p95 * (1 + Math.max(0, trendForProjection(metrics)) / 100);
       return metrics.entitled > 0 && projected > metrics.entitled && metrics.utilizationPct < 100;
     })
     .map((row) => {
       const metrics = row.metrics;
       if (metrics === null) return null;
-      const projected = round(metrics.p95 * (1 + Math.max(0, metrics.trendPctPerYear) / 100), 0);
+      const projected = round(metrics.p95 * (1 + Math.max(0, trendForProjection(metrics)) / 100), 0);
 
       return makeSignal({
         id: `forecast:${row.featureId}`,
