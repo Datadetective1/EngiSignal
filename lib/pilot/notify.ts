@@ -28,6 +28,19 @@ import type { PilotRequest } from '@/lib/domain/types';
 
 export type NotifyOutcome = 'sent' | 'skipped' | 'failed';
 
+/**
+ * Whether operator notification is configured in this environment.
+ *
+ * Reports presence, never values. Vercel applies an environment change only on
+ * a new deployment, so "I set the variables" and "the running build can see
+ * them" are different facts -- and the difference is invisible from outside,
+ * because an unconfigured send is skipped silently by design. This is how an
+ * operator tells the two apart without reading logs.
+ */
+export function pilotNotificationConfigured(): boolean {
+  return readConfig() !== null;
+}
+
 /** Hard ceiling on how long a prospect waits for our own bookkeeping. */
 const SEND_TIMEOUT_MS = 4_000;
 

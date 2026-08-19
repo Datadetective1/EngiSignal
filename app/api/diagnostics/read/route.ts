@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireSession } from '@/lib/auth';
 import { getDataProvider } from '@/lib/data';
 import { shortEvidenceKey } from '@/lib/analytics/projection';
+import { pilotNotificationConfigured } from '@/lib/pilot/notify';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -61,6 +62,10 @@ export async function GET() {
   return NextResponse.json(
     {
       organization: { id: organization.id, name: organization.name },
+      // Presence only, never values. Answers "can this deployment actually
+      // send a pilot-request alert?", which is otherwise unobservable: an
+      // unconfigured send is skipped silently.
+      notifications: { pilotRequest: pilotNotificationConfigured() ? 'configured' : 'not configured' },
       timings: {
         session: sessionMs,
         organization: organizationMs,
