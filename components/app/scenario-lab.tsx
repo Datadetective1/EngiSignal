@@ -7,7 +7,13 @@ import { BulletChart, ChartLegend, DemandChart } from '@/components/charts';
 import { Badge, Card, CardHeader, MethodologyNote, MetricRow } from '@/components/ui/primitives';
 import { capacityRisk } from '@/lib/analytics/concurrent';
 import { INSUFFICIENT_TREND_LABEL, MINIMUM_TREND_HISTORY_DAYS } from '@/lib/analytics/trend';
-import { formatCurrency, formatCurrencyExact, formatNumber, formatPercent } from '@/lib/analytics/financial';
+import {
+  COST_NOT_PROVIDED,
+  formatCurrency,
+  formatCurrencyExact,
+  formatNumber,
+  formatPercent,
+} from '@/lib/analytics/financial';
 import { computeFinancial } from '@/lib/analytics/financial';
 import { computeRightSizing, describeMethodology } from '@/lib/analytics/rightsizing';
 import { ceilPrecise, percentile, round, trendPercentPerYear } from '@/lib/analytics/stats';
@@ -205,7 +211,12 @@ export function ScenarioLab({
       incremental += financial.incrementalSpend ?? 0;
     }
 
-    return { current, recommended, opportunity, incremental, atRisk, net: opportunity - incremental };
+    // Whether any modelled feature carries a price at all. Without one every
+    // figure below is a sum of nothing, and the rollup read "$0 / $0 / $0 /
+    // $0 / −$0" as though the scenario were free.
+    const priced = features.some((feature) => feature.unitPrice !== null);
+
+    return { current, recommended, opportunity, incremental, atRisk, priced, net: opportunity - incremental };
   }, [features, periodDays, percentileValue, growthFactor, safetyFactor, escalationPct]);
 
   if (selected === undefined || detail === null) {
@@ -357,7 +368,9 @@ export function ScenarioLab({
           />
           <ScenarioFigure
             label={net >= 0 ? 'Annual opportunity' : 'Incremental spend'}
-            value={Math.abs(net)}
+            // "$0" beside "No unit price recorded" states an amount and denies
+            // its basis in the same card.
+            value={detail.financial.priced ? Math.abs(net) : null}
             format={(v) => formatCurrency(v)}
             tone={net > 0 ? 'positive' : net < 0 ? 'danger' : 'neutral'}
             sub={detail.financial.priced ? undefined : 'No unit price recorded'}
@@ -438,13 +451,31 @@ export function ScenarioLab({
           description="The same settings applied to every position, so a policy choice can be evaluated at portfolio scale."
         />
         <div className="grid gap-px bg-border sm:grid-cols-2 lg:grid-cols-5">
-          <RollupFigure label="Current spend" value={rollup.current} format={formatCurrency} />
-          <RollupFigure label="Recommended spend" value={rollup.recommended} format={formatCurrency} />
-          <RollupFigure label="Reductions" value={rollup.opportunity} format={formatCurrency} tone="positive" />
-          <RollupFigure label="Increases" value={rollup.incremental} format={formatCurrency} tone="danger" />
+          <RollupFigure
+            label="Current spend"
+            value={rollup.priced ? rollup.current : null}
+            format={formatCurrency}
+          />
+          <RollupFigure
+            label="Recommended spend"
+            value={rollup.priced ? rollup.recommended : null}
+            format={formatCurrency}
+          />
+          <RollupFigure
+            label="Reductions"
+            value={rollup.priced ? rollup.opportunity : null}
+            format={formatCurrency}
+            tone="positive"
+          />
+          <RollupFigure
+            label="Increases"
+            value={rollup.priced ? rollup.incremental : null}
+            format={formatCurrency}
+            tone="danger"
+          />
           <RollupFigure
             label="Net change"
-            value={Math.abs(rollup.net)}
+            value={rollup.priced ? Math.abs(rollup.net) : null}
             format={(v) => `${rollup.net >= 0 ? '−' : '+'}${formatCurrency(v)}`}
             tone={rollup.net >= 0 ? 'positive' : 'danger'}
           />
@@ -577,7 +608,8 @@ function ScenarioFigure({
   tone = 'neutral',
 }: {
   label: string;
-  value: number;
+  /** Null when the evidence for this figure was not supplied. */
+  value: number | null;
   format: (value: number) => string;
   sub?: string;
   accent?: boolean;
@@ -589,10 +621,12 @@ function ScenarioFigure({
       <p
         className={cn(
           'tnum mt-2 text-[30px] font-semibold leading-none tracking-[-0.03em]',
-          accent ? 'text-accent' : tone === 'positive' ? 'text-positive' : tone === 'danger' ? 'text-danger' : 'text-fg',
+          value === null
+            ? 'text-fg-subtle'
+            : accent ? 'text-accent' : tone === 'positive' ? 'text-positive' : tone === 'danger' ? 'text-danger' : 'text-fg',
         )}
       >
-        <AnimatedNumber value={value} format={format} />
+        {value === null ? '—' : <AnimatedNumber value={value} format={format} />}
       </p>
       {sub !== undefined && <p className="mt-2 text-[11.5px] text-fg-muted">{sub}</p>}
     </div>
@@ -606,7 +640,8 @@ function RollupFigure({
   tone = 'neutral',
 }: {
   label: string;
-  value: number;
+  /** Null when no modelled feature carries a price. Renders as an em dash. */
+  value: number | null;
   format: (value: number) => string;
   tone?: 'neutral' | 'positive' | 'danger';
 }) {
@@ -616,11 +651,18 @@ function RollupFigure({
       <p
         className={cn(
           'tnum mt-1.5 text-[19px] font-semibold tracking-[-0.02em]',
-          tone === 'positive' ? 'text-positive' : tone === 'danger' ? 'text-danger' : 'text-fg',
+          value === null
+            ? 'text-fg-subtle'
+            : tone === 'positive'
+              ? 'text-positive'
+              : tone === 'danger'
+                ? 'text-danger'
+                : 'text-fg',
         )}
       >
-        <AnimatedNumber value={value} format={format} />
+        {value === null ? '—' : <AnimatedNumber value={value} format={format} />}
       </p>
+      {value === null && <p className="mt-1.5 text-[11px] text-fg-subtle">{COST_NOT_PROVIDED}</p>}
     </div>
   );
 }
