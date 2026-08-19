@@ -147,9 +147,9 @@ export default async function ReclaimPage({
         />
         <Kpi
           label="Marked for reclaim"
-          value={formatCurrency(reclaimValue(toReclaim))}
+          value={formatCurrency(costFigure(reclaimValue(toReclaim), totals))}
           tone="accent"
-          detail={`${toReclaim.length} seats`}
+          detail={hasCostEvidence(totals) ? `${toReclaim.length} seats` : COST_NOT_PROVIDED}
         />
       </div>
 

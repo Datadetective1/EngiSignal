@@ -149,6 +149,10 @@ export function PortfolioTable({
     { cost: 0, opportunity: 0, incremental: 0 },
   );
 
+  // Summing `?? 0` over rows that all lack a price gives 0, which is printed
+  // beside the feature count as though the selection were worth nothing.
+  const anyPriced = filtered.some((row) => row.annualCost !== null);
+
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -182,7 +186,8 @@ export function PortfolioTable({
         </Select>
 
         <span className="tnum ml-auto text-[12px] text-fg-subtle">
-          {filtered.length} of {rows.length} features · {formatCurrency(totals.cost)}
+          {filtered.length} of {rows.length} features
+          {anyPriced ? ` · ${formatCurrency(totals.cost)}` : ''}
         </span>
         {/* A route handler returning Content-Disposition: attachment. next/link
             would client-navigate and never trigger the download, so a plain

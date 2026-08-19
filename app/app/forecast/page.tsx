@@ -165,8 +165,8 @@ export default async function ForecastPage({
               value={formatCurrency(selected.forecast.financialImpact)}
             />
           </div>
-          {selected.row.metrics !== null && trendClampNote(selected.row.metrics.trendPctPerYear) !== null && (
-            <MethodologyNote>{trendClampNote(selected.row.metrics.trendPctPerYear)}</MethodologyNote>
+          {selected.row.metrics !== null && trendClampNote(selected.row.metrics) !== null && (
+            <MethodologyNote>{trendClampNote(selected.row.metrics)}</MethodologyNote>
           )}
         </Card>
       )}

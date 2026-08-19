@@ -6,6 +6,7 @@ import { AnimatedNumber } from '@/components/app/animated-number';
 import { BulletChart, ChartLegend, DemandChart } from '@/components/charts';
 import { Badge, Card, CardHeader, MethodologyNote, MetricRow } from '@/components/ui/primitives';
 import { capacityRisk } from '@/lib/analytics/concurrent';
+import { INSUFFICIENT_TREND_LABEL, MINIMUM_TREND_HISTORY_DAYS } from '@/lib/analytics/trend';
 import { formatCurrency, formatCurrencyExact, formatNumber, formatPercent } from '@/lib/analytics/financial';
 import { computeFinancial } from '@/lib/analytics/financial';
 import { computeRightSizing, describeMethodology } from '@/lib/analytics/rightsizing';
@@ -99,7 +100,7 @@ export function ScenarioLab({
         dates: [] as string[],
         max: basis,
         utilization: selected.entitled > 0 ? round((basis / selected.entitled) * 100, 1) : 0,
-        trend: 0,
+        trend: null as number | null,
         methodology: `Users active within the configured threshold (${basis}), adjusted for ${growthPct}% growth and a ${safetyPct}% onboarding buffer, rounded up to a whole seat.`,
       };
     }
@@ -154,7 +155,9 @@ export function ScenarioLab({
       dates,
       max,
       utilization,
-      trend: round(trendPercentPerYear(peaks), 1),
+      // Null, not a number, when too few days were observed: this caption sat
+      // beside "2 observed days" and read "trend -24333.3% per year".
+      trend: peaks.length >= MINIMUM_TREND_HISTORY_DAYS ? round(trendPercentPerYear(peaks), 1) : null,
       methodology: describeMethodology({
         percentile: percentileValue,
         growthFactor,
@@ -393,7 +396,11 @@ export function ScenarioLab({
         <Card>
           <CardHeader
             title="Demand under these assumptions"
-            description={`${formatNumber(detail.peaks.length)} observed days · trend ${detail.trend > 0 ? '+' : ''}${detail.trend}% per year`}
+            description={
+              detail.trend === null
+                ? `${formatNumber(detail.peaks.length)} observed days · ${INSUFFICIENT_TREND_LABEL.toLowerCase()}`
+                : `${formatNumber(detail.peaks.length)} observed days · trend ${detail.trend > 0 ? '+' : ''}${detail.trend}% per year`
+            }
           />
           <div className="px-4 pb-3 pt-4">
             <DemandChart

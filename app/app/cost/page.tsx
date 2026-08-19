@@ -123,7 +123,12 @@ export default async function CostPage({
       .filter((a) => a.totalSessions > 0 || a.totalHours > 0 || a.lastUsedDate !== null)
       .map((a) => a.employeeId),
   ).size;
-  const perObservedUser = costPerActiveUser(totals.annualSpend, observedUsers);
+  // Null when there is no spend to divide, not just when there is nobody to
+  // divide it between: dividing an unpriced portfolio by three people yields
+  // $0 per person, which reads as a measurement.
+  const perObservedUser = hasCostEvidence(totals)
+    ? costPerActiveUser(totals.annualSpend, observedUsers)
+    : null;
 
   return (
     <div className="space-y-6">

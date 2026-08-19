@@ -16,6 +16,7 @@
 
 import type { ConcurrentMetrics, ForecastResult } from '@/lib/domain/types';
 import { ceilPrecise, clamp, round } from './stats';
+import { MINIMUM_TREND_HISTORY_DAYS, hasEnoughTrendHistory, trendForProjection } from './trend';
 import { DEFAULT_PERCENTILE, DEFAULT_SAFETY_FACTOR } from './rightsizing';
 
 /** Bounds applied to the annualized observed trend before extrapolation. */
@@ -41,7 +42,12 @@ export function computeForecast(input: ForecastInput): ForecastResult {
 
   const baseline = baselineFor(metrics, input.percentileValue ?? DEFAULT_PERCENTILE);
 
-  const clampedTrendPct = clamp(metrics.trendPctPerYear, TREND_CLAMP.min, TREND_CLAMP.max);
+  // The clamp bounds a trend that exists. It cannot rescue one that does not:
+  // three days of usage produced an observed -24,333%/yr, which the floor
+  // turned into a confident -30%/yr contraction assumption. Below the minimum
+  // history the growth input is zero -- no observed movement -- and the note
+  // below says so instead of quoting the unsupported slope.
+  const clampedTrendPct = clamp(trendForProjection(metrics), TREND_CLAMP.min, TREND_CLAMP.max);
   const trendGrowth = (clampedTrendPct / 100) * horizonYears;
   const headcountGrowth = input.headcountGrowthRate * horizonYears;
 
@@ -74,8 +80,19 @@ function baselineFor(metrics: ConcurrentMetrics, percentileValue: number): numbe
   return metrics.median;
 }
 
-/** Human-readable note describing whether the trend was clamped. */
-export function trendClampNote(rawTrendPct: number): string | null {
+/**
+ * Human-readable note describing whether the trend was clamped.
+ *
+ * Takes the metrics rather than a bare number so it can tell "clamped" from
+ * "unsupported". It used to print `Observed trend of -24333.3%/yr was floored
+ * at -30%/yr`, which quoted the very figure the guard exists to suppress and
+ * implied the forecast was working from a real contraction.
+ */
+export function trendClampNote(metrics: TrendNoteEvidence): string | null {
+  if (!hasEnoughTrendHistory(metrics)) {
+    return `Fewer than ${MINIMUM_TREND_HISTORY_DAYS} days of usage have been observed, so no demand trend is applied to this forecast. Headcount growth is the only growth assumption in use.`;
+  }
+  const rawTrendPct = metrics.trendPctPerYear;
   if (rawTrendPct > TREND_CLAMP.max) {
     return `Observed trend of ${round(rawTrendPct, 1)}%/yr was capped at ${TREND_CLAMP.max}%/yr for forecasting.`;
   }
@@ -83,6 +100,12 @@ export function trendClampNote(rawTrendPct: number): string | null {
     return `Observed trend of ${round(rawTrendPct, 1)}%/yr was floored at ${TREND_CLAMP.min}%/yr for forecasting.`;
   }
   return null;
+}
+
+/** What the note needs to decide between "clamped" and "not supported". */
+export interface TrendNoteEvidence {
+  observedDays: number;
+  trendPctPerYear: number;
 }
 
 /** Projected annual portfolio spend at the forecast position. */

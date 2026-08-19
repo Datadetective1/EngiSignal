@@ -139,16 +139,22 @@ export default async function IntelligencePage() {
           />
           <Kpi
             label="Forecast spend"
-            value={formatCurrency(forecastSpend)}
-            detail={`At ${((dataset.organization.headcountGrowthRate ?? 0) * 100).toFixed(0)}% headcount growth`}
+            value={formatCurrency(costFigure(forecastSpend, totals))}
+            detail={
+              hasCostEvidence(totals)
+                ? `At ${((dataset.organization.headcountGrowthRate ?? 0) * 100).toFixed(0)}% headcount growth`
+                : COST_NOT_PROVIDED
+            }
             href="/app/forecast"
           />
         </div>
 
         <MethodologyNote>
           Optimization is the annual value of entitled capacity above the recommended quantity, at contract
-          unit price. Unused concurrent capacity above P95 demand alone accounts for{' '}
-          {formatCurrency(unusedCapacity.amount)} across {unusedCapacity.featureCount} features.
+          unit price.{' '}
+          {hasCostEvidence(totals)
+            ? `Unused concurrent capacity above P95 demand alone accounts for ${formatCurrency(unusedCapacity.amount)} across ${unusedCapacity.featureCount} features.`
+            : `${COST_NOT_PROVIDED}, so unused capacity on the ${unusedCapacity.featureCount} features carrying it cannot be valued.`}
         </MethodologyNote>
       </section>
 

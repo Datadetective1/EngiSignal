@@ -101,9 +101,14 @@ describe('computeForecast', () => {
   });
 
   it('discloses the clamp rather than hiding it', () => {
-    expect(trendClampNote(400)).toContain('capped at 50%');
-    expect(trendClampNote(-95)).toContain('floored at -30%');
-    expect(trendClampNote(12)).toBeNull();
+    // Mature history: the clamp note behaves exactly as it always did.
+    expect(trendClampNote({ observedDays: 365, trendPctPerYear: 400 })).toContain('capped at 50%');
+    expect(trendClampNote({ observedDays: 365, trendPctPerYear: -95 })).toContain('floored at -30%');
+    expect(trendClampNote({ observedDays: 365, trendPctPerYear: 12 })).toBeNull();
+    // Too little history: the note names the absence rather than quoting a
+    // slope the evidence cannot support.
+    expect(trendClampNote({ observedDays: 3, trendPctPerYear: -24_333.3 })).toContain('no demand trend');
+    expect(trendClampNote({ observedDays: 3, trendPctPerYear: -24_333.3 })).not.toContain('24333');
   });
 
   it('scales growth by the forecast horizon', () => {

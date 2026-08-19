@@ -191,16 +191,25 @@ export default async function ExecutiveBriefPage() {
 
         {/* ── 2. Financial opportunity ──────────────────────────────────── */}
         <BriefSection number="02" title="Financial opportunity" subtitle="Where the money is, and what demand supports.">
-          <div className="mb-5">
-            <CostBridge
-              start={{ label: 'Current', value: totals.annualSpend }}
-              changes={[
-                { label: 'Reductions', delta: -totals.optimizationOpportunity },
-                { label: 'Increases', delta: totals.incrementalSpend },
-              ]}
-              formatValue={(value) => formatCurrency(value)}
-            />
-          </div>
+          {hasCostEvidence(totals) ? (
+            <div className="mb-5">
+              <CostBridge
+                start={{ label: 'Current', value: totals.annualSpend }}
+                changes={[
+                  { label: 'Reductions', delta: -totals.optimizationOpportunity },
+                  { label: 'Increases', delta: totals.incrementalSpend },
+                ]}
+                formatValue={(value) => formatCurrency(value)}
+              />
+            </div>
+          ) : (
+            // A bridge from $0 to $0 through $0 is not a financial position, it
+            // is four empty cells drawn as a chart.
+            <p className="mb-5 max-w-[70ch] text-[12px] leading-relaxed text-fg-muted">
+              {COST_NOT_PROVIDED}. Import contracts or a price list to value this portfolio and show
+              where reductions and increases fall.
+            </p>
+          )}
 
           <TableShell className="min-w-0">
             <thead>
@@ -335,7 +344,11 @@ export default async function ExecutiveBriefPage() {
         <BriefSection number="05" title="Forecast" subtitle="Where demand is heading over the next twelve months.">
           <div className="grid gap-4 sm:grid-cols-3">
             <BriefKpi label={headline.label} value={formatCurrencyExact(headline.value)} />
-            <BriefKpi label="Forecast spend" value={formatCurrencyExact(forecastSpend)} tone={forecastSpend > totals.annualSpend ? 'danger' : 'positive'} />
+            <BriefKpi
+              label="Forecast spend"
+              value={formatCurrencyExact(costFigure(forecastSpend, totals))}
+              tone={hasCostEvidence(totals) && forecastSpend > totals.annualSpend ? 'danger' : 'positive'}
+            />
             <BriefKpi
               label="Features needing more capacity"
               value={formatNumber(forecasts.filter((f) => f.forecast.shortfall > 0).length)}

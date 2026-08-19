@@ -13,7 +13,14 @@ import {
 } from '@/components/ui/primitives';
 import { RENEWAL_STAGES } from '@/lib/analytics/portfolio';
 import { formatDate } from '@/lib/analytics/dates';
-import { formatCurrency, formatNumber, formatSignedPercent } from '@/lib/analytics/financial';
+import {
+  COST_NOT_PROVIDED,
+  costFigure,
+  formatCurrency,
+  formatNumber,
+  formatSignedPercent,
+  hasCostEvidence,
+} from '@/lib/analytics/financial';
 import {
   buildRenewalLines,
   computeRenewalExposure,
@@ -39,7 +46,7 @@ const STAGE_INDEX: Record<RenewalStage, number> = {
 };
 
 export default async function RenewalsPage() {
-  const { integrity, renewals, portfolio, dataset } = await loadWorkspace();
+  const { integrity, renewals, portfolio, dataset, totals } = await loadWorkspace();
   // Every figure below is computed from usage. When the analysis did not
   // read all of it, there is no honest version of this page.
   if (!analyticsAvailable(integrity)) return <AnalyticsWithheld integrity={integrity} />;
@@ -78,12 +85,16 @@ export default async function RenewalsPage() {
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi label="Contracts ahead" value={formatNumber(upcoming.length)} detail="With a future renewal date" />
-        <Kpi label="Spend at renewal" value={formatCurrency(totalSpend)} detail="Current annual value" />
+        <Kpi
+          label="Spend at renewal"
+          value={formatCurrency(costFigure(totalSpend, totals))}
+          detail={hasCostEvidence(totals) ? 'Current annual value' : COST_NOT_PROVIDED}
+        />
         <Kpi
           label="Optimization"
-          value={formatCurrency(totalOpportunity)}
+          value={formatCurrency(costFigure(totalOpportunity, totals))}
           tone="positive"
-          detail="Reduction supported by demand"
+          detail={hasCostEvidence(totals) ? 'Reduction supported by demand' : COST_NOT_PROVIDED}
         />
         <Kpi
           label="Capacity exposure"
