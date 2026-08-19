@@ -30,3 +30,7 @@ next-env.d.ts
 # Closure reports saved locally from the artifact viewer.
 *.html
 *_files/
+
+# Browser-automation artifacts from production auditing
+*.png
+.playwright-mcp/
