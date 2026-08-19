@@ -1,9 +1,9 @@
 # Pilot Release — v0.1.0-pilot.2
 
-**Verified build:** `938de88` · **Tested:** 19 August 2026 · **Environment:** production (`iad1`)
+**Verified build:** `1527c4c` · **Tested:** 19 August 2026 · **Environment:** production (`iad1`)
 
 The `v0.1.0-pilot.2` tag sits on the commit that adds this record. Its application
-code is byte-identical to `938de88`, the build every check below was run against —
+code is byte-identical to `1527c4c`, the build every check below was run against —
 the only difference is this file.
 
 Supersedes `v0.1.0-pilot.1` (`986d3b8`). That tag remains valid for what it
@@ -211,25 +211,51 @@ that correctly said cost data was missing. A fact list is read as measurement, s
 of the two it was the one a customer would believe. All five portfolio-wide sums
 now pass the guard, with a test covering each.
 
-### 3 · Pilot-request notification — implemented, delivery not yet configured
+### 3 · Pilot-request notification — complete, delivery human-verified
 
 When a request is stored, the operator is emailed. The alert carries one request
 and only that request: `pilot_requests` holds other companies' contact details,
-and the way that leaks is a well-meaning summary line. Reply-to is set to the
-prospect, so replying reaches them.
+and the way that leaks is a well-meaning summary line. Reply-to is the prospect,
+so replying reaches them.
 
 Its failure can never reach the prospect. The request is durably stored before
 the send is attempted; every failure path returns an outcome rather than
 throwing; the send carries a 4-second timeout; the route logs rather than
-retries. Absent configuration is `skipped`, not `failed` — a distinction that
-matters when reading logs.
+retries.
 
-**Delivery requires three environment variables that are not yet set**
-(`PILOT_NOTIFY_RESEND_API_KEY`, `PILOT_NOTIFY_TO`, `PILOT_NOTIFY_FROM`, documented
-in `.env.example`). Until they are set, requests are stored exactly as before and
-the queue must still be read manually. The unconfigured path is verified live:
-anonymous submission returns HTTP 200 in under half a second, with no send
-attempted and no error.
+**Delivery is verified in production by a human.** Two notifications were
+received at the operator mailbox — Kestrelbridge Dynamics and Thornwood
+Aerodynamics — from `EngiSignal <pilot@engisignal.com>`, arriving in the Inbox
+rather than Junk, each carrying company, contact, job title, work email, spend
+band, renewal timing, employee and engineering-employee counts, major vendors,
+primary challenge, message, received timestamp and request id.
+
+Two defects were found and fixed on the way there, both of which had made the
+failure invisible:
+
+**The sender was rejected and nobody knew.** Resend refused every send with
+`422 validation_error: Invalid from field` because `PILOT_NOTIFY_FROM` was
+malformed. The prospect saw success — correctly, their request was stored — and
+the operator saw silence. It was found by reading the provider's dashboard,
+which is not a daily habit. The provider's status and message are now recorded
+against the request, so the same class of failure is a query rather than an
+archaeology exercise.
+
+**An environment variable that is set is not necessarily an environment variable
+that is live.** Vercel applies a change only on a new deployment, and an
+unconfigured send is skipped silently by design, so the two states were
+indistinguishable from outside. Authenticated diagnostics now reports
+`notifications.pilotRequest`, presence only, never values.
+
+The receipt is stamped through a `SECURITY DEFINER` function rather than an
+UPDATE, and the reason is worth recording: **a WHERE clause makes SELECT
+policies apply to an UPDATE.** This table has no SELECT policy at all, so
+`update ... where id = $1` matches zero rows for `anon` regardless of UPDATE
+policies or column grants — measured, not assumed. Adding a SELECT policy to
+make it work would publish the sales pipeline. The function can see the row,
+writes three columns, refuses any outcome outside `sent`/`failed`/`skipped`, and
+stamps only while unset. Verified as `anon` against production: a second stamp
+cannot overwrite the first, and an invented outcome is refused.
 
 ### 4 · Post-import rejection evidence — complete
 
@@ -260,7 +286,7 @@ contracts.
 |---|---|---|
 | 1 | Automated suite | 962 pass / 58 files |
 | 2 | Signed-out production | landing 200 in 0.58 s; `/app` and import detail both 307 → `/signin` |
-| 3 | Anonymous pilot request | HTTP 200, stored; notification skipped (unconfigured) with no error |
+| 3 | Anonymous pilot request | HTTP 200, stored, notification **delivered and human-verified** at the operator mailbox |
 | 4 | Fresh signup → confirmation → workspace | passed, real inbox, two-step token spend |
 | 5 | Empty-workspace experience | names the empty state, offers Import data, no `$0` |
 | 6 | Representative import | 8 rows read, 5 accepted, 3 rejected |
@@ -274,7 +300,7 @@ contracts.
 | 14 | Export | trend and cost cells empty when unsupported; populated on the demo tenant |
 | 15 | Mobile at 390 px | no sideways scroll, including the new import detail page |
 | 16 | Cross-tenant isolation | other tenants' import detail 404; delete 404; no leakage |
-| 17 | Supabase advisors | 0 errors, 4 warnings (all previously reviewed) |
+| 17 | Supabase advisors | **0 errors**, 6 warnings — see below |
 
 ## Known limitations at tag time
 
@@ -292,9 +318,18 @@ surprises.
   engineer and the forecast's headcount-growth term therefore stay unavailable
   and read as an honest `—`. The pilot request form already collects engineering
   headcount, so the figure is being gathered and discarded.
-- **Pilot-request notification is implemented but not yet delivering.** The three
-  environment variables above are unset, so requests are stored and the queue is
-  still read manually. Setting them switches delivery on with no code change.
+- **Supabase advisors report six warnings, up from four.** The two new ones are
+  `record_pilot_notification` being executable by `anon` and by `authenticated`.
+  That is deliberate: the public form has to stamp its own receipt, and the
+  alternative — a SELECT policy on `pilot_requests` — would publish the sales
+  pipeline. The function reads nothing, writes three columns, refuses any outcome
+  outside `sent`/`failed`/`skipped`, and stamps only while unset, so the worst a
+  caller can do with a request id they already hold is record the truth about it
+  once. Errors remain at zero.
+- **Notification delivery depends on one external provider.** Sends go through
+  Resend with a 4-second timeout. If it is down, the lead is still stored and the
+  request row records `failed` with the provider's own message; nothing is lost,
+  but the alert has to be caught by reading the queue.
 - **Imports committed before this release have counts but no stored per-rule
   detail.** `ingestion_rejections` was written by nothing between the retirement
   of the bulk-insert path and this release, so the demo tenant's earlier imports
