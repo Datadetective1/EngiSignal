@@ -107,6 +107,23 @@ describe('a normally priced portfolio is untouched', () => {
   });
 });
 
+describe('every portfolio-wide money figure passes through the guard', () => {
+  const unpricedTotals = computePortfolioTotals([unpriced(), unpriced(), unpriced()]);
+
+  // Ask EngiSignal answered "Annual spend $0" and "Optimization opportunity $0"
+  // in its fact list while its headline correctly said cost data was missing.
+  // A fact list is read as measurement, so the two must agree.
+  it.each([
+    ['annual spend', (t: typeof unpricedTotals) => t.annualSpend],
+    ['optimization opportunity', (t: typeof unpricedTotals) => t.optimizationOpportunity],
+    ['recommended spend', (t: typeof unpricedTotals) => t.recommendedSpend],
+    ['incremental spend', (t: typeof unpricedTotals) => t.incrementalSpend],
+    ['purchased commitment', (t: typeof unpricedTotals) => t.purchasedCommitment],
+  ])('%s is withheld rather than shown as $0', (_label, pick) => {
+    expect(formatCurrency(costFigure(pick(unpricedTotals), unpricedTotals))).toBe('—');
+  });
+});
+
 describe('a partially priced portfolio', () => {
   // One feature priced, two not. Evidence exists, so the sum is real -- it is
   // simply incomplete, which the unpriced-feature count already communicates.

@@ -10,6 +10,7 @@ import { formatDate } from '@/lib/analytics/dates';
 import { computeForecast } from '@/lib/analytics/forecast';
 import {
   COST_NOT_PROVIDED,
+  costFigure,
   formatCurrency,
   formatCurrencyExact,
   formatNumber,
@@ -81,8 +82,11 @@ export function retrieve(workspace: Workspace, question: string): RetrievedAnswe
         ? `${formatCurrency(totals.optimizationOpportunity)} of annual optimization opportunity across the portfolio.`
         : `Optimization opportunity cannot be calculated: ${COST_NOT_PROVIDED.toLowerCase()} for any feature.`,
       facts: [
-        { label: 'Total annual spend', value: formatCurrencyExact(totals.annualSpend) },
-        { label: 'Total optimization opportunity', value: formatCurrencyExact(totals.optimizationOpportunity) },
+        { label: 'Total annual spend', value: formatCurrencyExact(costFigure(totals.annualSpend, totals)) },
+        {
+          label: 'Total optimization opportunity',
+          value: formatCurrencyExact(costFigure(totals.optimizationOpportunity, totals)),
+        },
         { label: 'Share of spend', value: formatPercent((totals.optimizationOpportunity / totals.annualSpend) * 100) },
         ...top.map((row) => ({
           label: `${row.vendorName} ${row.productName} (${row.featureName})`,
@@ -343,8 +347,12 @@ export function retrieve(workspace: Workspace, question: string): RetrievedAnswe
       ? `${dataset.organization.name} commits ${formatCurrency(totals.annualSpend)} annually across ${formatNumber(portfolio.length)} features.`
       : `${dataset.organization.name} has ${formatNumber(portfolio.length)} analyzed features. ${COST_NOT_PROVIDED}, so no annual value can be stated.`,
     facts: [
-      { label: 'Annual spend', value: formatCurrencyExact(totals.annualSpend) },
-      { label: 'Optimization opportunity', value: formatCurrencyExact(totals.optimizationOpportunity) },
+      // Portfolio-wide sums: $0 here means "nothing was priced", not "free".
+      { label: 'Annual spend', value: formatCurrencyExact(costFigure(totals.annualSpend, totals)) },
+      {
+        label: 'Optimization opportunity',
+        value: formatCurrencyExact(costFigure(totals.optimizationOpportunity, totals)),
+      },
       { label: 'Vendors', value: formatNumber(totals.vendorCount) },
       { label: 'Features analyzed', value: formatNumber(portfolio.length) },
       { label: 'Active signals', value: formatNumber(signals.length) },
