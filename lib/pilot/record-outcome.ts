@@ -7,11 +7,17 @@ import type { NotifyResult } from './notify';
  *
  * Stamps how the operator notification for one request turned out.
  *
- * The submitter is `anon`, which holds INSERT on `pilot_requests` and, now,
- * UPDATE on exactly three columns — the grant is column-scoped, so this
- * privilege cannot reach the contact details the table exists to protect. The
- * row policy additionally allows the stamp only while it is unset, so learning
- * a request id does not let anyone rewrite what happened to it.
+ * This goes through a definer function rather than an UPDATE, and the reason is
+ * worth stating because it is not obvious: a WHERE clause makes SELECT policies
+ * apply to an UPDATE. `pilot_requests` has no SELECT policy at all -- it holds
+ * other companies' contact details -- so `update ... where id = $1` matches
+ * zero rows for `anon` regardless of UPDATE policies or column grants. That was
+ * measured, not assumed: the statement was permitted and affected 0 rows.
+ *
+ * Adding a SELECT policy to make an UPDATE work would expose the sales pipeline
+ * to anyone who asked, which is the exact thing this table is shaped to
+ * prevent. The function can see the row, writes three columns, refuses any
+ * outcome outside the three known ones, and stamps only while unset.
  *
  * Nothing here is allowed to matter to the prospect. Their request is already
  * durably stored; a failure to record its receipt is bookkeeping, and the
@@ -21,14 +27,11 @@ export async function recordNotificationOutcome(
   requestId: string,
   result: NotifyResult,
 ): Promise<void> {
-  const { error } = await (await userClient())
-    .from('pilot_requests')
-    .update({
-      notify_outcome: result.outcome,
-      notify_detail: result.detail,
-      notified_at: new Date().toISOString(),
-    })
-    .eq('id', requestId);
+  const { error } = await (await userClient()).rpc('record_pilot_notification', {
+    request_id: requestId,
+    outcome: result.outcome,
+    detail: result.detail,
+  });
 
   if (error !== null) {
     // Logged, never thrown: see above.
