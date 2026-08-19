@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Badge, Card, CardHeader, TableShell, Td, Th } from '@/components/ui/primitives';
+import { Badge, Card, CardHeader, LinkButton, TableShell, Td, Th } from '@/components/ui/primitives';
 import { formatNumber } from '@/lib/analytics/financial';
 import type { IntegrityReport } from '@/lib/analytics/integrity';
 import { shortEvidenceKey, type ProjectionStatus } from '@/lib/analytics/projection';
@@ -307,6 +307,43 @@ export function IntegrityBanner({ integrity }: { integrity: IntegrityReport }) {
 export function AnalyticsWithheld({ integrity }: { integrity: IntegrityReport }) {
   const usage = integrity.datasets.find((entry) => entry.dataset === 'usage');
   const storedUsage = usage?.stored ?? 0;
+
+  // ── NOTHING HAS EVER BEEN IMPORTED ────────────────────────────────────────
+  //
+  // The first screen a new customer sees, and it used to be the "still being
+  // analysed" card below: it told somebody who had imported nothing that their
+  // "imported rows are stored and complete" and invited them to reload while
+  // figures were built from evidence that did not exist. No import button, no
+  // next step, and reloading would never change it.
+  //
+  // `totalAccepted` is the honest test. A first import that is still landing
+  // has already accepted rows, so this cannot be confused with a build in
+  // flight -- it means no file has ever been taken from this customer.
+  if (integrity.totalAccepted === 0 && integrity.totalStored === 0) {
+    return (
+      <Card>
+        <CardHeader
+          title="Import your first file to see your portfolio"
+          description="EngiSignal has no data for this workspace yet. Nothing here is zero — there is simply nothing imported to measure."
+        />
+        <div className="px-5 pb-5">
+          <p className="max-w-[70ch] text-[13px] leading-relaxed text-fg-muted">
+            Start with a usage export from your license manager. Entitlements, people and
+            contracts each add a further layer of analysis, and any one of them can be added
+            later — an import of usage alone already produces a demand position.
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <LinkButton href="/app/data/import" variant="primary">
+              Import data
+            </LinkButton>
+            <Link href="/app/data" className="text-[13px] text-accent underline underline-offset-2">
+              See the file formats and download templates
+            </Link>
+          </div>
+        </div>
+      </Card>
+    );
+  }
 
   // Rows do reconcile; the analysis of them is not finished.
   if (!integrity.usageIncomplete && !integrity.analysisCurrent) {
