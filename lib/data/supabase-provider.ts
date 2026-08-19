@@ -11,6 +11,7 @@
  * the local synthetic dataset.
  */
 
+import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { userClient } from '@/lib/supabase/server';
 import { buildDatasetFromCanonical } from '@/lib/ingestion/dataset';
@@ -244,10 +245,32 @@ export const supabaseProvider: DataProvider = {
     if (error !== null) throw new Error(`Failed to update decision: ${error.message}`);
   },
 
+  /**
+   * ── A PROSPECT IS NOT SIGNED IN ─────────────────────────────────────────
+   *
+   * Everyone who fills in this form is `anon`, and `anon` holds INSERT on
+   * `pilot_requests` and nothing else -- deliberately, because the table
+   * contains other companies' contact details and a public SELECT policy
+   * would publish the whole sales pipeline.
+   *
+   * This used to end in `.select().single()`. That `RETURNING` clause needs
+   * SELECT, so the statement was refused, the insert rolled back, and every
+   * signed-out visitor was told "the request could not be recorded". The
+   * landing page's primary call to action failed for the only people it is
+   * aimed at, and it was invisible in testing because a signed-in caller has
+   * SELECT and succeeds.
+   *
+   * The id is therefore generated here and inserted explicitly, so the row is
+   * known without being read back and `anon` keeps no read access at all.
+   */
   async createPilotRequest(request: Omit<PilotRequest, 'id' | 'createdAt'>): Promise<PilotRequest> {
-    const { data, error } = await (await db())
+    const id = randomUUID();
+    const createdAt = new Date().toISOString();
+
+    const { error } = await (await db())
       .from('pilot_requests')
       .insert({
+        id,
         name: request.name,
         work_email: request.workEmail,
         company: request.company,
@@ -259,12 +282,10 @@ export const supabaseProvider: DataProvider = {
         renewal_timing: request.renewalTiming,
         primary_challenge: request.primaryChallenge,
         message: request.message,
-      })
-      .select()
-      .single();
+      });
 
     if (error !== null) throw new Error(`Failed to record pilot request: ${error.message}`);
-    return { ...request, id: data.id, createdAt: data.created_at };
+    return { ...request, id, createdAt };
   },
 };
 
