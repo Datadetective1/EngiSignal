@@ -345,7 +345,16 @@ export default async function CostPage({
         <Card>
           <CardHeader title="Spend by vendor" description="Concentration is a negotiation variable." />
           <div className="px-5 py-4">
-            <RankedBars data={vendorBars} formatValue={(v) => formatCurrency(v)} />
+            {hasCostEvidence(totals) ? (
+              <RankedBars data={vendorBars} formatValue={(v) => formatCurrency(v)} />
+            ) : (
+              // Bars of length zero labelled "$0" are not a concentration
+              // picture; they are the absence of one, drawn.
+              <p className="text-[12.5px] leading-relaxed text-fg-muted">
+                {COST_NOT_PROVIDED}. Vendor concentration is calculated from contract or unit prices, so
+                this chart appears once cost data has been imported.
+              </p>
+            )}
           </div>
         </Card>
 
