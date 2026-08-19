@@ -194,7 +194,14 @@ export default async function DataPage() {
               {dataset.imports.map((record) => (
                 <tr key={record.id}>
                   <Td>
-                    <span className="block truncate text-[12px] font-medium">{record.fileName}</span>
+                    {/* The way back to "what did you reject, and why". Without a
+                        link here the evidence exists and is unreachable. */}
+                    <Link
+                      href={`/app/data/imports/${record.id}`}
+                      className="block truncate text-[12px] font-medium text-accent underline underline-offset-2"
+                    >
+                      {record.fileName}
+                    </Link>
                     {record.notes !== null && (
                       <span className="block truncate text-[11px] text-warning">{record.notes}</span>
                     )}

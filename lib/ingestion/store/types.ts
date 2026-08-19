@@ -20,6 +20,7 @@ import type {
   IngestionResult,
   IngestionWarning,
   QualityReport,
+  RejectionSummary,
   SourceSystem,
 } from '../canonical/types';
 import type { ProjectionRecord } from '@/lib/analytics/projection';
@@ -92,6 +93,12 @@ export interface ImportDetail extends ImportSummary {
   mappingUsed: Record<string, string>;
   warnings: IngestionWarning[];
   quality: QualityReport | null;
+  /**
+   * Per-rule totals with example values, exactly as produced at parse time.
+   * Complete: every rejected row is counted here even though only a sample of
+   * individual rows is retained below.
+   */
+  rejectionSummary: RejectionSummary[];
   /** Capped sample; `rejectedRows` remains the true count. */
   rejections: {
     sourceSheet: string | null;

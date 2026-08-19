@@ -28,6 +28,7 @@ import type {
   CanonicalUsageRecord,
   IngestionWarning,
   QualityReport,
+  RejectionSummary,
   SourceSystem,
 } from '../canonical/types';
 import type {
@@ -85,6 +86,18 @@ const SOURCE_BUCKET = 'ingestion-sources';
  * recoverable condition with a named cause, not a dead import.
  */
 const SOURCE_URL_TTL_SECONDS = 60 * 60 * 24;
+
+/**
+ * How many individual rejected rows are kept per import.
+ *
+ * The sample exists so a customer can recognise a pattern -- a mis-mapped
+ * column, a date format, a stray footer row. Exact totals per rule live on the
+ * import itself, so this is bounded rather than complete: 1,093 identical "not
+ * a recognizable date" rows teach nothing the first fifty do not, and storing
+ * every one of them would put a second copy of a rejected estate in the
+ * database.
+ */
+const REJECTION_SAMPLE_LIMIT = 250;
 /** Times a single round trip so the fixed costs are visible next to the bulk ones. */
 async function timed<T>(
   name: string,
@@ -231,6 +244,9 @@ export const supabaseIngestionStore: IngestionStore = {
       contract_records: result.contracts.length,
       uploaded_at: uploadedAt,
       content_fingerprint: contentFingerprint ?? null,
+      // Per-rule counts with examples. Small, bounded by distinct rules, and
+      // the part that answers "what did you reject and why" completely.
+      rejection_summary: result.rejectionSummary,
       }),
     );
 
@@ -248,6 +264,42 @@ export const supabaseIngestionStore: IngestionStore = {
         throw new DuplicateImportError((existing?.id as string | undefined) ?? null);
       }
       throw new Error(`Could not record the import: ${importError.message}`);
+    }
+
+    // ── THE ROW-LEVEL REJECTION SAMPLE ────────────────────────────────────
+    //
+    // A customer sees every rejection before committing. Afterwards they had no
+    // way back to it: this table has been written by nothing since the
+    // bulk-insert path was retired, so an import reporting 1,093 rejected rows
+    // stored 0 rows explaining them.
+    //
+    // Capped, because the sample is for recognising a pattern -- a mis-mapped
+    // column, a date format, a stray footer -- and the exact per-rule totals are
+    // already on the import row. 1,093 identical "not a recognizable date"
+    // rows teach nothing the first fifty do not.
+    //
+    // Deliberately non-fatal. The rows are stored, the file is stored, and the
+    // import is queued; failing all of that because an explanatory sample could
+    // not be written would trade the customer's data for its footnote.
+    if (result.rejections.length > 0) {
+      try {
+        await timed('insert:rejections', onPhase, async () =>
+          (await db()).from('ingestion_rejections').insert(
+            result.rejections.slice(0, REJECTION_SAMPLE_LIMIT).map((rejection) => ({
+              organization_id: organizationId,
+              import_id: importId,
+              source_sheet: rejection.sourceSheet,
+              source_row: rejection.sourceRow,
+              rule: rejection.rule,
+              field: rejection.field,
+              value: rejection.value,
+              message: rejection.message,
+            })),
+          ),
+        );
+      } catch {
+        // Swallowed on purpose -- see above.
+      }
     }
 
     // No canonical rows are written here. At the measured 83 microseconds per
@@ -316,6 +368,7 @@ export const supabaseIngestionStore: IngestionStore = {
       mappingUsed: (data.mapping_used ?? {}) as Record<string, string>,
       warnings: (data.warnings ?? []) as IngestionWarning[],
       quality: (data.quality ?? null) as QualityReport | null,
+      rejectionSummary: (data.rejection_summary ?? []) as RejectionSummary[],
       rejections: (rejections ?? []).map((row) => ({
         sourceSheet: row.source_sheet as string | null,
         sourceRow: row.source_row as number,

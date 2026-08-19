@@ -140,6 +140,7 @@ export const memoryIngestionStore: IngestionStore = {
       mappingUsed,
       warnings: result.warnings,
       quality: result.quality,
+      rejectionSummary: result.rejectionSummary,
       rejections: result.rejections.slice(0, 200).map((rejection) => ({
         sourceSheet: rejection.sourceSheet,
         sourceRow: rejection.sourceRow,
@@ -260,6 +261,7 @@ function toSummary(detail: ImportDetail): ImportSummary {
     mappingUsed: _mapping,
     warnings: _warnings,
     quality: _quality,
+    rejectionSummary: _rejectionSummary,
     rejections: _rejections,
     ...summary
   } = detail;
