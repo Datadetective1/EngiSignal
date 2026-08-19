@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Badge, Button, Card, CardHeader, TableShell, Td, Th } from '@/components/ui/primitives';
 
 /**
@@ -169,7 +170,17 @@ export function ImportInventory({
                           {record.detectionFellBack ? 'not identified' : `${record.detectionConfidence}%`}
                         </span>
                       </Td>
-                      <Td className="text-fg-muted">{record.fileName}</Td>
+                      <Td>
+                        {/* The way back to "what did you reject, and why". This
+                            table is the one a customer is looking at minutes
+                            after an import, before any analysis exists. */}
+                        <Link
+                          href={`/app/data/imports/${record.id}`}
+                          className="text-accent underline underline-offset-2"
+                        >
+                          {record.fileName}
+                        </Link>
+                      </Td>
                       <Td className="text-fg-muted">File import · {record.dataset}</Td>
                       <Td className="tnum">
                         {(record.usageRecords + record.entitlementRecords + record.peopleRecords).toLocaleString('en-US')}
