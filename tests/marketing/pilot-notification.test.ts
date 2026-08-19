@@ -96,7 +96,7 @@ describe('sending it', () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
 
-    await expect(notifyPilotRequest(request)).resolves.toBe('skipped');
+    await expect(notifyPilotRequest(request)).resolves.toMatchObject({ outcome: 'skipped' });
     // No configuration means no call at all, not a call that errors.
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -106,16 +106,16 @@ describe('sending it', () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
 
-    await expect(notifyPilotRequest(request)).resolves.toBe('skipped');
+    await expect(notifyPilotRequest(request)).resolves.toMatchObject({ outcome: 'skipped' });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('sends when configured, and replies go to the prospect', async () => {
     configure();
-    const fetchSpy = vi.fn(async () => ({ ok: true }) as Response);
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 200, text: async () => '' }) as unknown as Response);
     vi.stubGlobal('fetch', fetchSpy);
 
-    await expect(notifyPilotRequest(request)).resolves.toBe('sent');
+    await expect(notifyPilotRequest(request)).resolves.toMatchObject({ outcome: 'sent' });
 
     const [, init] = fetchSpy.mock.calls[0] as unknown as [string, RequestInit];
     const body = JSON.parse(String(init.body));
@@ -127,18 +127,28 @@ describe('sending it', () => {
 
   it('reports failure rather than throwing when the provider rejects it', async () => {
     configure();
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 422 }) as Response));
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 422,
+      text: async () => 'validation_error: Invalid from field',
+    }) as unknown as Response));
 
     // The request is already stored. This must never become the prospect's
-    // problem.
-    await expect(notifyPilotRequest(request)).resolves.toBe('failed');
+    // problem -- but the reason must be recoverable, which it was not when
+    // Resend rejected every send with "Invalid from field".
+    const result = await notifyPilotRequest(request);
+    expect(result.outcome).toBe('failed');
+    expect(result.detail).toContain('422');
+    expect(result.detail).toContain('Invalid from field');
   });
 
   it('reports failure rather than throwing when the provider is unreachable', async () => {
     configure();
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('ECONNREFUSED'); }));
 
-    await expect(notifyPilotRequest(request)).resolves.toBe('failed');
+    const result = await notifyPilotRequest(request);
+    expect(result.outcome).toBe('failed');
+    expect(result.detail).toContain('ECONNREFUSED');
   });
 
   it('reports failure rather than hanging when the provider times out', async () => {
@@ -147,12 +157,12 @@ describe('sending it', () => {
       throw Object.assign(new Error('The operation was aborted'), { name: 'TimeoutError' });
     }));
 
-    await expect(notifyPilotRequest(request)).resolves.toBe('failed');
+    await expect(notifyPilotRequest(request)).resolves.toMatchObject({ outcome: 'failed' });
   });
 
   it('passes an abort signal, so a slow provider cannot hold the response open', async () => {
     configure();
-    const fetchSpy = vi.fn(async () => ({ ok: true }) as Response);
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 200, text: async () => '' }) as unknown as Response);
     vi.stubGlobal('fetch', fetchSpy);
 
     await notifyPilotRequest(request);

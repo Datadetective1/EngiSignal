@@ -29,6 +29,20 @@ import type { PilotRequest } from '@/lib/domain/types';
 export type NotifyOutcome = 'sent' | 'skipped' | 'failed';
 
 /**
+ * What happened, in enough detail to act on.
+ *
+ * `detail` carries the provider's own status and message on failure. Resend
+ * rejected every send for a day with `422 validation_error: Invalid from
+ * field`, and none of that reached anyone: the outcome was a console line in a
+ * log nobody was reading, so the product's answer to "was this lead announced?"
+ * was silence. It is recorded against the request now.
+ */
+export interface NotifyResult {
+  outcome: NotifyOutcome;
+  detail: string | null;
+}
+
+/**
  * Whether operator notification is configured in this environment.
  *
  * Reports presence, never values. Vercel applies an environment change only on
@@ -102,15 +116,18 @@ export function composeNotification(request: PilotRequest): { subject: string; t
   };
 }
 
+/** Provider errors can be long; keep enough to diagnose, not enough to bloat. */
+const DETAIL_LIMIT = 300;
+
 /**
  * Notify the operator that a pilot request was stored.
  *
- * Never throws. Returns what happened so the caller can log it without having
- * to decide what a failure means.
+ * Never throws. Returns what happened, and why when it failed, so the caller
+ * can record it rather than having to decide what a failure means.
  */
-export async function notifyPilotRequest(request: PilotRequest): Promise<NotifyOutcome> {
+export async function notifyPilotRequest(request: PilotRequest): Promise<NotifyResult> {
   const config = readConfig();
-  if (config === null) return 'skipped';
+  if (config === null) return { outcome: 'skipped', detail: null };
 
   const { subject, text } = composeNotification(request);
 
@@ -133,10 +150,21 @@ export async function notifyPilotRequest(request: PilotRequest): Promise<NotifyO
       signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     });
 
-    return response.ok ? 'sent' : 'failed';
-  } catch {
+    if (response.ok) return { outcome: 'sent', detail: null };
+
+    // The provider's own words. This is what "Invalid from field" would have
+    // said on day one, next to the lead it silently failed to announce.
+    const body = await response.text().catch(() => '');
+    return {
+      outcome: 'failed',
+      detail: `HTTP ${response.status} ${body}`.trim().slice(0, DETAIL_LIMIT),
+    };
+  } catch (error) {
     // Timeout, DNS, TLS, provider outage. The request is already stored; none
     // of this is the prospect's problem.
-    return 'failed';
+    return {
+      outcome: 'failed',
+      detail: (error instanceof Error ? error.message : 'send failed').slice(0, DETAIL_LIMIT),
+    };
   }
 }

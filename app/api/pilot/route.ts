@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getDataProvider } from '@/lib/data';
 import { pilotRequestSchema } from '@/lib/pilot-schema';
 import { notifyPilotRequest } from '@/lib/pilot/notify';
+import { recordNotificationOutcome } from '@/lib/pilot/record-outcome';
 
 export const runtime = 'nodejs';
 
@@ -81,10 +82,20 @@ export async function POST(request: Request) {
     // never throws and carries its own timeout, so the worst case costs this
     // response a few seconds and the prospect still gets their confirmation.
     const notified = await notifyPilotRequest(created);
-    if (notified === 'failed') {
-      // The lead is safe in the database. This line is what tells us to go and
-      // read it, since nothing else will.
-      console.error(`Pilot request ${created.id} stored but the notification failed to send.`);
+
+    // Recorded against the request itself, not only in a log. Resend rejected
+    // every send for a day with "Invalid from field" and the product said
+    // nothing: the prospect saw success, correctly, and the operator saw
+    // silence. Stamping the outcome makes "was this lead announced?" a query.
+    //
+    // Non-fatal, like the send itself: the lead is already stored, and losing
+    // its delivery receipt is not a reason to tell the prospect otherwise.
+    await recordNotificationOutcome(created.id, notified).catch(() => undefined);
+
+    if (notified.outcome === 'failed') {
+      console.error(
+        `Pilot request ${created.id} stored but the notification failed: ${notified.detail ?? 'no detail'}`,
+      );
     }
 
     return NextResponse.json({ ok: true, id: created.id });

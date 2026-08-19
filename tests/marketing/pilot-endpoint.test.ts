@@ -16,6 +16,7 @@ vi.mock('server-only', () => ({}));
  */
 
 type NotifyOutcome = 'sent' | 'skipped' | 'failed';
+type NotifyResult = { outcome: NotifyOutcome; detail: string | null };
 
 const createPilotRequest = vi.fn(async (input: Record<string, unknown>) => ({
   ...input,
@@ -23,7 +24,10 @@ const createPilotRequest = vi.fn(async (input: Record<string, unknown>) => ({
   createdAt: '2026-08-19T09:15:00.000Z',
 }));
 
-const notifyPilotRequest = vi.fn(async (_request: unknown): Promise<NotifyOutcome> => 'sent');
+const notifyPilotRequest = vi.fn(
+  async (_request: unknown): Promise<NotifyResult> => ({ outcome: 'sent', detail: null }),
+);
+const recordNotificationOutcome = vi.fn(async (_id: string, _result: NotifyResult) => undefined);
 
 vi.mock('@/lib/data', () => ({
   getDataProvider: () => ({ createPilotRequest }),
@@ -31,6 +35,10 @@ vi.mock('@/lib/data', () => ({
 
 vi.mock('@/lib/pilot/notify', () => ({
   notifyPilotRequest,
+}));
+
+vi.mock('@/lib/pilot/record-outcome', () => ({
+  recordNotificationOutcome,
 }));
 
 const VALID = {
@@ -63,7 +71,8 @@ const submit = async (body: unknown, forwardedFor = `10.0.0.${++ip}`) => {
 beforeEach(() => {
   createPilotRequest.mockClear();
   notifyPilotRequest.mockClear();
-  notifyPilotRequest.mockResolvedValue('sent');
+  recordNotificationOutcome.mockClear();
+  notifyPilotRequest.mockResolvedValue({ outcome: 'sent', detail: null });
   vi.resetModules();
 });
 
@@ -94,7 +103,7 @@ describe('an anonymous prospect submitting the form', () => {
 
 describe('when the notification cannot be sent', () => {
   it('still tells the prospect their request was received', async () => {
-    notifyPilotRequest.mockResolvedValue('failed');
+    notifyPilotRequest.mockResolvedValue({ outcome: 'failed', detail: 'HTTP 422 Invalid from field' });
 
     const response = await submit(VALID);
     // The regression this prevents: a stored lead reported to the prospect as
@@ -105,13 +114,13 @@ describe('when the notification cannot be sent', () => {
   });
 
   it('still succeeds when notification is not configured at all', async () => {
-    notifyPilotRequest.mockResolvedValue('skipped');
+    notifyPilotRequest.mockResolvedValue({ outcome: 'skipped', detail: null });
     const response = await submit(VALID);
     expect(response.status).toBe(200);
   });
 
   it('does not retry, because a retry would double-notify a stored lead', async () => {
-    notifyPilotRequest.mockResolvedValue('failed');
+    notifyPilotRequest.mockResolvedValue({ outcome: 'failed', detail: 'HTTP 422 Invalid from field' });
     await submit(VALID);
     expect(notifyPilotRequest).toHaveBeenCalledTimes(1);
   });
