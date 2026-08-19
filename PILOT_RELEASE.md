@@ -1,10 +1,10 @@
 # Pilot Release — v0.1.0-pilot.2
 
-**Verified build:** `157a4e5` · **Tested:** 19 August 2026 · **Environment:** production (`iad1`)
+**Verified build:** `938de88` · **Tested:** 19 August 2026 · **Environment:** production (`iad1`)
 
 The `v0.1.0-pilot.2` tag sits on the commit that adds this record. Its application
-code is byte-identical to `157a4e5`, the build every check below was run against —
-`git diff 157a4e5..v0.1.0-pilot.2` touches this file and nothing else.
+code is byte-identical to `938de88`, the build every check below was run against —
+the only difference is this file.
 
 Supersedes `v0.1.0-pilot.1` (`986d3b8`). That tag remains valid for what it
 recorded; everything below it still holds. This release adds the pilot-operations
@@ -19,12 +19,16 @@ was actually claimed.
 
 Ready for external pilot.
 
-`v0.1.0-pilot.1` recorded twelve production checkpoints passing, with one blocker
-found during the run and fixed before tagging. `v0.1.0-pilot.2` adds a
-pilot-operations audit of the journey as a prospect sees it, which found four
-further defects — all fixed, deployed and re-verified against production. The
-sections below are in two parts: the original twelve checkpoints, then what
-changed after them.
+Three passes are recorded here, in order:
+
+1. **`v0.1.0-pilot.1`** — twelve production checkpoints, one blocker found during
+   the run and fixed before tagging.
+2. **Pilot-operations audit** — the journey as a prospect sees it, which found
+   four further defects, all fixed and re-verified.
+3. **Final hardening pass** — insufficient-history trends, missing cost as zero,
+   pilot-request notification, and post-import rejection evidence.
+
+`v0.1.0-pilot.2` is tagged on the commit carrying all three.
 
 ## The twelve checkpoints (v0.1.0-pilot.1)
 
@@ -181,6 +185,97 @@ with 365 days of history and real contracts.
 | Mobile at 390 px | no sideways scroll |
 | Supabase advisors | 0 errors, 4 warnings (previously reviewed) |
 
+## The final hardening pass
+
+Four items, on top of the two closed before it. The first two were already
+complete and were re-verified rather than re-done; the last two were new.
+
+### 1 · Insufficient-history trends — complete
+
+`lib/analytics/trend.ts` holds the guard at **30 calendar days**. Below it every
+surface says "Not enough history to calculate trend", projections assume no
+growth, and the forecast note names the absence instead of quoting the
+unsupported slope. Verified at 3, 7, 29, 30 and 365 days, on both a three-day
+tenant and the 365-day demo tenant, whose renewals still read +10.7%, +13.0%,
++61.5% exactly as before.
+
+### 2 · Missing cost is never $0 — complete
+
+The evidence check is the feature count, never the amount. Re-verified across
+the dashboard, executive brief, cost page, forecast, renewals, reclaim,
+portfolio, Scenario Lab, exports and Ask.
+
+One gap was found during this pass and closed: **Ask's fact list still answered
+"Annual spend $0" and "Optimization opportunity $0"** directly beneath a headline
+that correctly said cost data was missing. A fact list is read as measurement, so
+of the two it was the one a customer would believe. All five portfolio-wide sums
+now pass the guard, with a test covering each.
+
+### 3 · Pilot-request notification — implemented, delivery not yet configured
+
+When a request is stored, the operator is emailed. The alert carries one request
+and only that request: `pilot_requests` holds other companies' contact details,
+and the way that leaks is a well-meaning summary line. Reply-to is set to the
+prospect, so replying reaches them.
+
+Its failure can never reach the prospect. The request is durably stored before
+the send is attempted; every failure path returns an outcome rather than
+throwing; the send carries a 4-second timeout; the route logs rather than
+retries. Absent configuration is `skipped`, not `failed` — a distinction that
+matters when reading logs.
+
+**Delivery requires three environment variables that are not yet set**
+(`PILOT_NOTIFY_RESEND_API_KEY`, `PILOT_NOTIFY_TO`, `PILOT_NOTIFY_FROM`, documented
+in `.env.example`). Until they are set, requests are stored exactly as before and
+the queue must still be read manually. The unconfigured path is verified live:
+anonymous submission returns HTTP 200 in under half a second, with no send
+attempted and no error.
+
+### 4 · Post-import rejection evidence — complete
+
+Before committing, a customer sees every rejected row with its rule and an
+example. Afterwards none of it was reachable — and the evidence was not even
+being stored: `ingestion_rejections` had been written by nothing since the
+bulk-insert path was retired, so Meridian's **4,458 rejected rows had 0 rows
+recording why**.
+
+`commitImport` now stores the per-rule totals on the import row and a capped
+sample of individual rows. The totals are complete; the sample is bounded at 250,
+and the page says which it is showing. Writing the sample is deliberately
+non-fatal — failing a stored import because its footnote could not be written
+would trade the customer's data for its explanation.
+
+`/app/data/imports/[importId]` renders it, linked from the file name in both the
+live imports table and import history. Read-only by design: a customer asking why
+a row was dropped is auditing, and an audit surface that can mutate what it
+reports is not one.
+
+## Verification of the final pass
+
+Run against production at `938de88`, using a tenant created for the run with
+three days of usage and no prices, and the demo tenant with 365 days and real
+contracts.
+
+| # | Check | Result |
+|---|---|---|
+| 1 | Automated suite | 962 pass / 58 files |
+| 2 | Signed-out production | landing 200 in 0.58 s; `/app` and import detail both 307 → `/signin` |
+| 3 | Anonymous pilot request | HTTP 200, stored; notification skipped (unconfigured) with no error |
+| 4 | Fresh signup → confirmation → workspace | passed, real inbox, two-step token spend |
+| 5 | Empty-workspace experience | names the empty state, offers Import data, no `$0` |
+| 6 | Representative import | 8 rows read, 5 accepted, 3 rejected |
+| 7 | Mapping &amp; rejection review | per-column confidence, reasons with example values |
+| 8 | Reopened rejection evidence | counts, per-rule reasons, individual rows, mapping, warnings |
+| 9 | Unattended analysis | accepted = stored = analysed, reconciles |
+| 10 | Portfolio, Renewals, Scenario Lab, Decisions, Ask, Brief | no absurd trend, no invented `$0` |
+| 11 | Missing commercial data | reads "Cost data not provided" / `—` throughout |
+| 12 | Short-history trend | suppressed; Scenario Lab reads "2 observed days · not enough history to calculate trend" |
+| 13 | Mature-history trend | Meridian +10.7%, +13.0%, +61.5%; $5.7M / $5.1M / $559K unchanged |
+| 14 | Export | trend and cost cells empty when unsupported; populated on the demo tenant |
+| 15 | Mobile at 390 px | no sideways scroll, including the new import detail page |
+| 16 | Cross-tenant isolation | other tenants' import detail 404; delete 404; no leakage |
+| 17 | Supabase advisors | 0 errors, 4 warnings (all previously reviewed) |
+
 ## Known limitations at tag time
 
 None of these blocks the pilot. All are recorded so they are not rediscovered as
@@ -197,13 +292,17 @@ surprises.
   engineer and the forecast's headcount-growth term therefore stay unavailable
   and read as an honest `—`. The pilot request form already collects engineering
   headcount, so the figure is being gathered and discarded.
-- **Nobody is notified when a pilot request arrives.** Requests land in
-  `pilot_requests` with no email or alert. Reading that queue is a manual daily
-  task.
-- **Rejection reasons are not reachable after an import is committed.** Before
-  committing, every rejected row is shown with its rule and an example value.
-  Afterwards the data is stored and `getImport` returns it, but no page consumes
+- **Pilot-request notification is implemented but not yet delivering.** The three
+  environment variables above are unset, so requests are stored and the queue is
+  still read manually. Setting them switches delivery on with no code change.
+- **Imports committed before this release have counts but no stored per-rule
+  detail.** `ingestion_rejections` was written by nothing between the retirement
+  of the bulk-insert path and this release, so the demo tenant's earlier imports
+  show their accepted and rejected totals and say plainly that the per-rule
+  breakdown predates the change. Every import from this release forward carries
   it.
+- **The retained sample of individual rejected rows is capped at 250 per import.**
+  The per-rule totals remain complete, and the page states which it is showing.
 - **No license-manager connectors are implemented.** The product states this
   plainly on the Data page rather than implying a roadmap.
 - **Uploads are capped at 4 MB per file** — roughly 68,000 usage rows. Larger
