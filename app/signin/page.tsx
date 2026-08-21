@@ -6,6 +6,7 @@ import { brand } from '@/config/brand';
 import { getSession, isSupabaseAuth } from '@/lib/auth';
 import { MINIMUM_PASSWORD_LENGTH } from '@/lib/auth/password';
 import { DEMO_ORG } from '@/lib/synthetic/organization';
+import { previewInvitation } from '@/lib/membership';
 import {
   requestPasswordResetAction,
   resendConfirmationAction,
@@ -60,6 +61,20 @@ export default async function SignInPage({
   const signup = params.mode === 'signup';
   const resetting = params.mode === 'reset';
 
+  // ── AN INVITED PERSON IS NOT CREATING A WORKSPACE ─────────────────────────
+  //
+  // Production QA caught this: the invited-signup screen still said "Create
+  // your EngiSignal workspace" and offered a panel headed "Your workspace —
+  // starts empty, by design". Both are true for a founder and actively wrong
+  // for a colleague joining an existing estate, and the second one describes
+  // the opposite of what is about to happen: they are joining a workspace with
+  // data already in it.
+  //
+  // The name comes from the same token-gated preview the accept page uses, so
+  // nothing is disclosed here that the invitation email did not already say.
+  const invitedTo =
+    invite.length > 0 ? (await previewInvitation(invite)).organizationName : null;
+
   /**
    * Whether this visitor is stuck waiting on a confirmation email.
    *
@@ -85,14 +100,22 @@ export default async function SignInPage({
         <main className="grid flex-1 items-center gap-14 pb-16 lg:grid-cols-2">
           <div>
             <h1 className="text-[32px] font-semibold leading-[1.15] tracking-[-0.03em]">
-              {signup ? `Create your ${brand.name} workspace` : `Sign in to ${brand.name}`}
+              {invitedTo !== null
+                ? `Join ${invitedTo}`
+                : signup
+                  ? `Create your ${brand.name} workspace`
+                  : `Sign in to ${brand.name}`}
             </h1>
             <p className="mt-3 max-w-md text-[14.5px] leading-relaxed text-fg-muted">
-              {supabaseAuth
+              {invitedTo !== null
                 ? signup
-                  ? 'Create an account to import your engineering software exports. Your data is isolated to your own organization.'
-                  : 'Sign in with your work email to open your engineering software intelligence workspace.'
-                : 'This deployment runs in evaluation mode against a synthetic demo organization. Enter any work email to open the workspace — no account is created and no password is stored.'}
+                  ? `Create an account to join the ${invitedTo} workspace. Use the address the invitation was sent to.`
+                  : `Sign in to accept your invitation to ${invitedTo}. Use the address the invitation was sent to.`
+                : supabaseAuth
+                  ? signup
+                    ? 'Create an account to import your engineering software exports. Your data is isolated to your own organization.'
+                    : 'Sign in with your work email to open your engineering software intelligence workspace.'
+                  : 'This deployment runs in evaluation mode against a synthetic demo organization. Enter any work email to open the workspace — no account is created and no password is stored.'}
             </p>
 
             {params.notice === 'resetsent' && (
@@ -320,22 +343,30 @@ export default async function SignInPage({
           {supabaseAuth && (
             <div className="rounded-xl border border-border bg-surface p-6">
               <p className="text-[11px] font-medium uppercase tracking-[0.13em] text-fg-subtle">
-                Your workspace
+                {invitedTo !== null ? 'Your invitation' : 'Your workspace'}
               </p>
               <p className="mt-2 text-[17px] font-semibold tracking-[-0.02em]">
-                Starts empty, by design
+                {invitedTo !== null ? `Joining ${invitedTo}` : 'Starts empty, by design'}
               </p>
               <p className="mt-1.5 text-[13px] leading-relaxed text-fg-muted">
-                EngiSignal analyses the exports you import. Nothing is pre-populated and no figure is
-                invented — every number traces back to a row in a file you supplied.
+                {invitedTo !== null
+                  ? 'You will see the same data as everyone else in this workspace. EngiSignal analyses the exports your team has imported — no figure is invented, and every number traces back to a row in a file somebody supplied.'
+                  : 'EngiSignal analyses the exports you import. Nothing is pre-populated and no figure is invented — every number traces back to a row in a file you supplied.'}
               </p>
 
               <ul className="mt-6 space-y-2.5">
-                {[
-                  'Import a FlexNet, RLM, DSLS or Sentinel export',
-                  'Review every column mapping before it is committed',
-                  'See exactly which analyses your data supports',
-                ].map((item) => (
+                {(invitedTo !== null
+                  ? [
+                      'Use the address your invitation was sent to',
+                      'Confirm your email, then accept the invitation',
+                      'You join the shared workspace — nothing separate is created',
+                    ]
+                  : [
+                      'Import a FlexNet, RLM, DSLS or Sentinel export',
+                      'Review every column mapping before it is committed',
+                      'See exactly which analyses your data supports',
+                    ]
+                ).map((item) => (
                   <li key={item} className="flex gap-2.5 text-[13px] leading-relaxed text-fg-muted">
                     <span className="mt-[7px] size-1 shrink-0 rounded-full bg-accent" aria-hidden="true" />
                     {item}
