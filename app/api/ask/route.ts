@@ -38,20 +38,34 @@ export async function POST(request: Request) {
   let narrative = retrieved.narrative;
   let phrasedBy: 'deterministic' | 'model' = 'deterministic';
 
-  if (provider.available && provider.phrase !== undefined) {
+  // ── THE HALLUCINATION GATE ────────────────────────────────────────────────
+  //
+  // When retrieval found no evidence, the model is not called at all.
+  //
+  // The alternative — hand it an empty FACTS block, a direct question, and an
+  // instruction to admit ignorance — relies on the model choosing to obey under
+  // exactly the conditions that most invite it not to. "Which renewal should we
+  // prioritise?" with nothing to go on is a question a helpful assistant wants
+  // to answer, and the answer would be fluent, plausible and entirely invented.
+  //
+  // So the refusal is deterministic. There is nothing to phrase, and no request
+  // is made.
+  const groundable = retrieved.evidence !== 'none';
+
+  if (groundable && provider.available && provider.phrase !== undefined) {
+    // The provider swallows its own failures and returns null; a throw here
+    // would be a bug rather than an outage, and is caught for the same reason.
     try {
       const phrased = await provider.phrase(
         parsed.data.question,
         factsToText(retrieved),
         parsed.data.history ?? [],
       );
-      if (phrased.length > 0) {
+      if (phrased !== null && phrased.length > 0) {
         narrative = phrased;
         phrasedBy = 'model';
       }
     } catch {
-      // A model failure must never lose the answer — the retrieved facts stand
-      // on their own, so fall through to the deterministic narrative.
       phrasedBy = 'deterministic';
     }
   }
@@ -64,5 +78,9 @@ export async function POST(request: Request) {
     links: retrieved.links,
     phrasedBy,
     provider: provider.label,
+    // Surfaced so the interface can show that an answer is a considered refusal
+    // rather than a failure, and so this is assertable from a test.
+    evidence: retrieved.evidence,
+    ...(retrieved.missing === undefined ? {} : { missing: retrieved.missing }),
   });
 }

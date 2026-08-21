@@ -21,6 +21,17 @@ import {
 import type { Workspace } from '@/lib/workspace';
 import { INSUFFICIENT_TREND_LABEL, annualizedTrend } from '@/lib/analytics/trend';
 
+/**
+ * Whether EngiSignal actually holds evidence that answers the question.
+ *
+ * This is the hallucination guard, and it lives here rather than in the prompt
+ * because a prompt is a request and this is a rule. When it reports `none`, the
+ * caller does not send the question to a language model at all — there is
+ * nothing to phrase, and a model handed an empty FACTS block and a direct
+ * question is being invited to fill the gap from its own memory.
+ */
+export type EvidenceGrade = 'sufficient' | 'partial' | 'none';
+
 export interface RetrievedAnswer {
   intent: string;
   headline: string;
@@ -28,6 +39,9 @@ export interface RetrievedAnswer {
   facts: { label: string; value: string }[];
   narrative: string;
   links: { label: string; href: string }[];
+  evidence: EvidenceGrade;
+  /** Present when evidence is `none`: what would have to be imported. */
+  missing?: string[];
 }
 
 export const SUGGESTED_QUESTIONS = [
@@ -64,10 +78,259 @@ function extractPercent(question: string): number | null {
   return match === null ? null : Number(match[1]);
 }
 
+/**
+ * Words that look like a product name but are not one.
+ *
+ * The unknown-subject check below asks "is the customer naming something I do
+ * not have?", and the cost of a false positive is telling somebody EngiSignal
+ * lacks evidence about "Which" or "Explain". Anything that routinely starts an
+ * English sentence, and every term the intent classifier itself keys on, is
+ * excluded.
+ */
+const NOT_A_PRODUCT = new Set([
+  'what', 'which', 'who', 'why', 'when', 'where', 'how', 'explain', 'show', 'tell',
+  'the', 'our', 'my', 'we', 'us', 'is', 'are', 'do', 'does', 'did', 'can', 'should',
+  'this', 'that', 'these', 'those', 'and', 'or', 'for', 'from', 'with', 'about',
+  'renewal', 'renewals', 'contract', 'contracts', 'licence', 'license', 'licenses',
+  'licences', 'portfolio', 'executive', 'summary', 'evidence', 'missing', 'data',
+  'cost', 'costs', 'spend', 'saving', 'savings', 'opportunity', 'opportunities',
+  'capacity', 'risk', 'demand', 'usage', 'forecast', 'scenario', 'confidence',
+  'engisignal', 'vendor', 'vendors', 'feature', 'features', 'product', 'products',
+  'user', 'users', 'seat', 'seats', 'team', 'teams', 'department', 'departments',
+  'program', 'programs', 'priorit', 'prioritise', 'prioritize', 'biggest', 'largest',
+  'top', 'next', 'now', 'year', 'month', 'quarter', 'reclaim', 'idle', 'utilisation',
+  'utilization', 'growth', 'grow', 'increase', 'decrease', 'reduce', 'change',
+  'changes', 'changed', 'under', 'assumption', 'assumptions', 'lab', 'driving',
+  'drives', 'driver', 'drivers', 'recommendation', 'recommendations', 'made', 'being',
+]);
+
+/**
+ * A subject the customer named that EngiSignal has never seen.
+ *
+ * Returns the offending term, or null when everything named is recognised.
+ *
+ * The direction of the error matters here. Answering a question about
+ * "Solidworks" with portfolio-wide figures — because Solidworks was not found
+ * and the classifier fell through to the overview — produces a confident answer
+ * to a question nobody asked, and every number in it is real, which is what
+ * makes it convincing. Saying "EngiSignal holds no evidence about Solidworks"
+ * is occasionally pedantic and never misleading.
+ */
+function unknownSubject(workspace: Workspace, question: string): string | null {
+  const known = new Set<string>();
+  for (const row of workspace.portfolio) {
+    for (const value of [row.featureName, row.productName, row.featureCode, row.vendorName]) {
+      for (const token of value.toLowerCase().split(/[^a-z0-9]+/)) {
+        if (token.length > 2) known.add(token);
+      }
+    }
+  }
+
+  // Candidates: capitalised or ALL-CAPS tokens, and underscore-joined codes —
+  // the three shapes engineering software names actually take.
+  const candidates = question.match(/\b[A-Z][A-Za-z0-9]{2,}(?:[_-][A-Za-z0-9]+)*\b|\b[A-Z0-9]{3,}(?:_[A-Z0-9]+)+\b/g) ?? [];
+
+  for (const candidate of candidates) {
+    const lower = candidate.toLowerCase();
+    if (NOT_A_PRODUCT.has(lower)) continue;
+    // A multi-part code counts as known if any part is known.
+    const parts = lower.split(/[^a-z0-9]+/).filter((part) => part.length > 2);
+    if (parts.length === 0) continue;
+    if (parts.some((part) => known.has(part) || NOT_A_PRODUCT.has(part))) continue;
+    return candidate;
+  }
+  return null;
+}
+
+/**
+ * Retrieval, with the evidence gate in front of it.
+ *
+ * Two questions are answered before any intent is classified, because both are
+ * reasons no intent can be answered honestly:
+ *
+ *   1. Is there any analysis at all?
+ *   2. Did the customer name something this workspace has never seen?
+ */
 export function retrieve(workspace: Workspace, question: string): RetrievedAnswer {
+  if (workspace.portfolio.length === 0) {
+    return {
+      intent: 'no-evidence',
+      headline: 'EngiSignal has no analysis for this workspace yet.',
+      facts: [],
+      narrative:
+        'Nothing has been imported, so there is no usage, entitlement or contract evidence to answer from. EngiSignal does not estimate an answer in place of one.',
+      links: [{ label: 'Import data', href: '/app/data/import' }],
+      evidence: 'none',
+      missing: ['A usage export', 'An entitlement export', 'A contract or price file'],
+    };
+  }
+
+  const unknown = unknownSubject(workspace, question);
+  if (unknown !== null) {
+    return {
+      intent: 'no-evidence',
+      headline: `EngiSignal holds no evidence about "${unknown}".`,
+      facts: [
+        { label: 'Features analysed in this workspace', value: formatNumber(workspace.portfolio.length) },
+      ],
+      narrative:
+        `Nothing imported into this workspace matches "${unknown}". It may be licensed under a different feature code, ` +
+        `served by a licence server whose export has not been imported, or not present in this estate at all. ` +
+        `EngiSignal will not answer for it from anything other than your own data.`,
+      links: [
+        { label: 'Portfolio', href: '/app/portfolio' },
+        { label: 'Unmapped features', href: '/app/data/unmapped-features' },
+      ],
+      evidence: 'none',
+      missing: [`Usage or entitlement rows naming "${unknown}"`],
+    };
+  }
+
+  const answer = classify(workspace, question);
+  return {
+    ...answer,
+    // Intents that grade themselves keep their grade. The rest are graded on
+    // whether retrieval actually found anything: a fact list that came back
+    // empty is a question this workspace's data does not reach, and saying so
+    // is the honest answer.
+    evidence: answer.evidence ?? (answer.facts.length === 0 ? 'partial' : 'sufficient'),
+  };
+}
+
+type ClassifiedAnswer = Omit<RetrievedAnswer, 'evidence'> & { evidence?: EvidenceGrade };
+
+function classify(workspace: Workspace, question: string): ClassifiedAnswer {
   const q = question.toLowerCase().trim();
   const feature = findFeature(workspace, question);
   const { portfolio, renewals, totals, dataset, signals, confidence } = workspace;
+
+  // ── Explain this portfolio to an executive ───────────────────────────────
+  if (/executive|board|leadership|cfo|summar(y|ise|ize)|brief|one page|elevator/.test(q)) {
+    const priced = portfolio.filter((row) => row.financial.priced);
+    const topOpportunity = [...portfolio]
+      .filter((row) => (row.financial.optimizationOpportunity ?? 0) > 0)
+      .sort((a, b) => (b.financial.optimizationOpportunity ?? 0) - (a.financial.optimizationOpportunity ?? 0))[0];
+    const nearest = [...renewals]
+      .filter((r) => r.daysRemaining >= 0)
+      .sort((a, b) => a.daysRemaining - b.daysRemaining)[0];
+    const atRisk = portfolio.filter((row) => row.risk === 'High' || row.risk === 'Critical');
+
+    return {
+      intent: 'executive-brief',
+      headline: hasCostEvidence(totals)
+        ? `${dataset.organization.name}: ${formatCurrency(totals.annualSpend)} of served capacity, ${formatCurrency(totals.optimizationOpportunity)} addressable.`
+        : `${dataset.organization.name}: ${formatNumber(portfolio.length)} features analysed, no prices supplied.`,
+      facts: [
+        { label: 'Annual value of served capacity', value: formatCurrencyExact(costFigure(totals.annualSpend, totals)) },
+        { label: 'Purchased commitment', value: formatCurrencyExact(costFigure(totals.purchasedCommitment, totals)) },
+        { label: 'Optimization opportunity', value: formatCurrencyExact(costFigure(totals.optimizationOpportunity, totals)) },
+        { label: 'Features analysed', value: formatNumber(portfolio.length) },
+        { label: 'Features with a price', value: `${formatNumber(priced.length)} of ${formatNumber(portfolio.length)}` },
+        { label: 'Vendors', value: formatNumber(totals.vendorCount) },
+        { label: 'Features at High or Critical capacity risk', value: formatNumber(atRisk.length) },
+        ...(topOpportunity === undefined
+          ? []
+          : [{
+              label: 'Largest single opportunity',
+              value: `${topOpportunity.vendorName} ${topOpportunity.productName} — ${formatCurrencyExact(topOpportunity.financial.optimizationOpportunity)}`,
+            }]),
+        ...(nearest === undefined
+          ? []
+          : [{
+              label: 'Nearest renewal',
+              value: `${nearest.vendorName} in ${formatNumber(nearest.daysRemaining)} days (${formatDate(nearest.renewalDate)})`,
+            }]),
+        { label: 'Portfolio confidence', value: `${confidence.level} (${confidence.score}/100)` },
+        { label: 'Analysis date', value: formatDate(dataset.asOf) },
+      ],
+      narrative:
+        'Served capacity is what the licence servers are configured to issue; purchased commitment is what procurement records buying. Where they differ, the difference is reported rather than resolved, because only the customer can say which document is current.',
+      links: [
+        { label: 'Executive Brief', href: '/app/brief' },
+        { label: 'Intelligence', href: '/app' },
+      ],
+      evidence: hasCostEvidence(totals) ? 'sufficient' : 'partial',
+    };
+  }
+
+  // ── What evidence is missing ─────────────────────────────────────────────
+  if (/missing|what.*(don't|do not|dont).*have|gap|incomplete|improve.*confidence|what.*need/.test(q)) {
+    const unpriced = portfolio.filter((row) => !row.financial.priced);
+    const noUsage = portfolio.filter((row) => row.metrics === null);
+    const noRenewalDate = portfolio.filter((row) => row.renewalDate === null);
+    const shortHistory = portfolio.filter(
+      (row) => row.metrics !== null && row.metrics.observedDays < 300,
+    );
+
+    return {
+      intent: 'missing-evidence',
+      headline: `Portfolio confidence is ${confidence.level} at ${confidence.score}/100. ${formatNumber(confidence.reasons.length)} factors are holding it there.`,
+      facts: [
+        ...confidence.reasons.map((reason) => ({ label: reason.label, value: reason.detail })),
+        { label: 'Features with no price supplied', value: `${formatNumber(unpriced.length)} of ${formatNumber(portfolio.length)}` },
+        { label: 'Features with no usage observed', value: `${formatNumber(noUsage.length)} of ${formatNumber(portfolio.length)}` },
+        { label: 'Features with no renewal date', value: `${formatNumber(noRenewalDate.length)} of ${formatNumber(portfolio.length)}` },
+        { label: 'Features with under 300 days of history', value: `${formatNumber(shortHistory.length)} of ${formatNumber(portfolio.length)}` },
+        {
+          label: 'Usernames not tied to a person',
+          value: formatNumber(
+            // `ambiguous` counts too: two people claiming one identifier is not
+            // a resolved identity, and its usage cannot be attributed either.
+            workspace.userIdentities.filter(
+              (identity) => identity.status === 'unmatched' || identity.status === 'ambiguous',
+            ).length,
+          ),
+        },
+      ],
+      narrative:
+        'Every one of these is a specific file or column that would raise confidence. EngiSignal reports the gap rather than filling it: an unpriced feature has no opportunity figure at all, which is different from an opportunity of zero.',
+      links: [
+        { label: 'Data centre', href: '/app/data' },
+        { label: 'Import more', href: '/app/data/import' },
+      ],
+      evidence: 'sufficient',
+    };
+  }
+
+  // ── Which renewal should we prioritise ───────────────────────────────────
+  // Deliberately narrow. "Which renewals need attention?" is a request for the
+  // list and is answered by the `renewals` intent below; only language that
+  // actually asks for an ORDER lands here. `first` and `order` were tried as
+  // triggers and both swept up ordinary phrasing.
+  if (/priorit|most urgent|which renewal should|rank/.test(q) && /renew|contract|expir/.test(q)) {
+    // Ranked by what actually decides a renewal conversation: how soon it is,
+    // and how much is riding on it. Both are reported so the reader can see
+    // the trade-off rather than being handed a single opaque score.
+    const ranked = [...renewals]
+      .filter((r) => r.daysRemaining >= 0)
+      .sort((a, b) => {
+        const aValue = (a.currentAnnualSpend ?? 0) + (a.optimizationOpportunity ?? 0);
+        const bValue = (b.currentAnnualSpend ?? 0) + (b.optimizationOpportunity ?? 0);
+        if (a.daysRemaining !== b.daysRemaining && (a.daysRemaining <= 90) !== (b.daysRemaining <= 90)) {
+          return a.daysRemaining - b.daysRemaining;
+        }
+        return bValue - aValue;
+      });
+
+    return {
+      intent: 'renewal-priority',
+      headline:
+        ranked[0] === undefined
+          ? 'No dated renewals are ahead of the analysis date.'
+          : `${ranked[0].vendorName} is the one to take first — ${formatNumber(ranked[0].daysRemaining)} days out.`,
+      facts: ranked.slice(0, 6).map((renewal, index) => ({
+        label: `${index + 1}. ${renewal.vendorName} — ${formatDate(renewal.renewalDate)}`,
+        value:
+          `${formatNumber(renewal.daysRemaining)} days · ${formatCurrencyExact(renewal.currentAnnualSpend)} current · ` +
+          `${renewal.optimizationOpportunity === null ? 'opportunity not priced' : `${formatCurrencyExact(renewal.optimizationOpportunity)} opportunity`} · ` +
+          `${renewal.confidence.level} confidence`,
+      })),
+      narrative:
+        'Anything inside ninety days is ordered by date, because the decision window is the binding constraint. Beyond that, the ranking follows the money at stake. An unpriced line is listed but never ranked above a priced one on value it does not have.',
+      links: [{ label: 'Renewal Command Centre', href: '/app/renewals' }],
+      evidence: ranked.length === 0 ? 'partial' : 'sufficient',
+    };
+  }
 
   // ── Savings opportunities ────────────────────────────────────────────────
   if (/saving|opportunit|reduce spend|overspend|waste|cut cost/.test(q)) {
@@ -75,6 +338,7 @@ export function retrieve(workspace: Workspace, question: string): RetrievedAnswe
       .filter((row) => (row.financial.optimizationOpportunity ?? 0) > 0)
       .sort((a, b) => (b.financial.optimizationOpportunity ?? 0) - (a.financial.optimizationOpportunity ?? 0))
       .slice(0, 5);
+    const leader = top[0];
 
     return {
       intent: 'savings',
@@ -92,14 +356,45 @@ export function retrieve(workspace: Workspace, question: string): RetrievedAnswe
           label: `${row.vendorName} ${row.productName} (${row.featureName})`,
           value: `${formatCurrencyExact(row.financial.optimizationOpportunity)} — entitled ${formatNumber(row.entitled)}, recommended ${formatNumber(row.rightSizing?.recommended ?? 0)}`,
         })),
+        // ── WHAT IS *DRIVING* THE LARGEST ONE ────────────────────────────────
+        //
+        // "You have $281,400 of opportunity" is a number. "You are serving 220
+        // seats against a P95 of 139, so 66 seats are never reached" is the
+        // reason, and it is the part somebody has to defend to a vendor. The
+        // arithmetic is the deterministic engine's; this only surfaces it.
+        ...(leader === undefined
+          ? []
+          : [
+              { label: `Driver — entitled quantity`, value: formatNumber(leader.entitled) },
+              ...(leader.metrics === null
+                ? [{ label: 'Driver — observed demand', value: 'No usage evidence supplied for this feature' }]
+                : [
+                    { label: 'Driver — P95 daily peak demand', value: formatNumber(leader.metrics.p95, 1) },
+                    { label: 'Driver — maximum daily peak', value: formatNumber(leader.metrics.max) },
+                    { label: 'Driver — utilization at P95', value: formatPercent(leader.metrics.utilizationPct) },
+                    { label: 'Driver — days observed', value: formatNumber(leader.metrics.observedDays) },
+                  ]),
+              ...(leader.rightSizing === null
+                ? []
+                : [
+                    { label: 'Driver — recommended quantity', value: formatNumber(leader.rightSizing.recommended) },
+                    { label: 'Driver — surplus seats', value: formatNumber(leader.entitled - leader.rightSizing.recommended) },
+                  ]),
+              { label: 'Driver — unit price', value: formatCurrencyExact(leader.unitPrice) },
+              { label: 'Driver — confidence', value: `${leader.confidence.level} (${leader.confidence.score}/100)` },
+            ]),
       ],
       narrative:
-        `The largest opportunities are concentrated in ${top.length} positions. ` +
-        `Each is entitled capacity above what observed demand supports at the current assumptions, valued at contract unit price.`,
+        leader === undefined
+          ? 'No feature currently carries a priced optimization opportunity.'
+          : `The largest single opportunity is ${leader.vendorName} ${leader.productName}. ` +
+            `It is entitled capacity above what observed demand supports at the current assumptions, valued at the contract unit price — ` +
+            `not a discount, a forecast, or a negotiating position.`,
       links: [
         { label: 'Portfolio', href: '/app/portfolio' },
-        ...(top[0] === undefined ? [] : [{ label: `${top[0].productName} evidence`, href: `/app/portfolio/${top[0].featureId}` }]),
+        ...(leader === undefined ? [] : [{ label: `${leader.productName} evidence`, href: `/app/portfolio/${leader.featureId}` }]),
       ],
+      evidence: hasCostEvidence(totals) ? 'sufficient' : 'partial',
     };
   }
 

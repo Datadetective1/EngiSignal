@@ -1,4 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// The provider now reaches the OpenAI transport, which is marked `server-only`
+// so the API key can never be pulled into a client bundle. That marker is the
+// point, so it is mocked here rather than removed.
+vi.mock('server-only', () => ({}));
+
 import { factsToText, retrieve } from '@/lib/ai/retrieval';
 import { AI_SYSTEM_PROMPT, configuredProviderId } from '@/lib/ai/provider';
 import { computePortfolioTotals, unusedCapacitySpend } from '@/lib/analytics/financial';
