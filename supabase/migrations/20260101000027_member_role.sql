@@ -1,0 +1,23 @@
+-- ============================================================================
+-- The `member` role.
+--
+-- WHY THIS MIGRATION CONTAINS ONE STATEMENT
+--
+-- PostgreSQL will not let a new enum value be USED in the same transaction that
+-- adds it. Supabase applies each migration inside a transaction, so adding the
+-- label and referencing it in a function body or policy must be two migrations.
+-- Everything that reads `member` lives in 20260101000028.
+--
+-- WHY A NEW LABEL RATHER THAN REUSING `analyst`
+--
+-- org_role already carried owner | admin | analyst | viewer, and the obvious
+-- shortcut was to relabel `analyst` as "Member" in the interface. That would
+-- have made the database say one thing and the product another for the single
+-- most security-relevant column in the schema — the one every RLS policy reads.
+-- The first person to read a policy would have had to know the mapping, and a
+-- mapping that lives only in someone's head is how an authorization bug ships.
+--
+-- `analyst` and `viewer` remain valid. No existing row changes.
+-- ============================================================================
+
+alter type public.org_role add value if not exists 'member';

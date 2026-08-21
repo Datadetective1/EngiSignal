@@ -10,7 +10,8 @@
 
 import 'server-only';
 import { cache } from 'react';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
+import { myPendingInvitations } from '@/lib/membership';
 import { computePortfolioTotals, unusedCapacitySpend } from '@/lib/analytics/financial';
 import {
   buildDataQualityIssues,
@@ -107,6 +108,22 @@ export const loadWorkspace = cache(async (): Promise<Workspace> => {
   if (organizations.length === 0) {
     await ensureOrganization();
     organizations = await provider.listOrganizations(session.userId);
+  }
+
+  // ── STILL NOTHING, AND THAT CAN BE CORRECT ────────────────────────────────
+  //
+  // `bootstrap_organization` now declines to provision for someone who holds a
+  // pending invitation, because minting them a private tenant would strand them
+  // away from the workspace they were invited to. So "no organization" has two
+  // meanings, and only one of them is a fault.
+  //
+  // A 404 here would be the same dead end the provisioning backstop was written
+  // to remove — the person is signed in, everything is working, and the product
+  // is telling them the page does not exist. Send them to the invitation they
+  // are waiting on instead.
+  if (organizations.length === 0) {
+    const pending = await myPendingInvitations();
+    if (pending.length > 0) redirect('/invitations');
   }
 
   const organization = organizations[0];

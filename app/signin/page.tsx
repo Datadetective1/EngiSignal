@@ -46,12 +46,16 @@ const ERRORS: Record<string, string> = {
 export default async function SignInPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; mode?: string; notice?: string }>;
+  searchParams: Promise<{ error?: string; mode?: string; notice?: string; invite?: string }>;
 }) {
-  const session = await getSession();
-  if (session !== null) redirect('/app');
-
   const params = await searchParams;
+  const invite = (params.invite ?? '').trim();
+
+  const session = await getSession();
+  // Already signed in with an invitation in hand: go straight to it rather than
+  // to the app, which is where an accepted invitation ends up anyway.
+  if (session !== null) redirect(invite.length > 0 ? `/invite/${encodeURIComponent(invite)}` : '/app');
+
   const supabaseAuth = isSupabaseAuth();
   const signup = params.mode === 'signup';
   const resetting = params.mode === 'reset';
@@ -115,6 +119,9 @@ export default async function SignInPage({
               action={resetting ? requestPasswordResetAction : signup ? signUpAction : signInAction}
               className="mt-8 max-w-sm"
             >
+              {/* Carries the invitation through authentication, including the
+                  round trip through a confirmation email. */}
+              {invite.length > 0 && <input type="hidden" name="invite" value={invite} />}
               <label htmlFor="email" className="block text-[12.5px] font-medium text-fg-muted">
                 Work email
               </label>
@@ -146,7 +153,10 @@ export default async function SignInPage({
                     className="mt-1.5 h-11 w-full rounded-md border border-border bg-surface px-3.5 text-[14px] text-fg focus:border-accent focus:outline-none"
                   />
 
-                  {signup && (
+                  {/* Not shown when joining by invitation: the workspace already
+                      exists and naming another one here would be answered by a
+                      field that does nothing. */}
+                  {signup && invite.length === 0 && (
                     <>
                       <label
                         htmlFor="organization"
@@ -241,15 +251,28 @@ export default async function SignInPage({
                 ) : signup ? (
                   <>
                     Already have an account?{' '}
-                    <Link href="/signin" className="text-accent underline underline-offset-2">
+                    <Link
+                      href={invite.length > 0 ? `/signin?invite=${encodeURIComponent(invite)}` : '/signin'}
+                      className="text-accent underline underline-offset-2"
+                    >
                       Sign in
                     </Link>
                   </>
                 ) : (
                   <>
-                    No account yet?{' '}
-                    <Link href="/signin?mode=signup" className="text-accent underline underline-offset-2">
-                      Create a workspace
+                    {invite.length > 0 ? 'No account yet?' : 'No account yet?'}{' '}
+                    <Link
+                      href={
+                        invite.length > 0
+                          ? `/signin?mode=signup&invite=${encodeURIComponent(invite)}`
+                          : '/signin?mode=signup'
+                      }
+                      className="text-accent underline underline-offset-2"
+                    >
+                      {/* An invited person is joining a workspace, not creating
+                          one. Offering to "create a workspace" here is how they
+                          end up in a tenant of their own by accident. */}
+                      {invite.length > 0 ? 'Create an account' : 'Create a workspace'}
                     </Link>
                   </>
                 )}

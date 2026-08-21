@@ -73,38 +73,66 @@ function messageFor(error: { message: string; status?: number; code?: string }):
   return 'failed';
 }
 
+/**
+ * Where to go once authenticated.
+ *
+ * An invitation token turns sign-in into one step of a longer journey, so it
+ * has to survive the round trip. Without this an invited person signs in
+ * correctly, lands on /app, and has to go back to their email to find the link
+ * again — or worse, gets a workspace provisioned for them and never sees the
+ * one they were invited to.
+ *
+ * Only ever a path on this origin. The value arrives from a form field, and an
+ * absolute URL here would make sign-in an open redirect.
+ */
+function destinationFor(invite: string): string {
+  if (invite.length === 0) return '/app';
+  return `/invite/${encodeURIComponent(invite)}`;
+}
+
 export async function signInAction(formData: FormData) {
   const email = String(formData.get('email') ?? '').trim();
   const password = String(formData.get('password') ?? '');
+  const invite = String(formData.get('invite') ?? '').trim();
+  const inviteQuery = invite.length > 0 ? `&invite=${encodeURIComponent(invite)}` : '';
 
-  if (email.length === 0 || !email.includes('@')) redirect('/signin?error=email');
+  if (email.length === 0 || !email.includes('@')) redirect(`/signin?error=email${inviteQuery}`);
 
   if (!isSupabaseAuth()) {
     await createSession(email);
-    redirect('/app');
+    redirect(destinationFor(invite));
   }
 
-  if (password.length === 0) redirect('/signin?error=password');
+  if (password.length === 0) redirect(`/signin?error=password${inviteQuery}`);
 
   const supabase = await userClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error !== null) redirect(`/signin?error=${messageFor(error)}`);
+  if (error !== null) redirect(`/signin?error=${messageFor(error)}${inviteQuery}`);
 
-  await ensureOrganization();
-  redirect('/app');
+  // With an invitation in hand, provisioning is deliberately skipped: the
+  // membership about to be created by accepting is the one that matters, and
+  // bootstrap_organization would decline anyway.
+  if (invite.length === 0) await ensureOrganization();
+  redirect(destinationFor(invite));
 }
 
 export async function signUpAction(formData: FormData) {
   const email = String(formData.get('email') ?? '').trim();
   const password = String(formData.get('password') ?? '');
   const organization = String(formData.get('organization') ?? '').trim();
+  const invite = String(formData.get('invite') ?? '').trim();
+  const inviteQuery = invite.length > 0 ? `&invite=${encodeURIComponent(invite)}` : '';
 
-  if (email.length === 0 || !email.includes('@')) redirect('/signin?error=email&mode=signup');
-  if (password.length < MINIMUM_PASSWORD_LENGTH) redirect('/signin?error=weak&mode=signup');
+  if (email.length === 0 || !email.includes('@')) {
+    redirect(`/signin?error=email&mode=signup${inviteQuery}`);
+  }
+  if (password.length < MINIMUM_PASSWORD_LENGTH) {
+    redirect(`/signin?error=weak&mode=signup${inviteQuery}`);
+  }
 
   if (!isSupabaseAuth()) {
     await createSession(email);
-    redirect('/app');
+    redirect(destinationFor(invite));
   }
 
   const supabase = await userClient();
@@ -120,7 +148,10 @@ export async function signUpAction(formData: FormData) {
       // fallback target if the email template is ever reverted to
       // {{ .ConfirmationURL }} — the link would then consume the token at
       // Supabase and land here with a code, which the page handles.
-      emailRedirectTo: await emailConfirmUrl({ next: '/app' }),
+      // An invited person must come back to their invitation after confirming,
+      // not to an empty workspace. This is the only thread that survives the
+      // trip through the mail client, so it carries the token.
+      emailRedirectTo: await emailConfirmUrl({ next: destinationFor(invite) }),
       // Carried on the user record so it survives the confirmation round trip.
       // With email confirmation enabled there is no session here, so the
       // provisioning call below never runs — and the name the customer typed
@@ -129,15 +160,17 @@ export async function signUpAction(formData: FormData) {
       data: organization.length > 0 ? { organization_name: organization } : undefined,
     },
   });
-  if (error !== null) redirect(`/signin?error=${messageFor(error)}&mode=signup`);
+  if (error !== null) redirect(`/signin?error=${messageFor(error)}&mode=signup${inviteQuery}`);
 
   // With email confirmation enabled there is no session yet, so the workspace
   // cannot be provisioned until the address is confirmed. Say that plainly
   // rather than dropping the user into an empty app.
-  if (data.session === null) redirect('/signin?notice=confirm');
+  if (data.session === null) redirect(`/signin?notice=confirm${inviteQuery}`);
 
-  await ensureOrganization(organization);
-  redirect('/app');
+  // An invited signup provisions nothing. Their workspace is the one they are
+  // about to join.
+  if (invite.length === 0) await ensureOrganization(organization);
+  redirect(destinationFor(invite));
 }
 
 /**

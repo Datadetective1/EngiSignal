@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   CardHeader,
+  LinkButton,
   MethodologyNote,
   MetricRow,
   SectionHeading,
@@ -56,6 +57,11 @@ export default async function SettingsPage() {
             />
             <MetricRow label="Currency" value={organization.currency} />
             <MetricRow label="Analysis date" value={formatDate(dataset.asOf)} emphasis />
+            <div className="mt-4">
+              <LinkButton href="/app/settings/members" variant="secondary">
+                Manage members
+              </LinkButton>
+            </div>
           </div>
         </Card>
 
