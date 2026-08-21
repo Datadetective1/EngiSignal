@@ -1,0 +1,69 @@
+employee_id,username,full_name,email,status,employee_type,manager,manager_id,department,business_unit,program,discipline,location,region,cost_center
+E30100,a.storsveen,Aina Storsveen,a.storsveen@caldermarine.example,Active,Contractor,H. Lindqvist,mgr-2201,Hydrodynamics,Engineering,Tidewater,Hydrodynamics,Portsmouth,EMEA,CC-7200
+E30101,b.okonkwo,Bertil Okonkwo,b.okonkwo@caldermarine.example,Active,Employee,D. Achebe,mgr-2202,Carbody Structures,Engineering,Longbow,Carbody Structures,Gdansk,EMEA,CC-7201
+E30102,c.ferrero,Camila Ferrero,c.ferrero@caldermarine.example,Active,Employee,S. Marchetti,mgr-2203,Propulsion,Engineering,Kestrel,Propulsion,Halifax,AMER,CC-7202
+E30103,d.halloran,Dario Halloran,d.halloran@caldermarine.example,Active,Employee,R. Whitfield,mgr-2204,Electrical Systems,Engineering,Tidewater,Electrical Systems,Portsmouth,EMEA,CC-7203
+E30104,e.mwangi,Eshe Mwangi,e.mwangi@caldermarine.example,Active,Employee,H. Lindqvist,mgr-2201,Naval Architecture,Engineering,Longbow,Naval Architecture,Gdansk,EMEA,CC-7204
+E30105,f.bakhtiari,Finn Bakhtiari,f.bakhtiari@caldermarine.example,Active,Employee,D. Achebe,mgr-2202,Systems Integration,Engineering,Kestrel,Systems Integration,Halifax,AMER,CC-7205
+E30106,g.solberg,Gaia Solberg,g.solberg@caldermarine.example,Active,Employee,S. Marchetti,mgr-2203,Hydrodynamics,Engineering,Tidewater,Hydrodynamics,Portsmouth,EMEA,CC-7200
+E30107,h.duarte,Halvard Duarte,h.duarte@caldermarine.example,Active,Employee,R. Whitfield,mgr-2204,Carbody Structures,Engineering,Longbow,Carbody Structures,Gdansk,EMEA,CC-7201
+E30108,i.vermeulen,Ingrid Vermeulen,i.vermeulen@caldermarine.example,Active,Employee,H. Lindqvist,mgr-2201,Propulsion,Engineering,Kestrel,Propulsion,Halifax,AMER,CC-7202
+E30109,j.kaczmarek,Jarek Kaczmarek,j.kaczmarek@caldermarine.example,Active,Employee,D. Achebe,mgr-2202,Electrical Systems,Engineering,Tidewater,Electrical Systems,Portsmouth,EMEA,CC-7203
+E30110,k.lindahl,Kaia Lindahl,k.lindahl@caldermarine.example,Active,Employee,S. Marchetti,mgr-2203,Naval Architecture,Engineering,Longbow,Naval Architecture,Gdansk,EMEA,CC-7204
+E30111,l.bonnet,Ludo Bonnet,l.bonnet@caldermarine.example,Active,Employee,R. Whitfield,mgr-2204,Systems Integration,Engineering,Kestrel,Systems Integration,Halifax,AMER,CC-7205
+E30112,m.aaltonen,Marit Aaltonen,m.aaltonen@caldermarine.example,Active,Employee,H. Lindqvist,mgr-2201,Hydrodynamics,Engineering,Tidewater,Hydrodynamics,Portsmouth,EMEA,CC-7200
+E30113,n.rask,Nils Rask,n.rask@caldermarine.example,Active,Contractor,D. Achebe,mgr-2202,Carbody Structures,Engineering,Longbow,Carbody Structures,Gdansk,EMEA,CC-7201
+E30114,o.cabral,Oona Cabral,o.cabral@caldermarine.example,Active,Employee,S. Marchetti,mgr-2203,Propulsion,Engineering,Kestrel,Propulsion,Halifax,AMER,CC-7202
+E30115,p.novotny,Pavel Novotny,p.novotny@caldermarine.example,Active,Employee,R. Whitfield,mgr-2204,Electrical Systems,Engineering,Tidewater,Electrical Systems,Portsmouth,EMEA,CC-7203
+E30116,q.ilves,Quentin Ilves,q.ilves@caldermarine.example,Active,Employee,H. Lindqvist,mgr-2201,Naval Architecture,Engineering,Longbow,Naval Architecture,Gdansk,EMEA,CC-7204
+E30117,r.sandoval,Rasmus Sandoval,r.sandoval@caldermarine.example,Active,Employee,D. Achebe,mgr-2202,Systems Integration,Engineering,Kestrel,Systems Integration,Halifax,AMER,CC-7205
+E30118,s.byrne,Saoirse Byrne,s.byrne@caldermarine.example,Active,Employee,S. Marchetti,mgr-2203,Hydrodynamics,Engineering,Tidewater,Hydrodynamics,Portsmouth,EMEA,CC-7200
+E30119,t.kruger,Tobias Kruger,t.kruger@caldermarine.example,Active,Employee,R. Whitfield,mgr-2204,Carbody Structures,Engineering,Longbow,Carbody Structures,Gdansk,EMEA,CC-7201
+E30120,u.marchetti,Ulla Marchetti,u.marchetti@caldermarine.example,Active,Employee,H. Lindqvist,mgr-2201,Propulsion,Engineering,Kestrel,Propulsion,Halifax,AMER,CC-7202
+E30121,v.oyelaran,Vidar Oyelaran,v.oyelaran@caldermarine.example,Active,Employee,D. Achebe,mgr-2202,Electrical Systems,Engineering,Tidewater,Electrical Systems,Portsmouth,EMEA,CC-7203
+E30122,w.thoresen,Wenna Thoresen,w.thoresen@caldermarine.example,Active,Employee,S. Marchetti,mgr-2203,Naval Architecture,Engineering,Longbow,Naval Architecture,Gdansk,EMEA,CC-7204
+E30123,x.villalobos,Xanthe Villalobos,x.villalobos@caldermarine.example,Active,Employee,R. Whitfield,mgr-2204,Systems Integration,Engineering,Kestrel,Systems Integration,Halifax,AMER,CC-7205
+E30124,y.nakamura,Yara Nakamura,y.nakamura@caldermarine.example,Active,Employee,H. Lindqvist,mgr-2201,Hydrodynamics,Engineering,Tidewater,Hydrodynamics,Portsmouth,EMEA,CC-7200
+E30125,z.grimaldi,Zeno Grimaldi,z.grimaldi@caldermarine.example,Active,Employee,D. Achebe,mgr-2202,Carbody Structures,Engineering,Longbow,Carbody Structures,Gdansk,EMEA,CC-7201
+E30126,a.petersen,Anouk Petersen,a.petersen@caldermarine.example,Active,Contractor,S. Marchetti,mgr-2203,Propulsion,Engineering,Kestrel,Propulsion,Halifax,AMER,CC-7202
+E30127,b.ashworth,Bram Ashworth,b.ashworth@caldermarine.example,Active,Employee,R. Whitfield,mgr-2204,Electrical Systems,Engineering,Tidewater,Electrical Systems,Portsmouth,EMEA,CC-7203
+E30128,c.delgado,Cato Delgado,c.delgado@caldermarine.example,Active,Employee,H. Lindqvist,mgr-2201,Naval Architecture,Engineering,Longbow,Naval Architecture,Gdansk,EMEA,CC-7204
+E30129,d.hovland,Dagny Hovland,d.hovland@caldermarine.example,Active,Employee,D. Achebe,mgr-2202,Systems Integration,Engineering,Kestrel,Systems Integration,Halifax,AMER,CC-7205
+E30130,e.yildirim,Emre Yildirim,e.yildirim@caldermarine.example,Active,Employee,S. Marchetti,mgr-2203,Hydrodynamics,Engineering,Tidewater,Hydrodynamics,Portsmouth,EMEA,CC-7200
+E30131,f.bosma,Fenna Bosma,f.bosma@caldermarine.example,Active,Employee,R. Whitfield,mgr-2204,Carbody Structures,Engineering,Longbow,Carbody Structures,Gdansk,EMEA,CC-7201
+E30132,g.reinholt,Gustav Reinholt,g.reinholt@caldermarine.example,Active,Employee,H. Lindqvist,mgr-2201,Propulsion,Engineering,Kestrel,Propulsion,Halifax,AMER,CC-7202
+E30133,h.falk,Hedda Falk,h.falk@caldermarine.example,Active,Employee,D. Achebe,mgr-2202,Electrical Systems,Engineering,Tidewater,Electrical Systems,Portsmouth,EMEA,CC-7203
+E30134,i.sagan,Ivar Sagan,i.sagan@caldermarine.example,Active,Employee,S. Marchetti,mgr-2203,Naval Architecture,Engineering,Longbow,Naval Architecture,Gdansk,EMEA,CC-7204
+E30135,j.muniz,Jolan Muniz,j.muniz@caldermarine.example,Active,Employee,R. Whitfield,mgr-2204,Systems Integration,Engineering,Kestrel,Systems Integration,Halifax,AMER,CC-7205
+E30136,k.hakala,Kirsi Hakala,k.hakala@caldermarine.example,Active,Employee,H. Lindqvist,mgr-2201,Hydrodynamics,Engineering,Tidewater,Hydrodynamics,Portsmouth,EMEA,CC-7200
+E30137,l.brenner,Lasse Brenner,l.brenner@caldermarine.example,Active,Employee,D. Achebe,mgr-2202,Carbody Structures,Engineering,Longbow,Carbody Structures,Gdansk,EMEA,CC-7201
+E30138,m.costa,Mireia Costa,m.costa@caldermarine.example,Active,Employee,S. Marchetti,mgr-2203,Propulsion,Engineering,Kestrel,Propulsion,Halifax,AMER,CC-7202
+E30139,n.aziz,Noor Aziz,n.aziz@caldermarine.example,Active,Contractor,R. Whitfield,mgr-2204,Electrical Systems,Engineering,Tidewater,Electrical Systems,Portsmouth,EMEA,CC-7203
+E30140,o.skarsgard,Olav Skarsgard,o.skarsgard@caldermarine.example,Active,Employee,H. Lindqvist,mgr-2201,Naval Architecture,Engineering,Longbow,Naval Architecture,Gdansk,EMEA,CC-7204
+E30141,p.wojcik,Petra Wojcik,p.wojcik@caldermarine.example,Active,Employee,D. Achebe,mgr-2202,Systems Integration,Engineering,Kestrel,Systems Integration,Halifax,AMER,CC-7205
+E30142,r.lindgren,Rune Lindgren,r.lindgren@caldermarine.example,Active,Employee,S. Marchetti,mgr-2203,Hydrodynamics,Engineering,Tidewater,Hydrodynamics,Portsmouth,EMEA,CC-7200
+E30143,s.amara,Sigrid Amara,s.amara@caldermarine.example,Active,Employee,R. Whitfield,mgr-2204,Carbody Structures,Engineering,Longbow,Carbody Structures,Gdansk,EMEA,CC-7201
+E30144,t.bergqvist,Torvald Bergqvist,t.bergqvist@caldermarine.example,Active,Employee,H. Lindqvist,mgr-2201,Propulsion,Engineering,Kestrel,Propulsion,Halifax,AMER,CC-7202
+E30145,u.neumann,Ulrike Neumann,u.neumann@caldermarine.example,Active,Employee,D. Achebe,mgr-2202,Electrical Systems,Engineering,Tidewater,Electrical Systems,Portsmouth,EMEA,CC-7203
+E30146,v.callaghan,Veit Callaghan,v.callaghan@caldermarine.example,Active,Employee,S. Marchetti,mgr-2203,Naval Architecture,Engineering,Longbow,Naval Architecture,Gdansk,EMEA,CC-7204
+E30147,w.dijkstra,Wilma Dijkstra,w.dijkstra@caldermarine.example,Active,Employee,R. Whitfield,mgr-2204,Systems Integration,Engineering,Kestrel,Systems Integration,Halifax,AMER,CC-7205
+E30148,y.farah,Yusra Farah,y.farah@caldermarine.example,Active,Employee,H. Lindqvist,mgr-2201,Hydrodynamics,Engineering,Tidewater,Hydrodynamics,Portsmouth,EMEA,CC-7200
+E30149,z.gudmundur,Zola Gudmundur,z.gudmundur@caldermarine.example,Active,Employee,D. Achebe,mgr-2202,Carbody Structures,Engineering,Longbow,Carbody Structures,Gdansk,EMEA,CC-7201
+E30150,a.holt,Anders Holt,a.holt@caldermarine.example,Active,Employee,S. Marchetti,mgr-2203,Propulsion,Engineering,Kestrel,Propulsion,Halifax,AMER,CC-7202
+E30151,b.ibarra,Birte Ibarra,b.ibarra@caldermarine.example,Active,Employee,R. Whitfield,mgr-2204,Electrical Systems,Engineering,Tidewater,Electrical Systems,Portsmouth,EMEA,CC-7203
+E30152,c.jorgensen,Colm Jorgensen,c.jorgensen@caldermarine.example,Active,Contractor,H. Lindqvist,mgr-2201,Naval Architecture,Engineering,Longbow,Naval Architecture,Gdansk,EMEA,CC-7204
+E30153,d.kovacs,Doria Kovacs,d.kovacs@caldermarine.example,Active,Employee,D. Achebe,mgr-2202,Systems Integration,Engineering,Kestrel,Systems Integration,Halifax,AMER,CC-7205
+E30154,e.lemaitre,Eirik Lemaitre,e.lemaitre@caldermarine.example,Active,Employee,S. Marchetti,mgr-2203,Hydrodynamics,Engineering,Tidewater,Hydrodynamics,Portsmouth,EMEA,CC-7200
+E30155,f.meier,Freja Meier,f.meier@caldermarine.example,Active,Employee,R. Whitfield,mgr-2204,Carbody Structures,Engineering,Longbow,Carbody Structures,Gdansk,EMEA,CC-7201
+E30156,g.nyland,Gero Nyland,g.nyland@caldermarine.example,Active,Employee,H. Lindqvist,mgr-2201,Propulsion,Engineering,Kestrel,Propulsion,Halifax,AMER,CC-7202
+E30157,h.oduya,Hilde Oduya,h.oduya@caldermarine.example,Active,Employee,D. Achebe,mgr-2202,Electrical Systems,Engineering,Tidewater,Electrical Systems,Portsmouth,EMEA,CC-7203
+E30158,i.palme,Imre Palme,i.palme@caldermarine.example,Active,Employee,S. Marchetti,mgr-2203,Naval Architecture,Engineering,Longbow,Naval Architecture,Gdansk,EMEA,CC-7204
+E30159,j.radek,Janna Radek,j.radek@caldermarine.example,Active,Employee,R. Whitfield,mgr-2204,Systems Integration,Engineering,Kestrel,Systems Integration,Halifax,AMER,CC-7205
+E30160,k.stenberg,Kalle Stenberg,k.stenberg@caldermarine.example,Active,Employee,H. Lindqvist,mgr-2201,Hydrodynamics,Engineering,Tidewater,Hydrodynamics,Portsmouth,EMEA,CC-7200
+E30161,l.tavares,Linnea Tavares,l.tavares@caldermarine.example,Active,Employee,D. Achebe,mgr-2202,Carbody Structures,Engineering,Longbow,Carbody Structures,Gdansk,EMEA,CC-7201
+E30162,m.ulriksen,Mattis Ulriksen,m.ulriksen@caldermarine.example,Active,Employee,S. Marchetti,mgr-2203,Propulsion,Engineering,Kestrel,Propulsion,Halifax,AMER,CC-7202
+E30163,n.voss,Neve Voss,n.voss@caldermarine.example,Active,Employee,R. Whitfield,mgr-2204,Electrical Systems,Engineering,Tidewater,Electrical Systems,Portsmouth,EMEA,CC-7203
+E30300,r.andersen,Rolf Andersen,r.andersen@caldermarine.example,Active,Employee,K. Ravensworth,,Naval Architecture,Engineering,Kestrel,Naval Architecture,Halifax,AMER,CC-7202
+E30301,s.kettunen,Suvi Kettunen,s.kettunen@caldermarine.example,Active,Employee,K. Ravensworth,,Naval Architecture,Engineering,Tidewater,Naval Architecture,Portsmouth,EMEA,CC-7203
+E30302,m.brandao,Milo Brandao,m.brandao@caldermarine.example,Active,Employee,K. Ravensworth,,Naval Architecture,Engineering,Longbow,Naval Architecture,Gdansk,EMEA,CC-7204
+E30303,n.espegard,Nina Espegard,n.espegard@caldermarine.example,Active,Employee,K. Ravensworth,,Naval Architecture,Engineering,Kestrel,Naval Architecture,Halifax,AMER,CC-7205

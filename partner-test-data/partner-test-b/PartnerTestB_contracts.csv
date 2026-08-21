@@ -1,0 +1,5 @@
+feature,vendor,contract_number,po_number,quantity,unit_price,currency,license_type,renewal_date
+OPTISTRUCT_HPC,Altair,HBK-7712,PO-30455,140,3800,USD,concurrent,2026-09-14
+SOLIDWORKS_PREM,Dassault Systemes,HBK-7690,PO-30301,300,1900,USD,concurrent,2027-02-19
+LSDYNA_MPP,Ansys,HBK-7734,PO-30512,60,7400,USD,concurrent,2026-12-05
+SIMPACK_RAIL,Dassault Systemes,HBK-7708,PO-30440,25,2600,USD,named user,2027-01-22

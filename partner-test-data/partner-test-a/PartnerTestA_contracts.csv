@@ -1,0 +1,4 @@
+feature,vendor,contract_number,po_number,quantity,unit_price,currency,license_type,renewal_date
+STARCCM_POWER,Siemens,CAL-4417,PO-51280,260,4200,USD,concurrent,2026-10-09
+ABAQUS_STANDARD,Dassault Systemes,CAL-4402,PO-51194,90,6500,USD,concurrent,2027-03-31
+MATHCAD_PRIME,PTC,CAL-4438,PO-51341,40,1150,USD,named user,2026-11-13

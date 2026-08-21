@@ -1,0 +1,5 @@
+feature,vendor,quantity,license_type,license_server,expiry
+STARCCM_POWER,Siemens,220,concurrent,flex-cal-01,2026-10-09
+ABAQUS_STANDARD,Dassault Systemes,90,concurrent,flex-cal-01,2027-03-31
+MATHCAD_PRIME,PTC,40,named user,flex-cal-01,2026-11-13
+HYPERMESH_CFD,Altair,45,concurrent,flex-cal-01,2027-04-30

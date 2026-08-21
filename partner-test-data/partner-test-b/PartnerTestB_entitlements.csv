@@ -1,0 +1,6 @@
+feature,vendor,quantity,license_type,license_server,expiry
+OPTISTRUCT_HPC,Altair,180,concurrent,rlm-hbk-02,2026-09-14
+SOLIDWORKS_PREM,Dassault Systemes,300,concurrent,rlm-hbk-02,2027-02-19
+LSDYNA_MPP,Ansys,60,concurrent,rlm-hbk-02,2026-12-05
+SIMPACK_RAIL,Dassault Systemes,25,named user,rlm-hbk-02,2027-01-22
+TEAMCENTER_VIS,Siemens,15,named user,rlm-hbk-02,2027-06-30
