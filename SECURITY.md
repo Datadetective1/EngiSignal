@@ -16,9 +16,14 @@ Helper functions live in a `private` schema that PostgREST does not expose, so t
 
 ```sql
 private.is_org_member(org)  -- any member
-private.can_write_org(org)  -- owner | admin | analyst
+private.can_write_org(org)  -- owner | admin | analyst | member
 private.is_org_admin(org)   -- owner | admin
+private.is_org_owner(org)   -- owner only
 ```
+
+`member` is a writing role: a Member is a normal user of the product who imports
+data and records decisions. `viewer` remains read-only. `is_org_owner` exists
+because Owner is the only role permitted to act on another Owner.
 
 All three are `SECURITY DEFINER` with `search_path = ''`. `SECURITY DEFINER` is required to avoid infinite recursion when a policy on `organization_members` needs to query `organization_members`. The pinned empty `search_path` prevents object-shadowing privilege escalation.
 
@@ -42,7 +47,50 @@ Tenant isolation is proven against a live Postgres 17 instance by impersonating 
 
 Re-verified after the hardening migration repointed every policy.
 
-**Supabase security advisors: 0 findings.**
+**Supabase security advisors: 0 ERROR-level findings.** The WARN-level lints that
+remain are all `SECURITY DEFINER` functions that are *deliberately* callable —
+see [MULTI_USER_RELEASE.md](MULTI_USER_RELEASE.md) §10 for each one and why.
+
+### 1.3 Multi-user workspaces
+
+Several people from one company hold separate accounts and share one
+organization. Membership decides authorization, not who created the account.
+
+**Membership mutation is function-only.** `organization_members` has no
+`INSERT`/`UPDATE`/`DELETE` policy and `authenticated` holds no grant for those
+verbs. The only way in is five `SECURITY DEFINER` functions, each of which
+encodes the whole rule. Before this, an admin could `PATCH` the table directly
+and demote an owner — the policy tested "are you an admin here" and nothing about
+the target row.
+
+**"At least one Owner" is a trigger**, not a check repeated inside four
+functions.
+
+**Invitations** carry a 256-bit token; the database stores only its SHA-256 and
+hashes the candidate itself. Single-use, expiring, revocable, and retry-safe —
+re-inviting rotates the secret on the existing row rather than creating a second
+live invitation. Acceptance additionally requires the signed-in address to equal
+the invited address, so a forwarded link is useless.
+
+Eighteen required guarantees are proven against live Postgres by
+[`tests/sql/multiuser_guarantees.sql`](tests/sql/multiuser_guarantees.sql), which
+impersonates real authenticated users. All pass, plus three more.
+
+### 1.4 Privileges Row Level Security cannot filter
+
+Found while auditing membership grants: `authenticated` held **TRUNCATE** on 31
+public tables and `anon` on 8, inherited from Supabase's default `GRANT ALL`.
+
+SELECT/INSERT/UPDATE/DELETE are all filtered by RLS. TRUNCATE is not — it takes
+no row predicate, so no policy constrains it. One statement against
+`hourly_usage` would have removed every tenant's usage history while the
+isolation model stayed perfectly intact.
+
+Nothing reachable could issue it, because PostgREST exposes no TRUNCATE verb —
+which is exactly why it should not have been standing. Removed along with
+`REFERENCES` and `TRIGGER`, with `ALTER DEFAULT PRIVILEGES` to stop future tables
+reacquiring them. `anon` was also revoked on seven tenant tables added after the
+original RLS migration.
 
 ### 1.3 Findings fixed during hardening
 
