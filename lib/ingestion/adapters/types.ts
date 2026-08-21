@@ -30,7 +30,10 @@ export type UsageField =
   | 'denialCount'
   | 'licenseServer'
   | 'pool'
-  | 'tokens';
+  | 'tokens'
+  | 'hostname'
+  | 'version'
+  | 'borrowed';
 
 export type EntitlementField =
   | 'feature'

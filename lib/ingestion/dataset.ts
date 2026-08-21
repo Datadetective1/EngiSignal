@@ -127,6 +127,11 @@ export function buildDatasetFromCanonical(input: BuildDatasetInput): AnalyticsDa
         licenseServer: entitlement.licenseServer,
         pool: entitlement.pool,
         tokens: null,
+        // An entitlement is capacity, not a checkout: there is no machine, no
+        // feature version and no borrow state to report.
+        hostname: null,
+        version: null,
+        borrowed: null,
         provenance: entitlement.provenance,
       }) satisfies CanonicalUsageRecord,
   );
@@ -158,6 +163,10 @@ export function buildDatasetFromCanonical(input: BuildDatasetInput): AnalyticsDa
         licenseServer: null,
         pool: null,
         tokens: null,
+        // A commercial line names what was bought, not who ran it where.
+        hostname: null,
+        version: null,
+        borrowed: null,
         provenance: record.provenance,
       }) satisfies CanonicalUsageRecord,
   );

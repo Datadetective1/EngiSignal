@@ -50,6 +50,9 @@ export const dslsAdapter: IngestionAdapter = {
       durationHours: ['duration_hours', 'usage_duration', 'elapsed_hours'],
       quantity: ['requested_count', 'count', 'checkouts'],
       pool: ['pool', 'license_pool', 'site_id'],
+      hostname: ['client_host', 'host', 'hostname', 'machine', 'machine_name', 'client_machine'],
+      version: ['license_version', 'version', 'release', 'product_version', 'level'],
+      borrowed: ['offline', 'is_offline', 'borrowed', 'offline_mode'],
       employeeCode: ['customer_id', 'employee_id'],
     },
     entitlements: {

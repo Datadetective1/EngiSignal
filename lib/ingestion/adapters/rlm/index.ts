@@ -46,7 +46,13 @@ export const rlmAdapter: IngestionAdapter = {
       denied: ['denied', 'status', 'result'],
       quantity: ['count_requested', 'num_requested', 'checkouts'],
       durationHours: ['duration_hours', 'hours_used', 'elapsed_hours'],
-      // RLM logs the requesting host separately from the server.
+      // RLM logs the requesting host separately from the server — that comment
+      // used to sit above nothing, because there was no field to put it in.
+      hostname: ['host', 'client_host', 'hostname', 'requesting_host', 'machine'],
+      version: ['ver', 'version', 'product_version', 'license_version'],
+      // The capability note above warns that roaming licences read as active
+      // demand. Where the ISV's report log separates them, this reads it.
+      borrowed: ['roaming', 'is_roaming', 'roam', 'borrowed'],
       employeeCode: ['employee_id', 'emp_id'],
     },
     entitlements: {

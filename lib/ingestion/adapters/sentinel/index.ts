@@ -51,7 +51,13 @@ export const sentinelAdapter: IngestionAdapter = {
       durationHours: ['duration_hours', 'usage_hours'],
       quantity: ['requested', 'checkouts', 'count'],
       // Sentinel keys a license by feature plus version; the version alone is
-      // not an employee identifier and is intentionally not mapped to one.
+      // not an employee identifier and is intentionally not mapped to one. It
+      // now has a field of its own, so it is captured rather than discarded.
+      version: ['feature_version', 'version', 'ver', 'feature_ver'],
+      hostname: ['client_host', 'client_hostname', 'host', 'machine', 'workstation'],
+      // Sentinel's commuter licences are the borrow equivalent where an export
+      // reports them; snapshot exports commonly do not, which stays null.
+      borrowed: ['commuter', 'is_commuter', 'borrowed', 'checked_out_offline'],
     },
     entitlements: {
       feature: ['feature_name', 'feature', 'feature_id'],

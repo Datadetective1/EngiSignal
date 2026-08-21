@@ -30,6 +30,23 @@ export const USAGE_FIELDS: FieldSpec[] = [
   { key: 'licenseServer', label: 'License server', type: 'string', required: false, description: 'Server that issued the license.' },
   { key: 'pool', label: 'Pool', type: 'string', required: false, description: 'License pool or server group.' },
   { key: 'tokens', label: 'Tokens', type: 'number', required: false, description: 'Token weight consumed.' },
+  // ── Fields every major license manager reports and EngiSignal used to drop ─
+  //
+  // hostname: FlexNet, RLM and LM-X all name the machine a licence went to. It
+  // is how an administrator tells one engineer's two workstations from two
+  // engineers, and it is the only way to spot a licence pinned to a machine
+  // that no longer exists.
+  //
+  // version: a feature version is part of the licence identity, not decoration.
+  // FlexNet issues MECH_ENT v2024 and MECH_ENT v2025 from separate pools, and
+  // collapsing them reports one product with twice the demand.
+  //
+  // borrowed: a borrowed licence is checked out to an offline machine and
+  // unavailable to anyone else, but nobody is using it. Counting it as demand
+  // overstates the peak and buys capacity the estate does not need.
+  { key: 'hostname', label: 'Hostname', type: 'string', required: false, description: 'Machine the license was issued to, when the source names one.' },
+  { key: 'version', label: 'Feature version', type: 'string', required: false, description: 'Feature version. Separately licensed versions are separate identities.' },
+  { key: 'borrowed', label: 'Borrowed', type: 'boolean', required: false, description: 'Whether the license was borrowed or roamed rather than actively in use.' },
 ];
 
 export const ENTITLEMENT_FIELDS: FieldSpec[] = [
@@ -163,6 +180,12 @@ export const BASE_ALIASES: Record<CanonicalDataset, AliasTable> = {
     licenseServer: ['license_server', 'lic_server', 'server_host', 'server_name', 'license_host'],
     pool: ['pool', 'license_pool', 'server_group', 'cluster', 'site'],
     tokens: ['tokens', 'token_count', 'token_usage', 'tokens_used', 'credits'],
+    // The client workstation the note above is about. It now has a field of its
+    // own, so these spellings finally have somewhere correct to land instead of
+    // being dropped to keep them away from `licenseServer`.
+    hostname: ['hostname', 'host', 'host_name', 'client_host', 'client_hostname', 'machine', 'machine_name', 'workstation', 'display', 'client'],
+    version: ['version', 'feature_version', 'lic_version', 'product_version', 'ver', 'release'],
+    borrowed: ['borrowed', 'is_borrowed', 'borrow', 'roaming', 'is_roaming', 'linger', 'offline'],
   },
   entitlements: {
     feature: ['feature', 'feature_name', 'license_feature', 'module', 'featurename'],

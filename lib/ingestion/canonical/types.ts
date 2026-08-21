@@ -89,6 +89,19 @@ export interface CanonicalUsageRecord {
   pool: string | null;
   /** Token weight consumed, for token-based products such as DSLS. */
   tokens: number | null;
+  /** Client machine the license was issued to. Null when the source omits it. */
+  hostname: string | null;
+  /** Feature version. Separately licensed versions are separate identities. */
+  version: string | null;
+  /**
+   * True when the license was borrowed or roamed rather than actively in use.
+   *
+   * Null means the source cannot report borrowing at all, which is a different
+   * fact from `false` and must stay distinguishable: a borrowed seat is
+   * unavailable to others while nobody is using it, so treating "unknown" as
+   * "not borrowed" quietly counts idle capacity as demand.
+   */
+  borrowed: boolean | null;
   provenance: Provenance;
 }
 

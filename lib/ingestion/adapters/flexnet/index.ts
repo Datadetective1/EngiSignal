@@ -40,7 +40,14 @@ export const flexnetAdapter: IngestionAdapter = {
       licenseServer: ['server_host', 'license_host', 'lmgrd_host', 'flex_server'],
       // FlexNet exports name the client workstation "host" or "display", which
       // is not the license server. Mapping it to server would attribute demand
-      // to the wrong pool.
+      // to the wrong pool — so it goes to `hostname`, which is what it is.
+      hostname: ['host', 'display', 'client_host', 'client_hostname', 'workstation', 'node'],
+      // lmstat reports the feature version, and FlexNet genuinely serves
+      // different versions of a feature from different pools.
+      version: ['feature_version', 'version', 'lic_version', 'ver'],
+      // The capability note above warns that borrowed licences inflate demand.
+      // Where the export separates them, EngiSignal now reads it.
+      borrowed: ['borrowed', 'is_borrowed', 'linger', 'borrow_expiration', 'roaming'],
       pool: ['license_pool', 'server_group', 'triad'],
       checkoutAt: ['checkout_time', 'out_time', 'start'],
       checkinAt: ['checkin_time', 'in_time', 'stop', 'return_time'],

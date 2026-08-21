@@ -210,10 +210,19 @@ export function normalizeRows(input: NormalizeInput): NormalizeOutput {
           return { ok: true, value: parsed };
         }
         case 'boolean': {
-          const coerced = adapter.coerce?.denied?.(String(raw));
+          // ── THE COERCER IS PER FIELD, NOT PER TYPE ───────────────────────
+          //
+          // This used to run EVERY boolean field through `coerce.denied`, which
+          // was harmless while `denied` was the only boolean. It is not
+          // harmless now that `borrowed` exists: the FlexNet denial coercer
+          // reads "checkout" as false and "granted" as false, and a borrow
+          // column carrying vendor status words would have been silently
+          // reinterpreted as a denial verdict about a different question.
+          const coerced = key === 'denied' ? adapter.coerce?.denied?.(String(raw)) : undefined;
           if (coerced !== undefined) return { ok: true, value: coerced };
-          // An uninterpretable status is not a denial; leave it unknown rather
-          // than defaulting to false and understating unmet demand.
+          // An uninterpretable status is not a denial, and not a borrow; leave
+          // it unknown rather than defaulting to false and understating either
+          // unmet demand or unavailable capacity.
           return { ok: true, value: parseBoolean(raw) };
         }
         default:
@@ -264,8 +273,10 @@ export function normalizeRows(input: NormalizeInput): NormalizeOutput {
       const denialCount = read('denialCount');
       const denied = read('denied');
       const tokens = read('tokens');
+      const borrowed = read('borrowed');
 
       if (
+        !borrowed.ok ||
         !date.ok ||
         !feature.ok ||
         !hour.ok ||
@@ -324,6 +335,11 @@ export function normalizeRows(input: NormalizeInput): NormalizeOutput {
         licenseServer: read('licenseServer').value as string | null,
         pool: read('pool').value as string | null,
         tokens: tokens.value as number | null,
+        hostname: read('hostname').value as string | null,
+        version: read('version').value as string | null,
+        // Null when the file carried no borrow column at all — "we cannot see
+        // borrowing here" rather than "nothing was borrowed".
+        borrowed: borrowed.value as boolean | null,
         provenance: rowProvenance,
       };
 

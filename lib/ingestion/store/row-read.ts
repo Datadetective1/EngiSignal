@@ -93,6 +93,12 @@ export function toUsageRecord(row: Row): CanonicalUsageRecord {
     licenseServer: row.license_server as string | null,
     pool: row.pool as string | null,
     tokens: numberOrNull(row.tokens),
+    // `?? null` rather than a bare cast: rows written before these columns
+    // existed come back with the key absent, and undefined would defeat the
+    // whole point of distinguishing "not reported" from "false".
+    hostname: (row.hostname as string | null | undefined) ?? null,
+    version: (row.version as string | null | undefined) ?? null,
+    borrowed: (row.borrowed as boolean | null | undefined) ?? null,
     provenance: provenanceOf(row),
   } as CanonicalUsageRecord;
 }

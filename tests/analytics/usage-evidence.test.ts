@@ -73,6 +73,9 @@ function usage(feature: string, date: string, concurrent: number, row: number): 
     licenseServer: null,
     pool: null,
     tokens: null,
+    hostname: null,
+    version: null,
+    borrowed: null,
     provenance: provenance(row),
   };
 }

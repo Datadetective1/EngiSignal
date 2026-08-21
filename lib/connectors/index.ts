@@ -156,7 +156,134 @@ export function getConnector(id: ConnectorId): LicenseManagerConnector | undefin
   return CONNECTORS.find((connector) => connector.id === id);
 }
 
-/** Connectors with a working implementation. Empty in this release, by design. */
+/** Connectors with a working LIVE implementation. Empty in this release. */
 export function availableConnectors(): LicenseManagerConnector[] {
   return CONNECTORS.filter((connector) => connector.available);
 }
+
+/**
+ * ── TWO DIFFERENT QUESTIONS, PREVIOUSLY ANSWERED AS ONE ─────────────────────
+ *
+ * Settings used to report "0 of 8 implemented", which was true of the live
+ * polling connectors above and badly wrong about the product: EngiSignal reads
+ * FlexNet, RLM, DSLS and Sentinel exports today, and has done since Phase 1.
+ * The registry described the network integrations and the interface described
+ * the registry, so a customer looking for "do you support FlexNet?" was told no
+ * while the FlexNet adapter sat in the same codebase parsing their file.
+ *
+ * The two capabilities are now reported separately, because a customer buying
+ * on "supports FlexNet" needs to know which of them they are getting:
+ *
+ *   fileIngestion   Can EngiSignal read an export this vendor's tooling
+ *                   produces, today, through the normal import flow?
+ *   liveCollection  Can EngiSignal collect from a running licence server
+ *                   without anybody exporting anything?
+ *
+ * ── WHAT EACH STATUS MEANS ──────────────────────────────────────────────────
+ *
+ *   ready         A realistic native export has been carried the whole way —
+ *                 parse, detect, map, normalize, persist, analyse, reconcile —
+ *                 by a test in tests/ingestion/connector-end-to-end.test.ts.
+ *                 That test FAILS if anything here claims `ready` without a
+ *                 case proving it, which is the only reason the word means
+ *                 anything on the Settings page.
+ *   beta          Parses and maps, but the end-to-end proof is thinner than the
+ *                 four above: fewer native column shapes, or a format variant
+ *                 not yet seen from a real customer.
+ *   config        Works, but needs something from the customer first.
+ *   planned       Interface exists. No implementation.
+ */
+export type ConnectorStatus = 'ready' | 'beta' | 'config' | 'planned';
+
+export interface ConnectorReadiness {
+  id: ConnectorId;
+  fileIngestion: ConnectorStatus;
+  liveCollection: ConnectorStatus;
+  /** What the customer exports, in their own vocabulary. */
+  fileSource: string;
+  /** Why it is not higher, or what it needs. Shown verbatim in Settings. */
+  detail: string;
+}
+
+export const CONNECTOR_READINESS: ConnectorReadiness[] = [
+  {
+    id: 'flexnet',
+    fileIngestion: 'ready',
+    liveCollection: 'planned',
+    fileSource: 'lmstat output or report-log export (CSV, TSV, Excel)',
+    detail:
+      'Reads users, features, versions, client hosts, servers, checkout and check-in times, concurrency, denials and borrowed licences. Denial columns appear only where debug logging was enabled on the vendor daemon.',
+  },
+  {
+    id: 'rlm',
+    fileIngestion: 'ready',
+    liveCollection: 'planned',
+    fileSource: 'RLM report log or web-interface export (CSV, TSV, Excel)',
+    detail:
+      'Reads the ISV daemon as the vendor and keeps pooled licences in their own pool. Report-log columns are ISV-specific, so two vendors on one server can export different shapes.',
+  },
+  {
+    id: 'dsls',
+    fileIngestion: 'ready',
+    liveCollection: 'planned',
+    fileSource: 'DS License Server usage or entitlement export (CSV, TSV, Excel)',
+    detail:
+      'Token weight is preserved rather than folded into seat counts. Where a file carries tokens but no per-feature weight, EngiSignal reports the gap instead of inferring one.',
+  },
+  {
+    id: 'sentinel',
+    fileIngestion: 'ready',
+    liveCollection: 'planned',
+    fileSource: 'Sentinel RMS usage or license export (CSV, TSV, Excel)',
+    detail:
+      'Interval snapshots rather than checkout events, so demand spikes shorter than the sampling period are invisible and peak is understated. Feature version and client host are captured.',
+  },
+  {
+    id: 'lmx',
+    fileIngestion: 'beta',
+    liveCollection: 'planned',
+    fileSource: 'LM-X status or log export (CSV, TSV, Excel)',
+    detail:
+      'Imports through the generic reader, which handles the common LM-X column names. No LM-X-specific adapter or auto-detection yet, so the source must be chosen manually and the mapping reviewed.',
+  },
+  {
+    id: 'autodesk',
+    fileIngestion: 'beta',
+    liveCollection: 'planned',
+    fileSource: 'Autodesk usage reporting export (CSV)',
+    detail:
+      'Named-user reporting is daily-granular, so concurrent peak analysis does not apply and named-user reclaim is used instead. Imports through the generic reader.',
+  },
+  {
+    id: 'bentley',
+    fileIngestion: 'beta',
+    liveCollection: 'planned',
+    fileSource: 'Bentley usage reporting export (CSV)',
+    detail:
+      'Reports consumption after the fact. Suitable for trend and cost, not for capacity alerts. Imports through the generic reader.',
+  },
+  {
+    id: 'custom',
+    fileIngestion: 'config',
+    liveCollection: 'planned',
+    fileSource: 'Any tabular export carrying date, feature and a usage measure',
+    detail:
+      'The generic reader handles any file that names a date, a feature and a quantity. Column mapping is confirmed by a human before anything is committed.',
+  },
+];
+
+export function connectorReadiness(id: ConnectorId): ConnectorReadiness | undefined {
+  return CONNECTOR_READINESS.find((entry) => entry.id === id);
+}
+
+/** Connectors whose file ingestion is proven end to end. */
+export function readyFileConnectors(): ConnectorReadiness[] {
+  return CONNECTOR_READINESS.filter((entry) => entry.fileIngestion === 'ready');
+}
+
+export const CONNECTOR_STATUS_LABELS: Record<ConnectorStatus, string> = {
+  ready: 'Ready',
+  beta: 'Beta',
+  config: 'Configuration required',
+  planned: 'Planned',
+};

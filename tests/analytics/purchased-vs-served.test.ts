@@ -58,7 +58,7 @@ function usage(feature: string, date: string, concurrent: number, row: number): 
     feature, product: null, vendor: null, quantity: null, concurrent,
     peak: null, available: null, durationHours: null, checkoutAt: null,
     checkinAt: null, denied: null, denialCount: null, licenseServer: null,
-    pool: null, tokens: null, provenance: provenance(row),
+    pool: null, tokens: null, hostname: null, version: null, borrowed: null, provenance: provenance(row),
   };
 }
 

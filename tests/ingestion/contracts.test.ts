@@ -105,6 +105,9 @@ function usage(feature: string, date: string, concurrent: number, row = 2): Cano
     licenseServer: null,
     pool: null,
     tokens: null,
+    hostname: null,
+    version: null,
+    borrowed: null,
     provenance: provenance(row),
   };
 }

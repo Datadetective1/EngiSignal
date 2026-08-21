@@ -259,6 +259,9 @@ describe('coverage', () => {
           licenseServer: null,
           pool: null,
           tokens: null,
+          hostname: null,
+          version: null,
+          borrowed: null,
           provenance: {
             organizationId: 'o',
             importId: 'i',
@@ -314,6 +317,9 @@ describe('projection to analytics shapes', () => {
       licenseServer: null,
       pool: null,
       tokens: null,
+      hostname: null,
+      version: null,
+      borrowed: null,
       provenance: {
         organizationId: 'o',
         importId: 'i',
@@ -366,6 +372,9 @@ describe('projection to analytics shapes', () => {
         licenseServer: null,
         pool: null,
         tokens: null,
+        hostname: null,
+        version: null,
+        borrowed: null,
         provenance: {
           organizationId: 'o',
           importId: 'i',

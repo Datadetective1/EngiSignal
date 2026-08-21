@@ -41,6 +41,9 @@ function usage(feature: string, user: string | null, extra: Partial<CanonicalUsa
     licenseServer: null,
     pool: null,
     tokens: null,
+    hostname: null,
+    version: null,
+    borrowed: null,
     provenance: PROV,
     ...extra,
   };
