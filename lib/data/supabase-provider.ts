@@ -93,11 +93,35 @@ function mapOrganization(row: any): Organization {
 export const supabaseProvider: DataProvider = {
   kind: 'supabase',
 
+  /**
+   * The organizations this user belongs to, oldest membership first.
+   *
+   * ── WHY THE ORDER IS PART OF THE CONTRACT ─────────────────────────────────
+   *
+   * Callers take `organizations[0]` as "the active workspace" — `loadWorkspace`
+   * does when it renders a page, and `resolveIngestionContext` does when it
+   * decides which tenant an upload belongs to. Those are two separate queries
+   * in two separate requests.
+   *
+   * This query had no ORDER BY, so Postgres was free to return the rows in any
+   * order it liked. For anyone belonging to ONE organization that is harmless,
+   * which is why it survived: until invitations existed, nobody belonged to two.
+   *
+   * It stops being harmless the moment somebody is invited into a second
+   * workspace. Two unordered reads can disagree, and the way that surfaces is
+   * a customer uploading a licence export into the wrong company's tenant —
+   * with RLS entirely satisfied, because they are a legitimate member of both.
+   *
+   * Ordering by the membership's own created_at makes the choice deterministic
+   * and meaningful: the workspace you joined first stays the one you land in,
+   * for as long as there is no switcher to say otherwise.
+   */
   async listOrganizations(userId: string): Promise<Organization[]> {
     const { data, error } = await (await db())
       .from('organization_members')
-      .select('organizations(*)')
-      .eq('user_id', userId);
+      .select('created_at, organizations(*)')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true });
     if (error !== null) throw new Error(`Failed to list organizations: ${error.message}`);
     return (data ?? []).flatMap((row: any) => (row.organizations ? [mapOrganization(row.organizations)] : []));
   },
