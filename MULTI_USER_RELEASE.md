@@ -488,6 +488,33 @@ Two trigger functions that the linter would otherwise have flagged —
 `enforce_last_owner` and `touch_updated_at` — had their `EXECUTE` revoked in
 migration 29 and no longer appear.
 
+### 10.1 Performance advisors
+
+`get_advisors(type: "performance")`: **0 ERROR, 0 WARN, 21 INFO.**
+
+None relate to this release. `organization_invitations` has covering indexes on
+both its foreign key and its lookup columns, and none of its indexes appear in
+the unused-index list. The INFO entries are pre-existing: two unindexed foreign
+keys on `identity_confirmations` and `ingestion_rejections`, eighteen
+"unused index" notices that simply reflect near-empty tables in a young
+production database, and one note that the Auth server uses an absolute rather
+than percentage-based connection allocation.
+
+### 10.2 Mobile
+
+Checked at 390×844 (iPhone 14 class):
+
+| Screen | Result |
+|---|---|
+| `/invite/[token]` (all terminal states) | No horizontal overflow; document width 390 |
+| `/signin` and the invited variant | No horizontal overflow; no element extends past the viewport |
+| `/invitations` | Single-column card layout, no overflow |
+
+The Members tables use the same `TableShell` primitive as every other table in
+the product, which scrolls the table inside its own container rather than
+letting the page scroll sideways. The invite form collapses from a three-column
+grid to stacked fields below the `sm` breakpoint.
+
 ---
 
 ## 11. QA cleanup status
