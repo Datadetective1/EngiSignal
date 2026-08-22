@@ -205,6 +205,73 @@ describe('the question types the product promises to answer', () => {
     expect(labels).toContain('no usage observed');
   });
 
+  it('routes every way of asking for a derivation to the explanation', () => {
+    // Production QA found "How is X derived?" falling through to the portfolio
+    // overview: the model was handed real figures that did not answer the
+    // question. It refused rather than improvising, which is the behaviour that
+    // matters — but the evidence existed and the customer did not get it.
+    const known = portfolio.find((row) => row.rightSizing !== null)!;
+    const product = known.productName;
+
+    const phrasings = [
+      `Why is ${product} recommended at that quantity?`,
+      `How is the ${product} recommendation derived?`,
+      `How did you calculate the ${product} number?`,
+      `Where does the ${product} recommendation come from?`,
+      `How was ${product} computed?`,
+      `What determines the ${product} recommendation?`,
+      `How did you arrive at the ${product} quantity?`,
+      `How do you get the ${product} figure?`,
+      `On what basis is ${product} recommended?`,
+      `Explain the ${product} recommendation.`,
+      // Deliberately NOT here: "What is the X recommendation?" asks for the
+      // figure, not for how it was derived, and the word "recommendation" alone
+      // is not a request for a derivation. See the note in retrieval.ts.
+    ];
+
+    for (const question of phrasings) {
+      const answer = retrieve(workspace, question);
+      expect(answer.intent, `"${question}" should explain the recommendation`).toBe(
+        'explain-recommendation',
+      );
+      expect(answer.evidence).not.toBe('none');
+      // The same evidence every time — this is a routing fix, not a new answer.
+      const labels = answer.facts.map((fact) => fact.label).join(' | ');
+      expect(labels).toContain('Recommended quantity');
+    }
+  });
+
+  it('leaves the neighbouring intents exactly where they were', () => {
+    // The explanation branch is classified BEFORE demand-drivers, so a matcher
+    // that was too broad would silently steal these. Each names a product and
+    // must still route elsewhere.
+    const product = portfolio[0]!.productName;
+
+    expect(retrieve(workspace, `Who drives ${product} demand?`).intent).toBe('demand-drivers');
+    expect(retrieve(workspace, `Which department uses ${product} most?`).intent).toBe('demand-drivers');
+    expect(retrieve(workspace, `What happens if ${product} demand grows 12%?`).intent).toBe('what-if');
+    expect(retrieve(workspace, `Is the ${product} recommendation low confidence?`).intent).toBe(
+      'confidence',
+    );
+    expect(retrieve(workspace, 'What are my largest savings opportunities?').intent).toBe('savings');
+    expect(retrieve(workspace, 'Which renewals need attention?').intent).toBe('renewals');
+    expect(retrieve(workspace, 'Which renewal should we prioritise?').intent).toBe('renewal-priority');
+    expect(retrieve(workspace, 'Explain this portfolio to an executive.').intent).toBe('executive-brief');
+    expect(retrieve(workspace, 'What evidence is missing?').intent).toBe('missing-evidence');
+  });
+
+  it('still refuses a derivation question about software it does not hold', () => {
+    // Widening the matcher must not widen what counts as evidence.
+    for (const question of [
+      'How is the Zemax OpticStudio recommendation derived?',
+      'Where does the SolidWorks Premium number come from?',
+    ]) {
+      const answer = retrieve(workspace, question);
+      expect(answer.intent).toBe('no-evidence');
+      expect(answer.evidence).toBe('none');
+    }
+  });
+
   it('answers a Scenario Lab assumption', () => {
     const answer = retrieve(workspace, 'What changes if headcount grows 12%?');
     expect(answer.intent).toBe('what-if');

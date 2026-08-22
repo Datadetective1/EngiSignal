@@ -420,7 +420,32 @@ function classify(workspace: Workspace, question: string): ClassifiedAnswer {
   }
 
   // ── Why this recommendation ──────────────────────────────────────────────
-  if (feature !== null && /why|reduc|increas|explain|justif|how did|basis/.test(q)) {
+  // ── ASKING FOR A DERIVATION, IN ANY OF THE WAYS PEOPLE ASK ────────────────
+  //
+  // "Why is X recommended?" routed here. "How is X derived?" did not, and fell
+  // through to the portfolio overview — so the model was handed real figures
+  // that did not answer the question. It refused, correctly, but the customer
+  // got nothing when the evidence was sitting right there.
+  //
+  // The additions anchor on the VERB rather than on "how is". A bare `how is`
+  // would sweep up "How is MATLAB demand distributed across teams?", which is a
+  // demand-drivers question — and demand-drivers is classified AFTER this
+  // branch, so it would have been silently stolen. Every term below names an
+  // act of derivation and cannot be confused for one.
+  //
+  // `deriv` and `driv` look close and are not: "drives" keeps routing to
+  // demand-drivers, which a test below holds in place.
+  //
+  // A bare `recommend` was tried and reverted. It reads as an obvious member of
+  // this set and is not: "Is the MATLAB recommendation low confidence?" is a
+  // CONFIDENCE question, and because this branch runs first, adding the word
+  // took it. Asking for a figure is not asking how it was derived.
+  if (
+    feature !== null &&
+    /why|reduc|increas|explain|justif|basis|deriv|calculat|comput|determin|worked? out|arrived? at|comes? from|came from|how did|how do you get/.test(
+      q,
+    )
+  ) {
     const sizing = feature.rightSizing;
     return {
       intent: 'explain-recommendation',
