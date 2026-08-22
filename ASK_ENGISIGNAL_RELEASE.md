@@ -238,8 +238,8 @@ case** — the difference is timing, and it reveals only that some tenant holds
 many rows, never whose or what. Pre-existing behaviour of RLS filtering a large
 table, unrelated to this release.
 
-**6.3 Intent classifier coverage.** See §5.2. "How is X derived?" does not route
-to the explanation intent.
+**6.3 Intent classifier coverage.** ~~"How is X derived?" does not route to the
+explanation intent.~~ **Fixed — see §9.**
 
 ---
 
@@ -273,3 +273,71 @@ Final production state: **2 organizations, 2 memberships, 0 invitations, 0 QA
 users**, Meridian's **281,995 usage rows intact**. Identical to the pre-test
 state. Meridian and Acme were read from only, and only to prove those reads come
 back empty.
+
+---
+
+## 9. Follow-up: the derivation-phrasing gap (§6.3) — fixed
+
+Routing only. Retrieval, grounding, the OpenAI path, tenant isolation, rate
+limiting and every analytics formula are untouched: the same branch produces the
+same evidence, it is simply reached by more of the ways people ask.
+
+### 9.1 What changed
+
+One matcher in `classify()`. The additions anchor on the **verb of derivation** —
+`deriv`, `calculat`, `comput`, `determin`, `worked out`, `arrived at`,
+`comes from`, `how do you get` — rather than on a bare `how is`.
+
+That distinction is the whole care of the change. `explain-recommendation` is
+classified *before* `demand-drivers`, so a bare `how is` would have silently
+taken "How is MATLAB demand distributed across teams?" — a question about who
+uses a product, answered as though it were about how a number was reached.
+
+**A bare `recommend` was tried and reverted.** It reads as an obvious member of
+the set and is not: "Is the MATLAB recommendation low confidence?" is a
+*confidence* question, and adding the word took it. The guard test caught it
+before it left the machine. Asking for a figure is not asking how it was derived.
+
+### 9.2 Tests added
+
+`tests/ai/grounding.test.ts` gains three cases:
+
+- eleven phrasings all reach `explain-recommendation` and carry
+  `Recommended quantity`;
+- nine neighbouring intents — demand-drivers, what-if, confidence, savings,
+  renewals, renewal-priority, executive-brief, missing-evidence — are pinned
+  where they were, so a future widening cannot take them quietly;
+- a derivation question about software the tenant does not hold still returns
+  `no-evidence`. Widening the matcher must not widen what counts as evidence.
+
+### 9.3 Production verification
+
+Disposable tenant `QA Derivation Routing`, loaded through the real import flow
+with the Partner Test A estate (10,682 usage · 4 entitlements · 3 contracts,
+`analyticsCurrent: true`).
+
+**Nine derivation phrasings** — all `explain-recommendation`, all evidence
+`sufficient`, all model-phrased, all carrying `Recommended quantity`, and **zero
+unsupported numbers** in any narrative:
+
+> How is the … derived? · How did you calculate …? · Where does … come from? ·
+> How was … computed? · What determines …? · How did you arrive at …? ·
+> How do you get …? · On what basis is … recommended? · Why is … recommended?
+
+**Thirteen neighbouring intents re-checked in production: zero regressions**,
+including both refusals for software the tenant does not hold.
+
+The question that failed in §5.2 now answers from the evidence:
+
+> The recommendation is derived from the P95 daily peak demand of 139.0, with no
+> assumed growth and a 10% safety buffer applied, which gives an unrounded result
+> of 152.90. That value is then rounded up to the whole license, producing the
+> recommended quantity of 153.
+
+### 9.4 Regression and cleanup
+
+`tsc` clean · ESLint clean · **1021 passed / 1021** (was 1018, +3) ·
+`next build` compiled successfully.
+
+Test tenant and account removed. Production back to **2 organizations, 0 QA
+users, 0 invitations**, Meridian's **281,995 usage rows intact**.
