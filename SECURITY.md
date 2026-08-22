@@ -76,7 +76,26 @@ Eighteen required guarantees are proven against live Postgres by
 [`tests/sql/multiuser_guarantees.sql`](tests/sql/multiuser_guarantees.sql), which
 impersonates real authenticated users. All pass, plus three more.
 
-### 1.4 Privileges Row Level Security cannot filter
+### 1.4 What leaves the boundary for the AI layer
+
+Ask EngiSignal can send a customer's evidence to OpenAI. What that does and does
+not mean is verified in
+[ASK_ENGISIGNAL_RELEASE.md](ASK_ENGISIGNAL_RELEASE.md) §4.10:
+
+- **`store: false` on every request**, unconditionally. Every request on this
+  path carries estate data, so there is no case where retention is appropriate
+  and no rule for anyone to apply wrongly.
+- **Nothing is persisted by EngiSignal.** No table holds a prompt, question,
+  narrative or model output, and there is no logging on the AI path — a provider
+  error can echo the request, and the request is the customer's estate.
+- **The key never reaches a browser.** `lib/ai/openai.ts` is marked
+  `server-only`, so a future client import fails the build rather than shipping
+  the key. Verified against the deployed bundles: no key, no endpoint, no system
+  prompt, no model name.
+- **The model receives assembled facts, never the database**, and is not called
+  at all when EngiSignal holds no evidence for the question.
+
+### 1.5 Privileges Row Level Security cannot filter
 
 Found while auditing membership grants: `authenticated` held **TRUNCATE** on 31
 public tables and `anon` on 8, inherited from Supabase's default `GRANT ALL`.
