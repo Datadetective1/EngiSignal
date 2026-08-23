@@ -1,0 +1,16 @@
+ENGISIGNAL
+
+Confirm your email address
+
+One step left before you can sign in to EngiSignal.
+
+EngiSignal turns your engineering software usage, licences and contracts into renewal, cost and capacity decisions you can defend.
+
+Confirm email address: {{LINK}}
+
+If you did not create an EngiSignal account, you can ignore this email — no account is active until this link is used.
+
+----------------------------------------------------------
+www.engisignal.com
+support@engisignal.com  ·  security@engisignal.com
+Engineering Software Intelligence
