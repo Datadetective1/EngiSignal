@@ -1,0 +1,17 @@
+{
+  "name": "engisignal-social-launch-kit",
+  "private": true,
+  "type": "module",
+  "description": "Build scripts for the EngiSignal social launch kit.",
+  "scripts": {
+    "build": "npm run build:logos && npm run build:social && npm run build:guide && npm run verify",
+    "build:logos": "node build-logos.mjs",
+    "build:social": "node build-social.mjs",
+    "build:guide": "node build-guide.mjs",
+    "verify": "node verify.mjs",
+    "outline": "node outline-wordmark.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

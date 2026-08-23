@@ -1,0 +1,3 @@
+# 2x intermediates from the render pass; the exact-size PNGs are the deliverable.
+.tmp/
+node_modules/
