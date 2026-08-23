@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "validate": "npm run lint && npm run typecheck && npm run test && npm run build"
+    "validate": "npm run lint && npm run typecheck && npm run test && npm run build",
+    "preview:emails": "npx --yes tsx scripts/preview-emails.mts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

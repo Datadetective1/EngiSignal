@@ -85,9 +85,12 @@ describe('what the operator is told', () => {
   });
 
   it('mentions exactly one request, so no other company can ride along', () => {
+    // Labels lost their trailing colon when the alert moved to the shared
+    // email design system; the rule being held is unchanged — one request per
+    // notification, so a well-meaning summary cannot leak another company.
     const { text } = composeNotification(request);
-    expect((text.match(/Request id:/g) ?? []).length).toBe(1);
-    expect((text.match(/Work email:/g) ?? []).length).toBe(1);
+    expect((text.match(/Request ID/g) ?? []).length).toBe(1);
+    expect((text.match(/Work email/g) ?? []).length).toBe(1);
   });
 });
 

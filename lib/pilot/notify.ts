@@ -1,5 +1,6 @@
 import 'server-only';
 import type { PilotRequest } from '@/lib/domain/types';
+import { renderPilotRequestEmail } from '@/lib/email/templates/pilot-request';
 
 /**
  * ── TELLING THE OPERATOR A PILOT REQUEST ARRIVED ────────────────────────────
@@ -82,38 +83,20 @@ function readConfig(): NotifyConfig | null {
 }
 
 /** Everything an operator needs to decide whether to reply, and how. */
-export function composeNotification(request: PilotRequest): { subject: string; text: string } {
-  const line = (label: string, value: string | null | undefined) =>
-    value === null || value === undefined || value === '' ? null : `${label}: ${value}`;
-
-  const body = [
-    line('Company', request.company),
-    line('Contact', request.name),
-    line('Job title', request.jobTitle),
-    line('Work email', request.workEmail),
-    '',
-    line('Annual software spend', request.softwareSpendRange),
-    line('Renewal timing', request.renewalTiming),
-    line('Employees', request.approximateEmployees),
-    line('Engineering employees', request.engineeringEmployees),
-    line('Major vendors', request.majorVendors),
-    line('Primary challenge', request.primaryChallenge),
-    request.message === null || request.message === '' ? null : `\nMessage:\n${request.message}`,
-    '',
-    `Received: ${request.createdAt}`,
-    `Request id: ${request.id}`,
-  ]
-    .filter((entry): entry is string => entry !== null)
-    .join('\n');
-
-  return {
-    // Renewal timing is in the subject because it is the one field that decides
-    // whether this is answered today or this week.
-    subject: `Pilot request — ${request.company}${
-      request.renewalTiming ? ` (renewal ${request.renewalTiming.toLowerCase()})` : ''
-    }`,
-    text: body,
-  };
+/**
+ * Everything an operator needs to decide whether to reply, and how.
+ *
+ * Presentation moved to lib/email/templates/pilot-request.ts, which renders the
+ * HTML and the plain text from one description so the two cannot drift. The
+ * subject is unchanged: renewal timing stays in it because it is the one field
+ * that decides whether this is answered today or this week.
+ */
+export function composeNotification(request: PilotRequest): {
+  subject: string;
+  text: string;
+  html: string;
+} {
+  return renderPilotRequestEmail(request);
 }
 
 /** Provider errors can be long; keep enough to diagnose, not enough to bloat. */
@@ -129,7 +112,7 @@ export async function notifyPilotRequest(request: PilotRequest): Promise<NotifyR
   const config = readConfig();
   if (config === null) return { outcome: 'skipped', detail: null };
 
-  const { subject, text } = composeNotification(request);
+  const { subject, text, html } = composeNotification(request);
 
   try {
     const response = await fetch(RESEND_ENDPOINT, {
@@ -145,7 +128,11 @@ export async function notifyPilotRequest(request: PilotRequest): Promise<NotifyR
         // mailbox, which is the whole point of receiving this.
         reply_to: request.workEmail,
         subject,
+        // Both parts, always. The text alternative is generated from the same
+        // description as the HTML, so a client that shows plain text loses the
+        // styling and nothing else.
         text,
+        html,
       }),
       signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     });

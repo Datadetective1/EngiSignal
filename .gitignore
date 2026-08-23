@@ -34,3 +34,6 @@ next-env.d.ts
 # Browser-automation artifacts from production auditing
 /*.png
 .playwright-mcp/
+
+# Rendered email previews (scripts/preview-emails.mts)
+.email-preview/
