@@ -230,6 +230,14 @@ rather than Junk, each carrying company, contact, job title, work email, spend
 band, renewal timing, employee and engineering-employee counts, major vendors,
 primary challenge, message, received timestamp and request id.
 
+> **Superseded presentation, 23 August 2026.** The alert still carries exactly
+> these fields, but it is no longer assembled as `label: value` lines — it renders
+> through the shared email design system, with a decision strip, a highlighted
+> primary challenge and a named reply button. The recipient moved to the
+> `pilot@engisignal.com` alias behind Cloudflare Email Routing at the same time.
+> Sender, recipient and `Reply-To` semantics are unchanged. See
+> [`EMAIL_RELEASE.md`](EMAIL_RELEASE.md).
+
 Two defects were found and fixed on the way there, both of which had made the
 failure invisible:
 

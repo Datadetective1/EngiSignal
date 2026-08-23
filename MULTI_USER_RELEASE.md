@@ -580,6 +580,13 @@ sender already configured in production. It is correct and deliverable, but
 `invites@` or `no-reply@` would read better to a prospect. Cosmetic; needs a
 verified sender and an env change.
 
+> **Resolved in code, 23 August 2026.** `engisignal.com` is domain-verified with
+> Resend — confirmed by the DKIM selector at the apex — so any address on the
+> domain can send. Set `ENGISIGNAL_INVITE_FROM=EngiSignal
+> <notifications@engisignal.com>` in Vercel to switch. Unset, invitations behave
+> exactly as described above. The invitation email itself was rebuilt on the
+> shared design system at the same time: see [`EMAIL_RELEASE.md`](EMAIL_RELEASE.md).
+
 **4. No self-service "leave workspace".**
 A member who wants out must ask an Owner or Admin to remove them. The
 last-Owner invariant makes the self-removal case fiddly enough to be worth doing
