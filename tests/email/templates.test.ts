@@ -3,7 +3,11 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('server-only', () => ({}));
 
 import type { PilotRequest } from '@/lib/domain/types';
-import { renderPilotRequestEmail, pilotRequestDoc } from '@/lib/email/templates/pilot-request';
+import {
+  renderPilotRequestEmail,
+  pilotRequestDoc,
+  contactFirstName,
+} from '@/lib/email/templates/pilot-request';
 import { renderInvitationEmail } from '@/lib/email/templates/invitation';
 import { renderEmail, safeUrl, escapeHtml } from '@/lib/email/design';
 import { notifyPilotRequest } from '@/lib/pilot/notify';
@@ -82,7 +86,7 @@ describe('the pilot alert carries every submitted field', () => {
 
   it('offers a reply button addressed to the prospect', () => {
     expect(html).toContain('mailto:d.whitfield@example-aero.com');
-    expect(html).toContain('Reply to prospect');
+    expect(html).toContain('Reply to Dana');
   });
 
   it('mentions exactly one request, so no other company can ride along', () => {
@@ -247,7 +251,7 @@ describe('the plain-text alternative is a peer of the HTML, not a summary', () =
 
   it('includes the reply address as a usable mailto line', () => {
     // The text part shows the bare address; the HTML part carries the mailto:
-    expect(text).toContain('Reply to prospect: d.whitfield@example-aero.com');
+    expect(text).toContain('Reply to Dana: d.whitfield@example-aero.com');
     expect(text).not.toContain('%20');
   });
 
@@ -432,5 +436,172 @@ describe('sending still addresses the prospect on reply', () => {
     expect(body.reply_to).toBe('d.whitfield@example-aero.com');
     expect(body.html).toContain('New pilot request');
     expect(body.text).toContain('Example Aerostructures');
+  });
+});
+
+/**
+ * ── THE SCAN-FIRST REFINEMENTS ──────────────────────────────────────────────
+ *
+ * The alert is read on a phone, and the operator decides "now or later" before
+ * reading anything else. The decision strip, the highlighted challenge and the
+ * named reply button all serve that first three seconds — and all three carry
+ * the prospect's own words, never ours.
+ */
+describe('the decision strip', () => {
+  const { html, text } = renderPilotRequestEmail(request);
+
+  it('leads with the three facts that decide the reply', () => {
+    for (const label of ['Renewal', 'Software spend', 'Primary concern']) {
+      expect(html).toContain(label);
+      expect(text).toContain(label);
+    }
+  });
+
+  it('shows the submitted values verbatim rather than our paraphrase', () => {
+    expect(html).toContain('Within 90 days');
+    expect(html).toContain(escapeHtml('$2M – $10M'));
+    // Not shortened to "Over-licensed": that would be our words attributed to
+    // the prospect.
+    expect(html).toContain('We suspect we are over-licensed');
+    expect(text).toContain('Primary concern:  We suspect we are over-licensed');
+  });
+
+  it('sits above the Contact section, where it is read first', () => {
+    expect(pilotRequestDoc(request).blocks[0]?.kind).toBe('summary');
+    expect(html.indexOf('>Renewal</div>')).toBeLessThan(html.indexOf('>Contact</div>'));
+  });
+
+  it('omits an item with no value instead of showing a placeholder', () => {
+    const noSpend = renderPilotRequestEmail({ ...request, softwareSpendRange: '' });
+    expect(noSpend.html).not.toContain('>Software spend</div>');
+    expect(noSpend.text).not.toContain('Software spend:');
+    expect(noSpend.html).toContain('>Renewal</div>');
+    expect(noSpend.html).toContain('>Primary concern</div>');
+  });
+
+  it('never renders a dash or N/A where a value is missing', () => {
+    const noSpend = renderPilotRequestEmail({ ...request, softwareSpendRange: '' });
+    expect(noSpend.html).not.toMatch(/>\s*(—|N\/A|n\/a|-)\s*</);
+  });
+
+  it('divides the width evenly between however many items survive', () => {
+    expect(html).toContain('width:33.33%');
+    expect(renderPilotRequestEmail({ ...request, softwareSpendRange: '' }).html).toContain('width:50.00%');
+  });
+
+  it('disappears entirely when none of the three were supplied', () => {
+    const bare = { ...request, renewalTiming: '', softwareSpendRange: '', primaryChallenge: '' };
+    const rendered = renderPilotRequestEmail(bare);
+    expect(rendered.html).not.toContain('>Primary concern</div>');
+    expect(pilotRequestDoc(bare).blocks.some((b) => b.kind === 'summary')).toBe(false);
+    // The rest of the alert still renders.
+    expect(rendered.text).toContain('Example Aerostructures');
+  });
+
+  it('stacks rather than squeezing three columns into a phone', () => {
+    expect(html).toContain('.es-sum');
+    expect(html).toContain('.es-sumtable, .es-sumrow');
+  });
+
+  it('escapes a hostile value', () => {
+    const { html: h } = renderPilotRequestEmail({
+      ...request,
+      softwareSpendRange: '<img src=x onerror=1>',
+    });
+    expect(h).not.toContain('<img src=x');
+    expect(h).toContain('&lt;img');
+  });
+});
+
+describe('the primary challenge is set apart from ordinary metadata', () => {
+  const { html, text } = renderPilotRequestEmail(request);
+
+  it('is labelled and rendered inside the Software environment section', () => {
+    const section = html.indexOf('>Software environment</div>');
+    const challenge = html.indexOf('>Primary challenge</div>');
+    expect(section).toBeGreaterThan(-1);
+    expect(challenge).toBeGreaterThan(section);
+    expect(challenge).toBeLessThan(html.indexOf('>Message</div>'));
+  });
+
+  it('is no longer a plain row in that section', () => {
+    const section = pilotRequestDoc(request).blocks.find(
+      (b) => b.kind === 'sections' && b.label === 'Software environment',
+    );
+    if (section?.kind !== 'sections') throw new Error('Software environment section missing');
+    expect(section.rows.map((r) => r.label)).not.toContain('Primary challenge');
+    expect(section.highlight?.value).toBe('We suspect we are over-licensed');
+  });
+
+  it('carries the prospect wording and adds none of ours', () => {
+    expect(text).toContain('Primary challenge: We suspect we are over-licensed');
+    for (const invented of ['urgent', 'high priority', 'act now', 'critical']) {
+      expect(text.toLowerCase()).not.toContain(invented);
+    }
+  });
+
+  it('is dropped when the prospect did not supply one', () => {
+    expect(renderPilotRequestEmail({ ...request, primaryChallenge: '' }).html).not.toContain('>Primary challenge</div>');
+  });
+
+  it('still renders the section when the challenge is the only thing in it', () => {
+    const { html: h } = renderPilotRequestEmail({ ...request, majorVendors: '', renewalTiming: '' });
+    expect(h).toContain('>Software environment</div>');
+    expect(h).toContain('>Primary challenge</div>');
+  });
+});
+
+describe('the reply button uses the contact first name when one can be taken', () => {
+  it('addresses the prospect by name', () => {
+    const { html, text } = renderPilotRequestEmail(request);
+    expect(html).toContain('Reply to Dana');
+    expect(text).toContain('Reply to Dana:');
+    expect(html).not.toContain('Reply to prospect');
+  });
+
+  it.each([
+    ['Dana Whitfield', 'Dana'],
+    ['Dana', 'Dana'],
+    ['  Dana   Whitfield  ', 'Dana'],
+    ['Dr. Dana Whitfield', 'Dana'],
+    ['Prof Ada Lovelace', 'Ada'],
+    ['Ms Ada', 'Ada'],
+    ['Åsa Lindqvist', 'Åsa'],
+    ['van der Berg', 'van'],
+  ])('derives %s to %s', (input, expected) => {
+    expect(contactFirstName(input)).toBe(expected);
+  });
+
+  it.each([
+    ['', 'empty'],
+    ['   ', 'whitespace only'],
+    ['12345', 'no letters'],
+    ['d.whitfield@example-aero.com', 'an address'],
+    ['Dr.', 'an honorific with nothing after it'],
+    ['A'.repeat(41), 'absurdly long'],
+  ])('falls back for %s (%s)', (input) => {
+    expect(contactFirstName(input)).toBeNull();
+  });
+
+  it('falls back to the generic label rather than guessing', () => {
+    const { html, text } = renderPilotRequestEmail({ ...request, name: '12345' });
+    expect(html).toContain('Reply to prospect');
+    expect(text).toContain('Reply to prospect:');
+  });
+
+  it('escapes a hostile name in the button label', () => {
+    const { html } = renderPilotRequestEmail({ ...request, name: '<script>x</script>' });
+    expect(html).not.toContain('<script>x');
+    expect(html).not.toMatch(/<[^>]+onerror=/i);
+  });
+
+  it('changes only the label — the reply address is untouched', () => {
+    for (const rendered of [
+      renderPilotRequestEmail(request),
+      renderPilotRequestEmail({ ...request, name: '12345' }),
+    ]) {
+      expect(rendered.html).toContain('mailto:d.whitfield@example-aero.com');
+      expect(rendered.text).toContain('d.whitfield@example-aero.com');
+    }
   });
 });

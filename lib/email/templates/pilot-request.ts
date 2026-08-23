@@ -66,6 +66,44 @@ function formatReceived(iso: string): string {
   return `${date} at ${time} UTC`;
 }
 
+/**
+ * Titles that are not a first name, so "Reply to Dr" never goes out.
+ * Compared without the trailing full stop.
+ */
+const HONORIFICS = new Set(['mr', 'mrs', 'ms', 'miss', 'mx', 'dr', 'prof', 'sir', 'eng', 'ing']);
+
+/**
+ * The prospect's first name, when one can be taken safely.
+ *
+ * Presentation only — this never touches the reply address. Returns null
+ * rather than guessing, because "Reply to prospect" is a perfectly good button
+ * and "Reply to d.whitfield@example-aero.com" is not.
+ *
+ * The value is whatever the prospect typed into a public form, so it is capped,
+ * required to contain a letter, and rejected if it looks like an address. Case
+ * is left exactly as submitted: correcting "van der Berg" or a name in another
+ * script does more harm than the tidiness is worth.
+ */
+export function contactFirstName(name: string | null | undefined): string | null {
+  if (typeof name !== 'string') return null;
+
+  const tokens = name
+    .trim()
+    .split(/\s+/)
+    .map((token) => token.replace(/[.,;:]+$/, ''))
+    .filter((token) => token.length > 0);
+
+  // Skip a leading honorific, but only if something follows it.
+  const first = HONORIFICS.has((tokens[0] ?? '').toLowerCase()) ? tokens[1] : tokens[0];
+  if (first === undefined) return null;
+
+  if (first.length > 40) return null;
+  if (first.includes('@')) return null;
+  if (!/\p{L}/u.test(first)) return null;
+
+  return first;
+}
+
 /** Drop rows the prospect left blank rather than printing empty labels. */
 function rows(entries: Array<[label: string, value: string | null | undefined, mono?: boolean]>): Row[] {
   return entries
@@ -98,16 +136,39 @@ export function pilotRequestDoc(request: PilotRequest): EmailDoc {
     ['Engineering employees', request.engineeringEmployees],
   ]);
 
+  // Primary challenge leaves the row list and becomes the section's highlight:
+  // it is the reason the prospect made contact, not another attribute of them.
   const environment = rows([
     ['Major vendors', request.majorVendors],
     ['Renewal timing', request.renewalTiming],
-    ['Primary challenge', request.primaryChallenge],
   ]);
+  const challenge =
+    request.primaryChallenge === null || request.primaryChallenge === undefined || request.primaryChallenge === ''
+      ? undefined
+      : { label: 'Primary challenge', value: request.primaryChallenge };
+
+  /**
+   * The decision strip. Values are the prospect's own, verbatim — a shortened
+   * "Over-licensed" would read better in three columns but it would be our
+   * words attributed to them, and every other number in this product carries
+   * its provenance.
+   */
+  const summary = [
+    { label: 'Renewal', value: request.renewalTiming },
+    { label: 'Software spend', value: request.softwareSpendRange },
+    { label: 'Primary concern', value: request.primaryChallenge },
+  ].filter((item): item is { label: string; value: string } => {
+    return item.value !== null && item.value !== undefined && item.value !== '';
+  });
 
   const blocks: Block[] = [
+    ...(summary.length === 0 ? [] : [{ kind: 'summary' as const, items: summary }]),
     ...section('Contact', contact),
     ...section('Organization', organization),
-    ...section('Software environment', environment),
+    // The section survives on the highlight alone if both rows are blank.
+    ...(environment.length === 0 && challenge === undefined
+      ? []
+      : [{ kind: 'sections' as const, label: 'Software environment', rows: environment, highlight: challenge }]),
   ];
 
   if (request.message !== null && request.message !== '') {
@@ -119,9 +180,11 @@ export function pilotRequestDoc(request: PilotRequest): EmailDoc {
   // than a broken one — and the message still carries the address as text in
   // the Contact section either way.
   if (request.workEmail) {
+    const firstName = contactFirstName(request.name);
     blocks.push({
       kind: 'cta',
-      label: 'Reply to prospect',
+      // Presentation only. The address below is unchanged either way.
+      label: firstName === null ? 'Reply to prospect' : `Reply to ${firstName}`,
       href: `mailto:${request.workEmail}?subject=${encodeURIComponent(
         `EngiSignal — your pilot enquiry (${request.company})`,
       )}`,
