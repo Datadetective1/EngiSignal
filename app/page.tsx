@@ -294,7 +294,7 @@ export default function LandingPage() {
               </div>
 
               <Reveal delay={100}>
-                <PilotForm supportEmail={brand.contact.pilot} />
+                <PilotForm pilotEmail={brand.contact.pilot} />
               </Reveal>
             </div>
           </div>
@@ -380,17 +380,23 @@ function SiteFooter() {
               <p className="mb-2.5 text-[11px] font-medium uppercase tracking-[0.11em] text-fg-subtle">
                 Contact
               </p>
+              {/* Labelled, because an unlabelled list of addresses makes the
+                  reader guess which one answers their question — and a
+                  misrouted security report is the expensive guess. */}
               <ul className="space-y-2 text-[13px]">
-                <li>
-                  <a href={`mailto:${brand.contact.pilot}`} className="text-fg-muted hover:text-fg">
-                    {brand.contact.pilot}
-                  </a>
-                </li>
-                <li>
-                  <a href={`mailto:${brand.contact.support}`} className="text-fg-muted hover:text-fg">
-                    {brand.contact.support}
-                  </a>
-                </li>
+                {[
+                  { label: 'General', address: brand.contact.general },
+                  { label: 'Pilot', address: brand.contact.pilot },
+                  { label: 'Support', address: brand.contact.support },
+                  { label: 'Security', address: brand.contact.security },
+                ].map(({ label, address }) => (
+                  <li key={label} className="flex gap-2">
+                    <span className="w-[52px] shrink-0 text-fg-subtle">{label}</span>
+                    <a href={`mailto:${address}`} className="text-fg-muted hover:text-fg">
+                      {address}
+                    </a>
+                  </li>
+                ))}
               </ul>
             </div>
           </nav>

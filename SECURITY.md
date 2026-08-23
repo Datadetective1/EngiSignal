@@ -230,4 +230,10 @@ Honest inventory of what is **not** implemented:
 
 ## 11. Reporting a vulnerability
 
-Email the address in `config/brand.ts` (`brand.contact.support`). Please do not open a public issue for a security report.
+Email **security@engisignal.com** (`brand.contact.security`, defined in `config/email.ts`). The same address is published at [`/.well-known/security.txt`](public/.well-known/security.txt) per RFC 9116.
+
+Please do not open a public issue for a security report.
+
+Security questionnaires and vendor-assessment requests go to the same address.
+
+> `security@` is a Cloudflare Email Routing **forwarding alias**, not an independent mailbox or an automated triage system. Reports reach a person; they do not raise a ticket. The `Expires` field in `security.txt` needs renewing annually — it is set to 2027-08-23.

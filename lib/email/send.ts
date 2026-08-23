@@ -12,9 +12,22 @@ import 'server-only';
  * The configuration is deliberately the SAME pair of variables the pilot
  * notifier already uses. That is not laziness about naming: those variables are
  * the ones set in production against a Resend account with a verified sender
- * domain. Introducing ENGISIGNAL_INVITE_FROM would have produced a build where
- * invitations silently skipped — the one failure mode this file is shaped to
- * make impossible to miss — until somebody noticed and set it.
+ * domain. Introducing ENGISIGNAL_INVITE_FROM as a *requirement* would have
+ * produced a build where invitations silently skipped — the one failure mode
+ * this file is shaped to make impossible to miss — until somebody noticed and
+ * set it.
+ *
+ * ENGISIGNAL_INVITE_FROM now exists, but only as an override that falls back to
+ * PILOT_NOTIFY_FROM. That keeps the original guarantee — an unset variable can
+ * never cause a skip — while letting an invitation be sent as
+ * notifications@engisignal.com rather than as the pilot alias, which is what
+ * the sender policy in config/email.ts asks for. An invitee has nothing to do
+ * with the pilot programme, and mail from pilot@ inviting them to a workspace
+ * reads as a mistake.
+ *
+ * Both addresses must be on a domain verified with the provider. They are both
+ * @engisignal.com, so a domain-level verification covers each of them; a
+ * single-address verification would not.
  *
  * PILOT_NOTIFY_TO stays out of here. It addresses the operator mailbox, and an
  * invitation goes to the invitee. Reusing it would have mailed every invitation
@@ -47,7 +60,10 @@ const DETAIL_LIMIT = 300;
 
 function readConfig(): MailerConfig | null {
   const apiKey = process.env.PILOT_NOTIFY_RESEND_API_KEY;
-  const from = process.env.PILOT_NOTIFY_FROM;
+  // Override first, then the variable production already has set. Never a
+  // hard-coded default: an address the provider has not verified fails every
+  // send, and failing closed is better than failing at the provider.
+  const from = process.env.ENGISIGNAL_INVITE_FROM?.trim() || process.env.PILOT_NOTIFY_FROM;
   if (!apiKey || !from) return null;
   return { apiKey, from };
 }

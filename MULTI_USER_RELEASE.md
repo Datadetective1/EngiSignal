@@ -680,9 +680,17 @@ Nothing is blocked. These are yours to make.
    tidier. I did not change it because auth templates are account configuration
    rather than code, and a bad edit there breaks signup for everybody.
 
-2. **A dedicated sender for invitations.** Currently `pilot@engisignal.com`.
-   If you want `invites@engisignal.com`, verify it in Resend and I will add the
-   env var.
+2. ~~**A dedicated sender for invitations.**~~ **Done — the variable exists.**
+   The canonical alias turned out to be `notifications@engisignal.com` rather
+   than `invites@`, once Cloudflare Email Routing was configured (see
+   `config/email.ts`). Set `ENGISIGNAL_INVITE_FROM=EngiSignal
+   <notifications@engisignal.com>` in Vercel to switch invitations onto it.
+
+   Unset, invitations continue to send as `PILOT_NOTIFY_FROM` exactly as they do
+   today — the fallback exists so the variable can never turn a working
+   invitation into a silently skipped one. Setting it requires `engisignal.com`
+   to be **domain**-verified in Resend rather than a single address; send one
+   test invitation after flipping it.
 
 3. **The workspace switcher.** Worth building if you expect anyone to belong to
    two workspaces — a consultant, or you yourself across Meridian and a customer.

@@ -93,6 +93,27 @@ NEXT_PUBLIC_PILOT_EMAIL=pilot@your-domain.com
 NEXT_PUBLIC_LEGAL_ENTITY_NAME=<registered entity>
 ```
 
+#### Company email aliases
+
+Ten aliases run on `engisignal.com`, defined in [`config/email.ts`](config/email.ts):
+
+| Alias | For | Surfaced at |
+|---|---|---|
+| `hello@` | General company and contact enquiries | Site footer — General |
+| `pilot@` | Pilot applications and pilot communication | Site footer, pilot form confirmation, `PILOT_NOTIFY_TO` |
+| `support@` | Product and customer support | Site footer — Support |
+| `security@` | Security reports and questionnaires | Site footer, `SECURITY.md`, `/.well-known/security.txt` |
+| `billing@` | Billing, subscriptions, invoices | Config only — no surface yet |
+| `privacy@` | Privacy and data-rights requests | Config only — no privacy policy page yet |
+| `legal@` | Contracts, terms, legal notices | Config only — no terms page yet |
+| `partners@` | Partnerships, vendors, integrations | Config only — no surface yet |
+| `notifications@` | System-generated sender identity | `ENGISIGNAL_INVITE_FROM` |
+| `admin@` | Internal infrastructure and administration | Never customer-facing |
+
+All ten are **Cloudflare Email Routing forwarding aliases**, not independent mailboxes, and all forward to one private operational mailbox. That destination must never appear in the UI, in application mail, in documentation intended for customers, in metadata, or on a social profile — and it is not stored anywhere in this repository. The Cloudflare catch-all is disabled, so an alias that is not in `config/email.ts` and in Cloudflare does not receive mail.
+
+Only `NEXT_PUBLIC_SUPPORT_EMAIL` and `NEXT_PUBLIC_PILOT_EMAIL` are overridable, because they predate the alias set. The other eight are constants in `config/email.ts`; adding environment variables for them would be configuration for its own sake.
+
 There is deliberately no service-role key in that list, and there still is not one. Every database call the application makes on behalf of a customer runs as the signed-in user, so Row Level Security is what enforces tenant isolation. Do not add `SUPABASE_SERVICE_ROLE_KEY` to the deployment: no code path reads it, and a key that bypasses RLS only widens the blast radius if the environment leaks.
 
 #### The ingestion worker

@@ -1,0 +1,12 @@
+# EngiSignal security contact (RFC 9116)
+#
+# security@engisignal.com is a forwarding alias monitored by the operator, not
+# an automated triage system. Expect a human reply rather than a ticket number.
+#
+# Please do not open a public issue for a security report.
+
+Contact: mailto:security@engisignal.com
+Expires: 2027-08-23T00:00:00.000Z
+Preferred-Languages: en
+Canonical: https://www.engisignal.com/.well-known/security.txt
+Policy: https://www.engisignal.com/

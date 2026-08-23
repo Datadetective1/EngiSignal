@@ -1,4 +1,5 @@
 import { resolveSiteUrl } from './site-url';
+import { emailAliases } from './email';
 
 /**
  * Single source of brand truth for EngiSignal.
@@ -44,10 +45,17 @@ export const brand = {
   heroHeadline: 'Engineering software. Clear signals. Better decisions.',
   heroSupport: 'Know what you use, what you need, and what to renew.',
 
-  contact: {
-    support: envOr(process.env.NEXT_PUBLIC_SUPPORT_EMAIL, 'support@engisignal.com'),
-    pilot: envOr(process.env.NEXT_PUBLIC_PILOT_EMAIL, 'pilot@engisignal.com'),
-  },
+  /**
+   * Company contact addresses.
+   *
+   * The alias set lives in `config/email.ts`, which owns what each address
+   * means and which of them may be shown to a customer. This is a re-export so
+   * that `brand.contact.support` and `brand.contact.pilot` keep working for
+   * everything that already reads them, and so that a component reaching for
+   * `security` or `privacy` finds it in the same place rather than hard-coding
+   * a new address.
+   */
+  contact: emailAliases,
 
   /**
    * Canonical site URL, used for absolute metadata URLs.

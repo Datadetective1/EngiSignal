@@ -10,7 +10,7 @@ import {
 } from '@/lib/pilot-schema';
 import { cn } from '@/lib/utils';
 
-export function PilotForm({ supportEmail }: { supportEmail: string }) {
+export function PilotForm({ pilotEmail }: { pilotEmail: string }) {
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent'>('idle');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -54,8 +54,8 @@ export function PilotForm({ supportEmail }: { supportEmail: string }) {
         <p className="mx-auto mt-2 max-w-md text-[13.5px] leading-relaxed text-fg-muted">
           We will be in touch to scope a 30-day pilot against your own usage and contract data. If you would
           like to add anything in the meantime, reply to us at{' '}
-          <a href={`mailto:${supportEmail}`} className="text-accent underline underline-offset-2">
-            {supportEmail}
+          <a href={`mailto:${pilotEmail}`} className="text-accent underline underline-offset-2">
+            {pilotEmail}
           </a>
           .
         </p>
