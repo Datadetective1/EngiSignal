@@ -29,6 +29,10 @@ const notifyPilotRequest = vi.fn(
 );
 const recordNotificationOutcome = vi.fn(async (_id: string, _result: NotifyResult) => undefined);
 
+const acknowledgePilotRequest = vi.fn(
+  async (_request: unknown): Promise<NotifyResult> => ({ outcome: 'sent', detail: null }),
+);
+
 vi.mock('@/lib/data', () => ({
   getDataProvider: () => ({ createPilotRequest }),
 }));
@@ -39,6 +43,10 @@ vi.mock('@/lib/pilot/notify', () => ({
 
 vi.mock('@/lib/pilot/record-outcome', () => ({
   recordNotificationOutcome,
+}));
+
+vi.mock('@/lib/pilot/acknowledge', () => ({
+  acknowledgePilotRequest,
 }));
 
 const VALID = {
@@ -72,7 +80,9 @@ beforeEach(() => {
   createPilotRequest.mockClear();
   notifyPilotRequest.mockClear();
   recordNotificationOutcome.mockClear();
+  acknowledgePilotRequest.mockClear();
   notifyPilotRequest.mockResolvedValue({ outcome: 'sent', detail: null });
+  acknowledgePilotRequest.mockResolvedValue({ outcome: 'sent', detail: null });
   vi.resetModules();
 });
 
@@ -154,5 +164,89 @@ describe('what is refused', () => {
 
     expect(response.status).toBe(500);
     expect(notifyPilotRequest).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * ── TWO EMAILS, ONE ENQUIRY ─────────────────────────────────────────────────
+ *
+ * One submission produces exactly one operator alert and exactly one prospect
+ * acknowledgement. The counts matter more than they look: a prospect who
+ * receives the same confirmation twice reads it as a system that lost track of
+ * them, which is the opposite of what the email exists to say.
+ */
+describe('acknowledging the prospect', () => {
+  it('sends exactly one acknowledgement for one stored request', async () => {
+    await submit(VALID);
+
+    expect(createPilotRequest).toHaveBeenCalledTimes(1);
+    expect(notifyPilotRequest).toHaveBeenCalledTimes(1);
+    expect(acknowledgePilotRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('acknowledges the request that was stored, not the raw submission', async () => {
+    await submit(VALID);
+    const [acknowledged] = acknowledgePilotRequest.mock.calls[0] as [Record<string, unknown>];
+    // The stored record, so the acknowledgement reflects what was persisted
+    // rather than what arrived on the wire.
+    expect(acknowledged.id).toBe('req-1');
+    expect(acknowledged.workEmail).toBe('dana@example-aero.com');
+  });
+
+  it('never acknowledges a request that was not stored', async () => {
+    createPilotRequest.mockRejectedValueOnce(new Error('permission denied'));
+    const response = await submit(VALID);
+
+    expect(response.status).toBe(500);
+    expect(acknowledgePilotRequest).not.toHaveBeenCalled();
+  });
+
+  it('still answers 200 when the acknowledgement fails', async () => {
+    acknowledgePilotRequest.mockResolvedValueOnce({ outcome: 'failed', detail: 'HTTP 422' });
+    const response = await submit(VALID);
+
+    // The request is stored. Telling the prospect otherwise because we could
+    // not send them a receipt would be a lie about the thing they care about.
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ ok: true });
+  });
+
+  it('still answers 200 when the acknowledgement throws outright', async () => {
+    acknowledgePilotRequest.mockRejectedValueOnce(new Error('boom'));
+    const response = await submit(VALID);
+
+    expect(response.status).toBe(200);
+  });
+
+  it('does not let an acknowledgement failure suppress the operator alert', async () => {
+    acknowledgePilotRequest.mockRejectedValueOnce(new Error('boom'));
+    await submit(VALID);
+
+    // The lead is the thing that must survive. It is announced before the
+    // acknowledgement is attempted, and stays announced if that fails.
+    expect(notifyPilotRequest).toHaveBeenCalledTimes(1);
+    expect(recordNotificationOutcome).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let an operator alert failure suppress the acknowledgement', async () => {
+    notifyPilotRequest.mockResolvedValueOnce({ outcome: 'failed', detail: 'HTTP 422' });
+    await submit(VALID);
+
+    expect(acknowledgePilotRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends one acknowledgement per submission and no more under repeat traffic', async () => {
+    for (let i = 0; i < 4; i += 1) await submit(VALID);
+
+    expect(createPilotRequest).toHaveBeenCalledTimes(4);
+    expect(acknowledgePilotRequest).toHaveBeenCalledTimes(4);
+  });
+
+  it('acknowledges nothing when the submission was rejected as invalid', async () => {
+    const response = await submit({ ...VALID, workEmail: 'not-an-address' });
+
+    expect(response.status).toBe(400);
+    expect(createPilotRequest).not.toHaveBeenCalled();
+    expect(acknowledgePilotRequest).not.toHaveBeenCalled();
   });
 });

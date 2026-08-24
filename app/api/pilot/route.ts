@@ -3,6 +3,7 @@ import { getDataProvider } from '@/lib/data';
 import { pilotRequestSchema } from '@/lib/pilot-schema';
 import { notifyPilotRequest } from '@/lib/pilot/notify';
 import { recordNotificationOutcome } from '@/lib/pilot/record-outcome';
+import { acknowledgePilotRequest } from '@/lib/pilot/acknowledge';
 
 export const runtime = 'nodejs';
 
@@ -95,6 +96,29 @@ export async function POST(request: Request) {
     if (notified.outcome === 'failed') {
       console.error(
         `Pilot request ${created.id} stored but the notification failed: ${notified.detail ?? 'no detail'}`,
+      );
+    }
+
+    // ── AND TELLING THE PROSPECT ─────────────────────────────────────────
+    //
+    // Added after the operator alert, not woven into it: the alert is a
+    // verified path and this must not be able to change its behaviour. Sent
+    // once per stored request, from the one place a request can be stored, so
+    // there is no path that produces two acknowledgements for one enquiry.
+    //
+    // Guarded twice over. `acknowledgePilotRequest` never throws, and the
+    // catch here means that even if that ever stopped being true, a failure
+    // could not reach the outer catch and answer 500 — which would tell
+    // somebody their request was lost while it sat safely in the database.
+    const acknowledged = await acknowledgePilotRequest(created).catch(() => ({
+      outcome: 'failed' as const,
+      detail: 'acknowledgement threw',
+    }));
+
+    if (acknowledged.outcome === 'failed') {
+      // The id, never the address. This log is not a place for customer data.
+      console.error(
+        `Pilot request ${created.id} stored but the acknowledgement failed: ${acknowledged.detail ?? 'no detail'}`,
       );
     }
 

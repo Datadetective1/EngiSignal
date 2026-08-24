@@ -18,6 +18,71 @@ brand change keeps all four in step.
 
 ---
 
+## Do this first: custom SMTP
+
+**This matters more than the templates.** Two things are true of Supabase's
+built-in mailer, and both are recorded in the code itself
+(`app/signin/actions.ts`, above `requestPasswordResetAction`):
+
+- it is **rate limited**, and not intended for production volume — the exact
+  failure the resend-confirmation flow was built to survive, *"a pilot cohort
+  that signs up together and meets the hourly email limit"*;
+- it sends from **Supabase's domain**, not yours. A customer signing up gets a
+  Supabase-branded email, then later an `engisignal.com` one. Restyling the body
+  does not fix a sender that says somebody else.
+
+`engisignal.com` is already domain-verified with Resend — confirmed by the DKIM
+key at `resend._domainkey.engisignal.com` — so Resend will accept **any** address
+on the domain as a sender, `notifications@` included.
+
+### Supabase dashboard steps
+
+1. Dashboard → your EngiSignal project → **Project Settings** → **Authentication**
+   (or **Authentication** → **Emails** → **SMTP Settings**).
+2. Turn on **Enable Custom SMTP**.
+3. Fill in exactly:
+
+| Field | Value |
+|---|---|
+| Sender email | `notifications@engisignal.com` |
+| Sender name | `EngiSignal` |
+| Host | `smtp.resend.com` |
+| Port | `465` |
+| Username | `resend` — the literal word, not an email address |
+| Password | your Resend API key |
+
+**On the password:** it is your existing Resend API key — the same value already
+in `PILOT_NOTIFY_RESEND_API_KEY`. Copy it from the Resend dashboard or from
+Vercel yourself. Do not paste it into this repository, into a chat, or into any
+file. Nothing here needs to see it.
+
+**On the port:** 465 is SMTPS with implicit TLS. If your network blocks it, 587
+also works and upgrades via STARTTLS. Resend supports 465/2465 (implicit) and
+25/587/2587 (STARTTLS).
+
+4. Save, then go to **Authentication** → **Rate Limits** and raise **Rate limit
+   for sending emails** — the built-in default is set for the built-in mailer and
+   is far below what Resend will accept.
+5. Test with a throwaway signup. The confirmation should arrive **from
+   `notifications@engisignal.com`**.
+
+### Will `notifications@` actually work?
+
+Yes, on both directions, and it is worth being explicit about why:
+
+- **Outbound** — Resend verifies at the *domain* level, so any mailbox on
+  `engisignal.com` is a permitted sender. The DKIM signature is the domain's.
+- **Inbound** — `notifications@` is one of the ten Cloudflare Email Routing
+  aliases, so a customer who hits reply reaches the operational mailbox rather
+  than a black hole. This is the reason it was created as a real alias.
+
+One limitation to accept: **Supabase templates have no `Reply-To` field.** Replies
+to auth email will land on `notifications@`. That is fine — it forwards — but it
+is why the emails this codebase sends set `Reply-To` explicitly and these two
+cannot.
+
+---
+
 ## Read this before pasting
 
 **The templates were not edited from code, and the link expression is not
